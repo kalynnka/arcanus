@@ -832,7 +832,7 @@ class AsyncSession(SqlalchemyAsyncSession):
         expressions: Iterable[_ColumnExpressionArgument[bool]] | None = None,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
         **filters,
-    ):
+    ) -> _T:
         return await util.greenlet_spawn(
             self.sync_session.one,
             entity,
@@ -849,8 +849,8 @@ class AsyncSession(SqlalchemyAsyncSession):
         expressions: Iterable[_ColumnExpressionArgument[bool]] | None = None,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
         **filters,
-    ):
-        return await util.greenlet_spawn(
+    ) -> Optional[_T]:
+        r = await util.greenlet_spawn(
             self.sync_session.one_or_none,
             entity,
             options,
@@ -858,6 +858,7 @@ class AsyncSession(SqlalchemyAsyncSession):
             execution_options,
             **filters,
         )
+        return r
 
     async def first(
         self,
@@ -867,7 +868,7 @@ class AsyncSession(SqlalchemyAsyncSession):
         expressions: Iterable[_ColumnExpressionArgument[bool]] | None = None,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
         **filters,
-    ):
+    ) -> Optional[_T]:
         return await util.greenlet_spawn(
             self.sync_session.first,
             entity,
@@ -900,7 +901,7 @@ class AsyncSession(SqlalchemyAsyncSession):
         expressions: Iterable[_ColumnExpressionArgument[bool]] | None = None,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
         **filters,
-    ):
+    ) -> int:
         return await util.greenlet_spawn(
             self.sync_session.count,
             entity,
@@ -919,7 +920,7 @@ class AsyncSession(SqlalchemyAsyncSession):
         expressions: Iterable[_ColumnExpressionArgument[bool]] | None = None,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
         **filters,
-    ):
+    ) -> Sequence[_T]:
         return await util.greenlet_spawn(
             self.sync_session.list,
             entity,

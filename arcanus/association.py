@@ -119,15 +119,10 @@ class Association(Generic[A]):
             return instance
 
         return core_schema.with_default_schema(
-            core_schema.chain_schema(
-                [
-                    core_schema.with_info_wrap_validator_function(
-                        validate,
-                        cls.__get_pydantic_generic_schema__(generic_type, handler),
-                        field_name=handler.field_name,
-                    ),
-                    core_schema.is_instance_schema(cls),
-                ],
+            core_schema.with_info_wrap_validator_function(
+                validate,
+                cls.__get_pydantic_generic_schema__(generic_type, handler),
+                field_name=handler.field_name,
             ),
             default_factory=cls,
             serialization=cls.__get_pydantic_serialize_schema__(generic_type, handler),

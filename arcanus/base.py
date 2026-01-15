@@ -311,6 +311,7 @@ class TransmuterMetaclass(ModelMetaclass):
             if not info.frozen:
                 info = shallow_copy(info)
                 info.default = None
+                info.default_factory = None
                 field_definitions[field_name] = (Optional[info.annotation], info)
 
         self.__transmuter_update_model__ = create_model(
