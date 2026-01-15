@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "arcanus"
-version = "0.1.0"
-description = "Glue to bind pydantic schemas with various datasources"
+version = "0.0.2"
+description = "Sticker to bind pydantic schemas with various datasources"
 authors = [
     {name = "arcanus", email = "arcanus@example.com"},
 ]
@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Database",
 ]
-keywords = ["pydantic", "database", "schema", "orm", "datasource"]
+keywords = ["pydantic", "database", "schema", "orm", "datasource", "sqlmodel", "sqlalchemy"]
 dependencies = [
     "sqlalchemy>=2.0.0",
     "pydantic>=2.11.7",
