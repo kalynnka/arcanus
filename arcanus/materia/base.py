@@ -18,7 +18,7 @@ from pydantic_core import core_schema
 
 if TYPE_CHECKING:
     from arcanus.association import Association
-    from arcanus.base import BaseTransmuter, TransmuterMetaclass
+    from arcanus.base import BaseTransmuter, TransmuterMetaclass, TransmuterProxied
 
 M = TypeVar("M", bound=Any)
 A = TypeVar("A", bound="Association")
@@ -99,7 +99,9 @@ class BaseMateria:
         token = self.active_tokens.pop()
         active_materia.reset(token)
 
-    def __getitem__(self, transmuter: TransmuterMetaclass) -> type[Any] | None:
+    def __getitem__(
+        self, transmuter: TransmuterMetaclass
+    ) -> type[TransmuterProxied] | None:
         return self.formulars.get(transmuter)
 
     def __contains__(self, transmuter: TransmuterMetaclass) -> bool:
@@ -107,6 +109,11 @@ class BaseMateria:
 
     def bless(self, materia: Any):
         def decorator(transmuter_cls: TM) -> TM:
+            # Check if materia implements TransmuterProxied by verifying required attributes
+            if not hasattr(materia, "transmuter_proxy"):
+                raise TypeError(
+                    f"{self.__class__.__name__} require materia must implement TransmuterProxied."
+                )
             self.formulars[transmuter_cls] = materia
             return transmuter_cls
 

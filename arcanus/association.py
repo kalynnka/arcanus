@@ -13,10 +13,12 @@ from typing import (
     Literal,
     Optional,
     ParamSpec,
+    Self,
     SupportsIndex,
     Type,
     TypeVar,
     Union,
+    final,
     get_args,
     get_origin,
     overload,
@@ -39,6 +41,14 @@ Optional_T = TypeVar("Optional_T", bound="BaseTransmuter | Optional[BaseTransmut
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+
+@final
+class DefferedAssociation:
+    """A type used as a sentinel for already loaded association values, for deffering the blessing"""
+
+    def __copy__(self) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
 
 
 def is_association(t: type) -> bool:
@@ -107,7 +117,9 @@ class Association(Generic[A]):
 
             materia = active_materia.get()
             value = materia.association_before_validator(cls, value, info)
-            if isinstance(value, cls):
+            if value is DefferedAssociation:
+                instance = cls()
+            elif isinstance(value, cls):
                 instance = value
                 instance.__payloads__ = handler(instance.__payloads__)
             else:
@@ -226,8 +238,8 @@ class Relation(Association[Optional_T]):
     def __get_pydantic_serialize_schema__(
         cls, generic_type: type[Optional_T], handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
-        def serialize(value: Relation[Optional_T], serializer) -> Any:
-            return serializer(value.__payloads__)
+        def serialize(association: Relation[Optional_T], serializer) -> Any:
+            return serializer(association.value)
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,
@@ -346,8 +358,8 @@ class RelationCollection(list[T], Association[T]):
     def __get_pydantic_serialize_schema__(
         cls, generic_type: Type[T], handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
-        def serialize(value: RelationCollection[T], serializer) -> Any:
-            return serializer(value)
+        def serialize(association: RelationCollection[T], serializer) -> Any:
+            return serializer(association.copy())
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,
