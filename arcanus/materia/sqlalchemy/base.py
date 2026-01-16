@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import ValidationInfo
 from sqlalchemy import inspect
 from sqlalchemy.exc import InvalidRequestError, MissingGreenlet
-from sqlalchemy.orm import InstanceState, LoaderCallableStatus
+from sqlalchemy.orm import InstanceState
 from sqlalchemy.util import greenlet_spawn
 
 from arcanus.association import Association
@@ -63,16 +63,20 @@ class SqlalchemyMateria(BaseMateria):
         data = {}
         for field_name, field_info in transmuter_type.model_fields.items():
             used_name = field_info.alias or field_name
-            loaded_value = inspector.attrs[used_name].loaded_value
-
-            if field_name in transmuter_type.model_associations:
-                if loaded_value is not LoaderCallableStatus.NO_VALUE:
-                    data[used_name] = field_info.get_default(call_default_factory=True)
-            else:
-                if loaded_value is LoaderCallableStatus.NO_VALUE:
+            if used_name in inspector.dict:
+                if field_name in transmuter_type.model_associations:
                     data[used_name] = field_info.get_default(call_default_factory=True)
                 else:
-                    data[used_name] = loaded_value
+                    data[used_name] = inspector.dict[used_name]
+
+            # if field_name in transmuter_type.model_associations:
+            #     if loaded_value is not LoaderCallableStatus.NO_VALUE:
+            #         data[used_name] = field_info.get_default(call_default_factory=True)
+            # else:
+            #     if loaded_value is LoaderCallableStatus.NO_VALUE:
+            #         data[used_name] = field_info.get_default(call_default_factory=True)
+            #     else:
+            #         data[used_name] = loaded_value
 
             # if loaded_value is LoaderCallableStatus.NO_VALUE:
             #     data[used_name] = field_info.get_default(call_default_factory=True)
