@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import ValidationInfo
 from sqlalchemy import inspect
 from sqlalchemy.exc import InvalidRequestError, MissingGreenlet
+from sqlalchemy.orm import InstanceState, LoaderCallableStatus
 from sqlalchemy.util import greenlet_spawn
 
 from arcanus.association import Association
@@ -52,7 +53,7 @@ class SqlalchemyMateria(BaseMateria):
         # with from_attributes=True which will skip the instance __init__.
         loaded = LoadedData()
 
-        # inspector: InstanceState = inspect(materia)
+        inspector: InstanceState = inspect(materia)
 
         # Get all loaded attributes from sqlalchemy orm instance
         # relationships/associations are excluded here to:
@@ -61,14 +62,22 @@ class SqlalchemyMateria(BaseMateria):
         # related objects will be load and validated when they are visited
         data = {}
         for field_name, field_info in transmuter_type.model_fields.items():
-            if field_name in transmuter_type.model_associations:
-                continue
             used_name = field_info.alias or field_name
+            loaded_value = inspector.attrs[used_name].loaded_value
 
-            # TODO: support defferred columns?
-            # if used_name in inspector.attrs:
-            #     data[used_name] = inspector.attrs[used_name].loaded_value
-            data[used_name] = getattr(materia, used_name)
+            if field_name in transmuter_type.model_associations:
+                if loaded_value is not LoaderCallableStatus.NO_VALUE:
+                    data[used_name] = field_info.get_default(call_default_factory=True)
+            else:
+                if loaded_value is LoaderCallableStatus.NO_VALUE:
+                    data[used_name] = field_info.get_default(call_default_factory=True)
+                else:
+                    data[used_name] = loaded_value
+
+            # if loaded_value is LoaderCallableStatus.NO_VALUE:
+            #     data[used_name] = field_info.get_default(call_default_factory=True)
+            # else:
+            #     data[used_name] = loaded_value
 
         loaded.__dict__ = data
 

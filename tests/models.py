@@ -103,7 +103,9 @@ class Book(Base):
         ForeignKey("publisher.id", ondelete="CASCADE"),
         nullable=False,
     )
-    publisher: Mapped[Publisher] = relationship(back_populates="books", uselist=False)
+    publisher: Mapped[Publisher] = relationship(
+        back_populates="books", uselist=False, lazy="joined"
+    )
 
     # Optional 1-1 relationship with Translator (for translated books)
     translator_id: Mapped[int | None] = mapped_column(

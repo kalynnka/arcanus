@@ -226,8 +226,8 @@ class Relation(Association[Optional_T]):
     def __get_pydantic_serialize_schema__(
         cls, generic_type: type[Optional_T], handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
-        def serialize(value: Relation[Optional_T], serializer) -> Any:
-            return serializer(value.__payloads__)
+        def serialize(association: Relation[Optional_T], serializer) -> Any:
+            return serializer(association.value)
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,
@@ -346,8 +346,8 @@ class RelationCollection(list[T], Association[T]):
     def __get_pydantic_serialize_schema__(
         cls, generic_type: Type[T], handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
-        def serialize(value: RelationCollection[T], serializer) -> Any:
-            return serializer(value)
+        def serialize(association: RelationCollection[T], serializer) -> Any:
+            return serializer(association.copy())
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,

@@ -404,12 +404,18 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
 
             instance = cached or data.transmuter_proxy
             if instance is None or instance.__transmuter_revalidating__:
-                instance = handler(materia.transmuter_before_validator(cls, data, info))
+                loaded = materia.transmuter_before_validator(cls, data, info)
+                instance = handler(loaded)
                 object.__setattr__(instance, "__transmuter_provided__", data)
                 object.__setattr__(instance, "__transmuter_revalidating__", False)
                 data.transmuter_proxy = instance
                 # instance._prepare_associations()
                 instance = materia.transmuter_after_validator(instance, info)
+
+                for name in cls.model_associations.keys() & instance.model_fields_set:
+                    association = getattr(instance, name)
+                    if isinstance(association, Association):
+                        association.prepare(instance, name)
 
             if not cached:
                 context[data] = instance
