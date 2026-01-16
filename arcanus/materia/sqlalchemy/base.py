@@ -26,7 +26,7 @@ class SqlalchemyMateria(BaseMateria):
             # Check if materia implements TransmuterProxied by verifying required attributes
             if not hasattr(materia, "transmuter_proxy"):
                 raise TypeError(
-                    "SQLAlchemyMateria require materia must implement TransmuterProxied."
+                    f"{self.__class__.__name__} require materia must implement TransmuterProxied."
                 )
             self.formulars[transmuter_cls] = materia
 
