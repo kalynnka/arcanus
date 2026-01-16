@@ -404,6 +404,8 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
 
             if not cached:
                 context[data] = instance
+
+            return instance
         else:
             # Normal validation
             instance = handler(data)
