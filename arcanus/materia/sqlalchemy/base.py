@@ -8,7 +8,7 @@ from sqlalchemy.exc import InvalidRequestError, MissingGreenlet
 from sqlalchemy.orm import InstanceState
 from sqlalchemy.util import greenlet_spawn
 
-from arcanus.association import Association
+from arcanus.association import Association, DefferedAssociation
 from arcanus.base import BaseTransmuter
 from arcanus.materia.base import TM, BaseMateria
 
@@ -65,7 +65,7 @@ class SqlalchemyMateria(BaseMateria):
             used_name = field_info.alias or field_name
             if used_name in inspector.dict:
                 if field_name in transmuter_type.model_associations:
-                    data[used_name] = field_info.get_default(call_default_factory=True)
+                    data[used_name] = DefferedAssociation
                 else:
                     data[used_name] = inspector.dict[used_name]
 
