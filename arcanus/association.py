@@ -134,7 +134,6 @@ class Association(Generic[A]):
             core_schema.with_info_wrap_validator_function(
                 validate,
                 cls.__get_pydantic_generic_schema__(generic_type, handler),
-                field_name=handler.field_name,
             ),
             default_factory=cls,
             serialization=cls.__get_pydantic_serialize_schema__(generic_type, handler),
