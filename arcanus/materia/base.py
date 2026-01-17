@@ -54,7 +54,7 @@ class BidirectonDict(dict, Generic[K, V]):
 
 
 class BaseMateria:
-    formulars: BidirectonDict[TransmuterMetaclass, type[Any]]
+    formulars: BidirectonDict[TransmuterMetaclass, type[TransmuterProxied]]
     active_tokens: list[Token[BaseMateria]]
     validate: bool
 
