@@ -329,12 +329,6 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
     __transmuter_provided__: Optional[TransmuterProxied] = NoInitField(init=False)
     __transmuter_revalidating__: bool = NoInitField(init=False)
 
-    # def __getattribute__(self, name: str) -> Any:
-    #     value = super().__getattribute__(name)
-    #     if isinstance(value, Association):
-    #         value.prepare(self, name)
-    #     return value
-
     def __getattr__(self, name: str) -> Any:
         # only called when attribute not found in normal places
         try:
@@ -429,11 +423,7 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
 
         for name in cls.model_associations.keys():
             association: Association = object.__getattribute__(instance, name)
-            association.prepare(
-                instance,
-                name,
-                post=name in instance.model_fields_set,
-            )
+            association.prepare(instance, name, post=name in instance.model_fields_set)
 
         return instance
 
@@ -512,11 +502,7 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
 
         for name in cls.model_associations.keys():
             association: Association = object.__getattribute__(instance, name)
-            association.prepare(
-                instance,
-                name,
-                post=name in instance.model_fields_set,
-            )
+            association.prepare(instance, name, post=name in instance.model_fields_set)
 
         return instance  # pyright: ignore[reportReturnType]
 
