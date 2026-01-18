@@ -188,7 +188,7 @@ class Association(Generic[A]):
     def _aload(self):
         raise NotImplementedError()
 
-    def prepare(self, instance: BaseTransmuter, field_name: str):
+    def prepare(self, instance: BaseTransmuter, field_name: str, post: bool = False):
         if self.__instance__ is not None:
             return
 
@@ -240,7 +240,12 @@ class Relation(Association[Optional_T]):
         cls, generic_type: type[Optional_T], handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
         def serialize(association: Relation[Optional_T], serializer) -> Any:
-            return serializer(association.value)
+            if (
+                association.__instance__
+                and association.field_name in association.__instance__.model_fields_set
+            ):
+                return serializer(association.value)
+            return serializer(association.__payloads__)
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,
@@ -262,13 +267,15 @@ class Relation(Association[Optional_T]):
             return  # No provider, skip syncing
         setattr(self.__instance_provider__, self.used_name, object)
 
-    def prepare(self, instance: BaseTransmuter, field_name: str):
+    def prepare(self, instance: BaseTransmuter, field_name: str, post: bool = False):
         super().prepare(instance, field_name)
         if (
-            self.__instance_provider__
+            post
+            and self.__instance_provider__
             and not self.__loaded__
             and self.__payloads__ is not None
         ):
+            self._load()
             self.__provided__ = self.__payloads__.__transmuter_provided__
 
     @staticmethod
@@ -360,7 +367,12 @@ class RelationCollection(list[T], Association[T]):
         cls, generic_type: Type[T], handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
         def serialize(association: RelationCollection[T], serializer) -> Any:
-            return serializer(association.copy())
+            if (
+                association.__instance__
+                and association.field_name in association.__instance__.model_fields_set
+            ):
+                return serializer(association.copy())
+            return serializer(list.copy(association))
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,
@@ -410,9 +422,9 @@ class RelationCollection(list[T], Association[T]):
             else:
                 return self.__construct__(value)
 
-    def prepare(self, instance: BaseTransmuter, field_name: str):
+    def prepare(self, instance: BaseTransmuter, field_name: str, post: bool = False):
         super().prepare(instance, field_name)
-        if self.__payloads__:
+        if post and self.__payloads__:
             # manualy enforce loading first to remove duplicates in payloads
             # objects already assigned to the relationship may be add to payloads during revalidation
             self._load()
