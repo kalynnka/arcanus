@@ -125,7 +125,7 @@ class Association(Generic[A]):
             else:
                 instance = cls(handler(value))
             # instance.__generic__ = generic_type
-            # instance.field_name = info.field_name  # pyright: ignore[reportAttributeAccessIssue]
+            # instance.field_name = info.field_name
             # instance = materia.association_after_validator(instance, info)
 
             return instance

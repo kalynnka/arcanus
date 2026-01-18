@@ -329,11 +329,11 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
     __transmuter_provided__: Optional[TransmuterProxied] = NoInitField(init=False)
     __transmuter_revalidating__: bool = NoInitField(init=False)
 
-    # def __getattribute__(self, name: str) -> Any:
-    #     value = super().__getattribute__(name)
-    #     if isinstance(value, Association):
-    #         value.prepare(self, name)
-    #     return value
+    def __getattribute__(self, name: str) -> Any:
+        value = super().__getattribute__(name)
+        if isinstance(value, Association):
+            value.prepare(self, name)
+        return value
 
     def __getattr__(self, name: str) -> Any:
         # only called when attribute not found in normal places
@@ -385,50 +385,49 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
             instance = handler(data)
             object.__setattr__(instance, "__transmuter_provided__", None)
             object.__setattr__(instance, "__transmuter_revalidating__", False)
+            return instance
+
+        provider = materia[cls]
+        # Handle provider with matching data type
+        if provider is not None and isinstance(data, provider):
+            context = validated.get()
+            cached = context.get(data)
+
+            instance = cached or data.transmuter_proxy
+            if instance is None or instance.__transmuter_revalidating__:
+                loaded = materia.transmuter_before_validator(cls, data, info)
+                instance = handler(loaded)
+                object.__setattr__(instance, "__transmuter_provided__", data)
+                object.__setattr__(instance, "__transmuter_revalidating__", False)
+                data.transmuter_proxy = instance
+                instance = materia.transmuter_after_validator(instance, info)
+
+            if not cached:
+                context[data] = instance
 
         else:
-            provider = materia[cls]
-            # Handle provider with matching data type
-            if provider is not None and isinstance(data, provider):
-                context = validated.get()
-                cached = context.get(data)
-
-                instance = cached or data.transmuter_proxy
-                if instance is None or instance.__transmuter_revalidating__:
-                    loaded = materia.transmuter_before_validator(cls, data, info)
-                    instance = handler(loaded)
-                    object.__setattr__(instance, "__transmuter_provided__", data)
-                    object.__setattr__(instance, "__transmuter_revalidating__", False)
-                    data.transmuter_proxy = instance
-                    instance = materia.transmuter_after_validator(instance, info)
-
-                if not cached:
-                    context[data] = instance
-
+            # Normal validation
+            instance = handler(data)
+            if provider is not None:
+                model_fields = cls.model_fields
+                included = instance.model_dump(
+                    exclude=set(cls.model_associations.keys()),
+                    by_alias=True,
+                )
+                excluded = {
+                    model_fields[name].alias or name: getattr(instance, name)
+                    for name in cls.model_fields.keys() - cls.model_associations.keys()
+                    if model_fields[name].exclude
+                }
+                provided = provider(**included, **excluded)
+                provided.transmuter_proxy = instance
+                object.__setattr__(instance, "__transmuter_provided__", provided)
+                object.__setattr__(instance, "__transmuter_revalidating__", False)
             else:
-                # Normal validation
-                instance = handler(data)
-                if provider is not None:
-                    model_fields = cls.model_fields
-                    included = instance.model_dump(
-                        exclude=set(cls.model_associations.keys()),
-                        by_alias=True,
-                    )
-                    excluded = {
-                        model_fields[name].alias or name: getattr(instance, name)
-                        for name in cls.model_fields.keys()
-                        - cls.model_associations.keys()
-                        if model_fields[name].exclude
-                    }
-                    provided = provider(**included, **excluded)
-                    provided.transmuter_proxy = instance
-                    object.__setattr__(instance, "__transmuter_provided__", provided)
-                    object.__setattr__(instance, "__transmuter_revalidating__", False)
-                else:
-                    object.__setattr__(instance, "__transmuter_provided__", None)
-                    object.__setattr__(instance, "__transmuter_revalidating__", False)
+                object.__setattr__(instance, "__transmuter_provided__", None)
+                object.__setattr__(instance, "__transmuter_revalidating__", False)
 
-        for name in cls.model_associations.keys():
+        for name in cls.model_associations.keys() & instance.model_fields_set:
             association = object.__getattribute__(instance, name)
             if isinstance(association, Association):
                 association.prepare(instance, name)
