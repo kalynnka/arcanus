@@ -328,12 +328,13 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
 
     __transmuter_provided__: Optional[TransmuterProxied] = NoInitField(init=False)
     __transmuter_revalidating__: bool = NoInitField(init=False)
+    __association_handers__: dict[str, Any] = NoInitField(init=False)
 
     def __getattribute__(self, name: str) -> Any:
-        value = super().__getattribute__(name)
-        if isinstance(value, Association):
-            value.prepare(self, name)
-        return value
+        handlers = object.__getattribute__(self, "__association_handers__")
+        if handlers and name in handlers:
+            return handlers[name](name)
+        return super().__getattribute__(name)
 
     def __getattr__(self, name: str) -> Any:
         # only called when attribute not found in normal places
@@ -369,6 +370,12 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
         )
         return copied
 
+    def _association_handler(self, name: str):
+        association: Association = object.__getattribute__(self, name)
+        association.prepare(self, name)
+        del object.__getattribute__(self, "__association_handers__")[name]
+        return association
+
     @model_validator(mode="wrap")
     @classmethod
     def model_formulate(
@@ -385,6 +392,12 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
             instance = handler(data)
             object.__setattr__(instance, "__transmuter_provided__", None)
             object.__setattr__(instance, "__transmuter_revalidating__", False)
+
+            instance.__association_handers__ = {
+                name: instance._association_handler
+                for name in cls.model_associations.keys()
+            }
+
             return instance
 
         provider = materia[cls]
@@ -427,9 +440,14 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
                 object.__setattr__(instance, "__transmuter_provided__", None)
                 object.__setattr__(instance, "__transmuter_revalidating__", False)
 
-        for name in cls.model_associations.keys() & instance.model_fields_set:
-            association: Association = object.__getattribute__(instance, name)
-            association.prepare(instance, name)
+        handlers = {}
+        for name in cls.model_associations.keys():
+            if name in instance.model_fields_set:
+                association: Association = object.__getattribute__(instance, name)
+                association.prepare(instance, name)
+            else:
+                handlers[name] = instance._association_handler
+        instance.__association_handers__ = handlers
 
         return instance
 
@@ -502,9 +520,14 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
                 object.__setattr__(instance, "__transmuter_provided__", None)
                 object.__setattr__(instance, "__transmuter_revalidating__", False)
 
-        for name in cls.model_associations.keys() & instance.model_fields_set:
-            association: Association = object.__getattribute__(instance, name)
-            association.prepare(instance, name)
+        handlers = {}
+        for name in cls.model_associations.keys():
+            if name in instance.model_fields_set:
+                association: Association = object.__getattribute__(instance, name)
+                association.prepare(instance, name)
+            else:
+                handlers[name] = instance._association_handler
+        instance.__association_handers__ = handlers
 
         return instance  # pyright: ignore[reportReturnType]
 
