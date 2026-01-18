@@ -428,9 +428,8 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
                 object.__setattr__(instance, "__transmuter_revalidating__", False)
 
         for name in cls.model_associations.keys() & instance.model_fields_set:
-            association = object.__getattribute__(instance, name)
-            if isinstance(association, Association):
-                association.prepare(instance, name)
+            association: Association = object.__getattribute__(instance, name)
+            association.prepare(instance, name)
 
         return instance
 
@@ -504,9 +503,8 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
                 object.__setattr__(instance, "__transmuter_revalidating__", False)
 
         for name in cls.model_associations.keys() & instance.model_fields_set:
-            association = object.__getattribute__(instance, name)
-            if isinstance(association, Association):
-                association.prepare(instance, name)
+            association: Association = object.__getattribute__(instance, name)
+            association.prepare(instance, name)
 
         return instance  # pyright: ignore[reportReturnType]
 

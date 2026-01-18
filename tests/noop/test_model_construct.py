@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from arcanus.association import RelationCollection
 from tests.transmuters import Author, Book, Publisher
 
 """Test model_construct with NoOpMateria.
@@ -111,7 +112,7 @@ class TestModelConstructWithAssociations:
                 "id": 1,
                 "name": "Test Author",
                 "field": "Physics",
-                "books": [],  # Association field
+                "books": RelationCollection(),  # Association field
             }
         )
 
