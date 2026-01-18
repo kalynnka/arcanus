@@ -110,23 +110,25 @@ class Association(Generic[A]):
             handler: core_schema.ValidatorFunctionWrapHandler,
             info: core_schema.ValidationInfo,
         ) -> Association[A]:
-            if not info.field_name:
-                raise ValueError(
-                    f"The association type {source_type} must be used as a model field."
-                )
+            # if not info.field_name:
+            #     raise ValueError(
+            #         f"The association type {source_type} must be used as a model field."
+            #     )
 
-            materia = active_materia.get()
-            value = materia.association_before_validator(cls, value, info)
+            # materia = active_materia.get()
+            # value = materia.association_before_validator(cls, value, info)
+
             if value is DefferedAssociation:
                 instance = cls()
-            elif isinstance(value, cls):
+            elif type(value) is cls:
                 instance = value
                 instance.__payloads__ = handler(instance.__payloads__)
             else:
                 instance = cls(handler(value))
-            instance.__generic__ = generic_type
-            instance.field_name = info.field_name
-            instance = materia.association_after_validator(instance, info)
+
+            # instance.__generic__ = generic_type
+            # instance.field_name = info.field_name
+            # instance = materia.association_after_validator(instance, info)
 
             return instance
 
@@ -238,7 +240,12 @@ class Relation(Association[Optional_T]):
         cls, generic_type: type[Optional_T], handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
         def serialize(association: Relation[Optional_T], serializer) -> Any:
-            return serializer(association.value)
+            if (
+                association.__instance__
+                and association.field_name in association.__instance__.model_fields_set
+            ):
+                return serializer(association.value)
+            return serializer(association.__payloads__)
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,
@@ -262,11 +269,8 @@ class Relation(Association[Optional_T]):
 
     def prepare(self, instance: BaseTransmuter, field_name: str):
         super().prepare(instance, field_name)
-        if (
-            self.__instance_provider__
-            and not self.__loaded__
-            and self.__payloads__ is not None
-        ):
+        if self.__payloads__ is not None:
+            self._load()
             self.__provided__ = self.__payloads__.__transmuter_provided__
 
     @staticmethod
@@ -358,7 +362,12 @@ class RelationCollection(list[T], Association[T]):
         cls, generic_type: Type[T], handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
         def serialize(association: RelationCollection[T], serializer) -> Any:
-            return serializer(association.copy())
+            if (
+                association.__instance__
+                and association.field_name in association.__instance__.model_fields_set
+            ):
+                return serializer(association.copy())
+            return serializer(list.copy(association))
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,
