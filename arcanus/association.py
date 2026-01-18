@@ -188,7 +188,7 @@ class Association(Generic[A]):
     def _aload(self):
         raise NotImplementedError()
 
-    def prepare(self, instance: BaseTransmuter, field_name: str, post: bool = False):
+    def prepare(self, instance: BaseTransmuter, field_name: str):
         if self.__instance__ is not None:
             return
 
