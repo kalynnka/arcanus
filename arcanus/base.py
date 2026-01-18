@@ -331,7 +331,7 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
 
     def __getattribute__(self, name: str) -> Any:
         value = super().__getattribute__(name)
-        if isinstance(value, Association):
+        if type(value) is Association:
             value.prepare(self, name)
         return value
 
@@ -428,9 +428,8 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
                 object.__setattr__(instance, "__transmuter_revalidating__", False)
 
         for name in cls.model_associations.keys() & instance.model_fields_set:
-            association = object.__getattribute__(instance, name)
-            if isinstance(association, Association):
-                association.prepare(instance, name)
+            association: Association = object.__getattribute__(instance, name)
+            association.prepare(instance, name)
 
         return instance
 
@@ -442,7 +441,7 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
         data: Optional[object] = None,
         **values: Any,
     ) -> Self:
-        if isinstance(data, cls):
+        if type(data) is cls:
             return data
 
         # Get materia once to avoid repeated ContextVar lookups
@@ -504,9 +503,8 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
                 object.__setattr__(instance, "__transmuter_revalidating__", False)
 
         for name in cls.model_associations.keys() & instance.model_fields_set:
-            association = object.__getattribute__(instance, name)
-            if isinstance(association, Association):
-                association.prepare(instance, name)
+            association: Association = object.__getattribute__(instance, name)
+            association.prepare(instance, name)
 
         return instance  # pyright: ignore[reportReturnType]
 
