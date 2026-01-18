@@ -267,14 +267,9 @@ class Relation(Association[Optional_T]):
             return  # No provider, skip syncing
         setattr(self.__instance_provider__, self.used_name, object)
 
-    def prepare(self, instance: BaseTransmuter, field_name: str, post: bool = False):
+    def prepare(self, instance: BaseTransmuter, field_name: str):
         super().prepare(instance, field_name)
-        if (
-            post
-            and self.__instance_provider__
-            and not self.__loaded__
-            and self.__payloads__ is not None
-        ):
+        if self.__payloads__ is not None:
             self._load()
             self.__provided__ = self.__payloads__.__transmuter_provided__
 
@@ -422,9 +417,9 @@ class RelationCollection(list[T], Association[T]):
             else:
                 return self.__construct__(value)
 
-    def prepare(self, instance: BaseTransmuter, field_name: str, post: bool = False):
+    def prepare(self, instance: BaseTransmuter, field_name: str):
         super().prepare(instance, field_name)
-        if post and self.__payloads__:
+        if self.__payloads__:
             # manualy enforce loading first to remove duplicates in payloads
             # objects already assigned to the relationship may be add to payloads during revalidation
             self._load()

@@ -329,6 +329,12 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
     __transmuter_provided__: Optional[TransmuterProxied] = NoInitField(init=False)
     __transmuter_revalidating__: bool = NoInitField(init=False)
 
+    def __getattribute__(self, name: str) -> Any:
+        value = super().__getattribute__(name)
+        if isinstance(value, Association):
+            value.prepare(self, name)
+        return value
+
     def __getattr__(self, name: str) -> Any:
         # only called when attribute not found in normal places
         try:
@@ -374,14 +380,15 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
         # Get materia once to avoid repeated ContextVar lookups
         materia = active_materia.get()
 
-        # Handle NoOpMateria case - fast path using identity check
         if materia is _noop_materia:
+            # Handle NoOpMateria case - fast path using identity check
             instance = handler(data)
             object.__setattr__(instance, "__transmuter_provided__", None)
             object.__setattr__(instance, "__transmuter_revalidating__", False)
         else:
-            provider = materia[cls]
+            # from datasource
             # Handle provider with matching data type
+            provider = materia[cls]
             if provider is not None and isinstance(data, provider):
                 context = validated.get()
                 cached = context.get(data)
@@ -399,7 +406,7 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
                     context[data] = instance
 
             else:
-                # Normal validation
+                # Normal validation, usually when initializing from dict
                 instance = handler(data)
                 if provider is not None:
                     model_fields = cls.model_fields
@@ -421,9 +428,9 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
                     object.__setattr__(instance, "__transmuter_provided__", None)
                     object.__setattr__(instance, "__transmuter_revalidating__", False)
 
-        for name in cls.model_associations.keys():
+        for name in cls.model_associations.keys() & instance.model_fields_set:
             association: Association = object.__getattribute__(instance, name)
-            association.prepare(instance, name, post=name in instance.model_fields_set)
+            association.prepare(instance, name)
 
         return instance
 
@@ -441,8 +448,8 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
         # Get materia once to avoid repeated ContextVar lookups
         materia = active_materia.get()
 
-        # Handle NoOpMateria case
         if materia is _noop_materia:
+            # Handle NoOpMateria case
             inputs = data if isinstance(data, dict) else data.__dict__ if data else {}
             inputs.update(values)
 
@@ -451,6 +458,7 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
             object.__setattr__(instance, "__transmuter_revalidating__", False)
 
         else:
+            # from datasource
             # Handle provider with matching data type
             provider = materia[cls]
             if provider is not None and isinstance(data, provider):
@@ -473,7 +481,7 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
                     context[data] = instance
 
             else:
-                # Normal construction
+                # Normal construction, usually when initializing from dict
                 inputs = (
                     data if isinstance(data, dict) else data.__dict__ if data else {}
                 )
@@ -500,9 +508,9 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
                     object.__setattr__(instance, "__transmuter_provided__", None)
                     object.__setattr__(instance, "__transmuter_revalidating__", False)
 
-        for name in cls.model_associations.keys():
+        for name in cls.model_associations.keys() & instance.model_fields_set:
             association: Association = object.__getattribute__(instance, name)
-            association.prepare(instance, name, post=name in instance.model_fields_set)
+            association.prepare(instance, name)
 
         return instance  # pyright: ignore[reportReturnType]
 
