@@ -331,7 +331,7 @@ class BaseTransmuter(BaseModel, metaclass=TransmuterMetaclass):
 
     def __getattribute__(self, name: str) -> Any:
         value = super().__getattribute__(name)
-        if type(value) is Association:
+        if issubclass(type(value), Association):
             value.prepare(self, name)
         return value
 
