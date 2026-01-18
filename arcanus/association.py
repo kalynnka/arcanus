@@ -120,7 +120,7 @@ class Association(Generic[A]):
 
             if value is DefferedAssociation:
                 instance = cls()
-            elif isinstance(value, cls):
+            elif type(value) is cls:
                 instance = value
                 instance.__payloads__ = handler(instance.__payloads__)
             else:
