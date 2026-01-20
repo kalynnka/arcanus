@@ -126,8 +126,8 @@ class Association(Generic[A]):
             else:
                 instance = cls(handler(value))
 
-            # instance.__generic__ = generic_type
-            # instance.field_name = info.field_name
+            instance.__generic__ = generic_type
+            instance.field_name = info.field_name  # pyright: ignore[reportAttributeAccessIssue]
             # instance = materia.association_after_validator(instance, info)
 
             return instance
@@ -327,6 +327,9 @@ class Relation(Association[Optional_T]):
         self.__loaded__ = True
 
         return self.__payloads__
+
+    def __await__(self):
+        return self._aload().__await__()
 
     @property
     @ensure_loaded
