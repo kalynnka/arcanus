@@ -171,7 +171,7 @@ class Association(Generic[A]):
         self.__payloads__ = payloads
 
     def __await__(self):
-        return self._aload().__await__()
+        raise NotImplementedError("This association is not awaitable.")
 
     def __construct__(self, value: Any) -> Any:
         if issubclass(self.__generic__, BaseModel):
@@ -182,11 +182,15 @@ class Association(Generic[A]):
             )
         return value
 
-    def _load(self):
-        raise NotImplementedError()
+    def _load(self) -> Self:
+        raise NotImplementedError(
+            "This association does not support synchronous loading."
+        )
 
-    def _aload(self):
-        raise NotImplementedError()
+    def _aload(self) -> Self:
+        raise NotImplementedError(
+            "This association does not support asynchronous loading."
+        )
 
     def prepare(self, instance: BaseTransmuter, field_name: str):
         if self.__instance__ is not None:
@@ -501,6 +505,11 @@ class RelationCollection(list[T], Association[T]):
             super().clear()
             super().extend(self.bless(provided))
         self.__loaded__ = True
+
+        return self
+
+    def __await__(self):
+        return self._aload().__await__()
 
     @overload
     def __getitem__(self, index: SupportsIndex) -> T: ...
