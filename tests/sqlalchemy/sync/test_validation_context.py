@@ -36,8 +36,8 @@ class TestValidationContext:
             fetch2 = session.execute(stmt).scalars().one()
 
             # Should be the EXACT same Python object (identity)
-            assert fetch1 is fetch2
-            assert id(fetch1) == id(fetch2)
+            assert author is fetch1 is fetch2
+            assert id(author) == id(fetch1) == id(fetch2)
 
     def test_same_orm_different_sessions_different_transmuters(
         self, engine: Engine, test_id: UUID
