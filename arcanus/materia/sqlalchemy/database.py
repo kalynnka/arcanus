@@ -932,3 +932,44 @@ class AsyncSession(SqlalchemyAsyncSession):
             execution_options,
             **filters,
         )
+
+    async def partitions(
+        self,
+        entity: type[_T],
+        limit: int | None = 100,
+        offset: int | None = None,
+        size: int | None = 10,
+        order_bys: Iterable[_ColumnExpressionOrStrLabelArgument[Any]] | None = None,
+        options: Iterable[ExecutableOption] | None = None,
+        expressions: Iterable[_ColumnExpressionArgument[bool]] | None = None,
+        execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
+        **filters,
+    ):
+        statement = select(entity)
+
+        if limit:
+            statement = statement.limit(limit)
+        if offset:
+            statement = statement.offset(offset)
+        if order_bys:
+            statement = statement.order_by(*order_bys)
+        if options:
+            statement = statement.options(*options)
+        if expressions:
+            statement = statement.where(*expressions)
+        if execution_options:
+            statement = statement.execution_options(**execution_options)
+        if filters:
+            statement = statement.filter_by(**filters)
+
+        async for partition in (
+            (
+                await self.stream(
+                    statement,
+                    execution_options=dict(yield_per=size),
+                )
+            )
+            .scalars()
+            .partitions(size)
+        ):
+            yield partition
