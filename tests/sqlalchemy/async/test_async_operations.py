@@ -677,6 +677,215 @@ class TestAsyncSessionHelpers:
                 < names.index("Z Async List")
             )
 
+    @pytest.mark.asyncio
+    async def test_async_partitions_basic(self, async_engine: AsyncEngine):
+        """Test partitions returns entities in batches."""
+        async with AsyncSession(async_engine) as session:
+            authors = [
+                Author(name=f"Async Partition Test {i}", field="Physics")
+                for i in range(25)
+            ]
+            session.add_all(authors)
+            await session.flush()
+            for a in authors:
+                a.revalidate()
+
+            all_results = []
+            partition_count = 0
+            async for partition in session.partitions(
+                Author,
+                limit=25,
+                size=10,
+                expressions=[Author["name"].startswith("Async Partition Test")],
+            ):
+                assert len(partition) <= 10
+                all_results.extend(partition)
+                partition_count += 1
+
+            # Should have 3 partitions (10 + 10 + 5)
+            assert partition_count == 3
+            assert len(all_results) == 25
+
+    @pytest.mark.asyncio
+    async def test_async_partitions_with_ordering(self, async_engine: AsyncEngine):
+        """Test partitions respects order_by."""
+        async with AsyncSession(async_engine) as session:
+            authors = [
+                Author(name=f"Async Partition Order {i:02d}", field="Biology")
+                for i in range(15)
+            ]
+            session.add_all(authors)
+            await session.flush()
+
+            all_names = []
+            async for partition in session.partitions(
+                Author,
+                limit=15,
+                size=5,
+                order_bys=[Author["name"]],
+                expressions=[Author["name"].startswith("Async Partition Order")],
+            ):
+                for author in partition:
+                    all_names.append(author.name)
+
+            # Verify ordering is maintained across partitions
+            assert all_names == sorted(all_names)
+
+    @pytest.mark.asyncio
+    async def test_async_partitions_with_limit(self, async_engine: AsyncEngine):
+        """Test partitions respects limit."""
+        async with AsyncSession(async_engine) as session:
+            authors = [
+                Author(name=f"Async Partition Limit {i}", field="Chemistry")
+                for i in range(20)
+            ]
+            session.add_all(authors)
+            await session.flush()
+
+            all_results = []
+            async for partition in session.partitions(
+                Author,
+                limit=12,
+                size=5,
+                expressions=[Author["name"].startswith("Async Partition Limit")],
+            ):
+                all_results.extend(partition)
+
+            # Should only get 12 results due to limit
+            assert len(all_results) == 12
+
+    @pytest.mark.asyncio
+    async def test_async_partitions_with_offset(self, async_engine: AsyncEngine):
+        """Test partitions respects offset."""
+        async with AsyncSession(async_engine) as session:
+            authors = [
+                Author(name=f"Async Partition Offset {i:02d}", field="Literature")
+                for i in range(10)
+            ]
+            session.add_all(authors)
+            await session.flush()
+
+            all_results = []
+            async for partition in session.partitions(
+                Author,
+                limit=10,
+                offset=5,
+                size=3,
+                order_bys=[Author["name"]],
+                expressions=[Author["name"].startswith("Async Partition Offset")],
+            ):
+                all_results.extend(partition)
+
+            # Should skip first 5, get remaining 5
+            assert len(all_results) == 5
+
+    @pytest.mark.asyncio
+    async def test_async_partitions_with_options(self, async_engine: AsyncEngine):
+        """Test partitions respects options like selectinload."""
+        async with AsyncSession(async_engine) as session:
+            author = Author(name="Async Partition Options Author", field="History")
+            publisher = Publisher(name="Async Partition Options Pub", country="USA")
+
+            books = []
+            for i in range(6):
+                book = Book(title=f"Async Partition Opt Book {i}", year=2020 + i)
+                book.author.value = author
+                book.publisher.value = publisher
+                books.append(book)
+
+            session.add(author)
+            session.add(publisher)
+            await session.flush()
+            author.revalidate()
+            for b in books:
+                b.revalidate()
+
+            session.expunge_all()
+
+            all_results = []
+            async for partition in session.partitions(
+                Book,
+                limit=6,
+                size=2,
+                options=[selectinload(models.Book.author)],
+                expressions=[Book["title"].startswith("Async Partition Opt Book")],
+            ):
+                for book in partition:
+                    # Author should be loaded without additional query
+                    assert book.author.value.name == "Async Partition Options Author"
+                all_results.extend(partition)
+
+            assert len(all_results) == 6
+
+    @pytest.mark.asyncio
+    async def test_async_partitions_with_expressions(self, async_engine: AsyncEngine):
+        """Test partitions respects filter expressions."""
+        async with AsyncSession(async_engine) as session:
+            authors = [
+                Author(name=f"Async Partition Expr {i}", field="Astronomy")
+                for i in range(10)
+            ]
+            # Add some authors with different field
+            other_authors = [
+                Author(name=f"Async Partition Other {i}", field="Robotics")
+                for i in range(5)
+            ]
+            session.add_all(authors + other_authors)
+            await session.flush()
+
+            all_results = []
+            async for partition in session.partitions(
+                Author,
+                limit=15,
+                size=4,
+                expressions=[Author["field"] == "Astronomy"],
+            ):
+                for author in partition:
+                    assert author.field == "Astronomy"
+                all_results.extend(partition)
+
+            assert len(all_results) == 10
+
+    @pytest.mark.asyncio
+    async def test_async_partitions_empty_result(self, async_engine: AsyncEngine):
+        """Test partitions with no matching results."""
+        async with AsyncSession(async_engine) as session:
+            partition_count = 0
+            async for partition in session.partitions(
+                Author,
+                limit=10,
+                size=5,
+                expressions=[Author["name"] == "NonexistentAuthorName12345"],
+            ):
+                partition_count += 1
+
+            assert partition_count == 0
+
+    @pytest.mark.asyncio
+    async def test_async_partitions_single_partition(self, async_engine: AsyncEngine):
+        """Test partitions when results fit in single partition."""
+        async with AsyncSession(async_engine) as session:
+            authors = [
+                Author(name=f"Async Single Partition {i}", field="Cybernetics")
+                for i in range(3)
+            ]
+            session.add_all(authors)
+            await session.flush()
+
+            all_results = []
+            partition_count = 0
+            async for partition in session.partitions(
+                Author,
+                limit=10,
+                size=10,
+                expressions=[Author["name"].startswith("Async Single Partition")],
+            ):
+                all_results.extend(partition)
+                partition_count += 1
+
+            assert partition_count == 1
+            assert len(all_results) == 3
+
 
 class TestAsyncLazyLoadingErrors:
     """Test proper error handling for lazy loading in async context."""
