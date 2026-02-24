@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from copy import copy as shallow_copy
 from typing import (
@@ -55,26 +56,28 @@ class BidirectonDict(dict, Generic[K, V]):
 
 class BaseMateria:
     formulars: BidirectonDict[TransmuterMetaclass, type[TransmuterProxied]]
-    active_tokens: list[Token[BaseMateria]]
     validate: bool
+    token: Optional[Token[BaseMateria]]
 
     def __init__(self, *, validate: bool = True) -> None:
         self.formulars = BidirectonDict()
-        self.active_tokens = []
         self.validate = validate
+        self.token = None
 
-    def __call__(self, *, validate: bool | None = None) -> Self:
-        """Create a shallow copy of the materia with overridden parameters.
+    @contextmanager
+    def __call__(self, *, validate: bool | None = None):
+        """Create a shallow copy of the materia with overridden parameters and
+        activate it as a context manager.
 
         The copy shares the validation context (formulars) with the original instance,
-        but has its own active_tokens and can have overridden settings.
+        but can have overridden settings.
 
         Args:
             validate: Override the validate flag for the copy. If None, uses the
                 original instance's validate setting.
 
-        Returns:
-            A shallow copy with overridden parameters.
+        Yields:
+            A shallow copy with overridden parameters, set as the active materia.
 
         Example:
             materia = SqlalchemyMateria()
@@ -83,21 +86,29 @@ class BaseMateria:
                 instance = MyModel.model_validate(orm_obj)
         """
         copied = shallow_copy(self)
-        copied.active_tokens = []
 
         if validate is not None:
             copied.validate = validate
 
-        return copied
+        copied.token = active_materia.set(copied)
+        try:
+            yield copied
+        finally:
+            active_materia.reset(copied.token)
 
     def __enter__(self) -> Self:
-        token = active_materia.set(self)
-        self.active_tokens.append(token)
+        if self.token is not None:
+            raise RuntimeError(
+                "This materia is already active. Use materia() to create "
+                "a nested context: `with materia(): ...`"
+            )
+        self.token = active_materia.set(self)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        token = self.active_tokens.pop()
-        active_materia.reset(token)
+        if self.token:
+            active_materia.reset(self.token)
+            self.token = None
 
     def __getitem__(
         self, transmuter: TransmuterMetaclass
