@@ -21,6 +21,7 @@ from typing import (
     final,
     get_args,
     get_origin,
+    get_type_hints,
     overload,
 )
 
@@ -203,9 +204,8 @@ class Association(Generic[A]):
 
         annotation = self.field_info.annotation
         if isinstance(annotation, ForwardRef):
-            actual_type = annotation.__forward_value__
-            if actual_type is None:
-                actual_type = annotation._evaluate(globals(), locals(), set())
+            resolved_hints = get_type_hints(type(instance))
+            actual_type = resolved_hints[field_name]
             self.__generic__ = get_args(actual_type)[0]
         else:
             self.__generic__ = get_args(annotation)[0]
