@@ -35,8 +35,6 @@ from sqlalchemy.engine.row import RowMapping
 from sqlalchemy.sql.base import _generative
 from sqlalchemy.util.concurrency import greenlet_spawn
 
-from arcanus.base import BaseTransmuter
-from arcanus.materia.base import active_materia
 from arcanus.utils import get_cached_adapter
 
 _T = TypeVar("_T", bound=Any)
@@ -98,39 +96,13 @@ class AdaptedResult(_WithKeys, AdaptedCommon[Row[_TP]]):
             else TypeAdapter(object)
         )
 
-    @cached_property
-    def validate(self) -> bool:
-        """Get validate flag from active materia context."""
-        return active_materia.get().validate
-
     def _adapt(self, row: Any) -> Any:
-        """Adapt a row of results based on the validate flag."""
-        if self.validate:
-            return self.adapter.validate_python(row)
-        else:
-            # Use model_construct for each entity in the row
-            if isinstance(row, tuple):
-                return tuple(
-                    entity.model_construct(data=item)
-                    if isinstance(entity, type) and issubclass(entity, BaseTransmuter)
-                    else item
-                    for entity, item in zip(self.entities, row)
-                )
-            return row
+        """Adapt a row using TypeAdapter validation."""
+        return self.adapter.validate_python(row)
 
     def _adapt_scalar(self, item: Any) -> Any:
-        """Adapt a scalar result based on the validate flag."""
-        if self.validate:
-            return self.scalar_adapter.validate_python(item)
-        else:
-            entity = self.entities[0] if self.entities else None
-            if (
-                entity
-                and isinstance(entity, type)
-                and issubclass(entity, BaseTransmuter)
-            ):
-                return entity.model_construct(data=item)
-            return item
+        """Adapt a scalar result using TypeAdapter validation."""
+        return self.scalar_adapter.validate_python(item)
 
     @property
     def t(self) -> Self:
@@ -336,24 +308,9 @@ class AdaptedScalarResult(ScalarResult[_R]):
             else TypeAdapter(object)
         )
 
-    @cached_property
-    def validate(self) -> bool:
-        """Get validate flag from active materia context."""
-        return active_materia.get().validate
-
     def _adapt_scalar(self, item: Any) -> Any:
-        """Adapt a scalar result based on the validate flag."""
-        if self.validate:
-            return self.scalar_adapter.validate_python(item)
-        else:
-            entity = self._entities[0] if self._entities else None
-            if (
-                entity
-                and isinstance(entity, type)
-                and issubclass(entity, BaseTransmuter)
-            ):
-                return entity.model_construct(data=item)
-            return item
+        """Adapt a scalar result using TypeAdapter validation."""
+        return self.scalar_adapter.validate_python(item)
 
     def unique(
         self,
@@ -455,24 +412,9 @@ class AdaptedFrozenResult(FrozenResult[_TP]):
             else TypeAdapter(object)
         )
 
-    @cached_property
-    def validate(self) -> bool:
-        """Get validate flag from active materia context."""
-        return active_materia.get().validate
-
     def _adapt_scalar(self, item: Any) -> Any:
-        """Adapt a scalar result based on the validate flag."""
-        if self.validate:
-            return self.scalar_adapter.validate_python(item)
-        else:
-            entity = self._entities[0] if self._entities else None
-            if (
-                entity
-                and isinstance(entity, type)
-                and issubclass(entity, BaseTransmuter)
-            ):
-                return entity.model_construct(data=item)
-            return item
+        """Adapt a scalar result using TypeAdapter validation."""
+        return self.scalar_adapter.validate_python(item)
 
     def rewrite_rows(self) -> Sequence[Sequence[Any]]:
         if self._source_supports_scalars:
@@ -535,25 +477,9 @@ class AdaptedMappingResult(_WithKeys, AdaptedCommon[RowMapping]):
             else TypeAdapter(object)
         )
 
-    @cached_property
-    def validate(self) -> bool:
-        """Get validate flag from active materia context."""
-        return active_materia.get().validate
-
     def _adapt(self, row: Any) -> Any:
-        """Adapt a row of results based on the validate flag."""
-        if self.validate:
-            return self.adapter.validate_python(row)
-        else:
-            # Use model_construct for each entity in the row
-            if isinstance(row, (tuple, list)):
-                return tuple(
-                    entity.model_construct(data=item)
-                    if isinstance(entity, type) and issubclass(entity, BaseTransmuter)
-                    else item
-                    for entity, item in zip(self._entities, row)
-                )
-            return row
+        """Adapt a row using TypeAdapter validation."""
+        return self.adapter.validate_python(row)
 
     @_generative
     def unique(self, strategy: Optional[_UniqueFilterType] = None) -> Self:
@@ -695,39 +621,13 @@ class AsyncAdaptedResult(_WithKeys, AsyncAdaptedCommon[Row[_TP]]):
             else TypeAdapter(object)
         )
 
-    @cached_property
-    def validate(self) -> bool:
-        """Get validate flag from active materia context."""
-        return active_materia.get().validate
-
     def _adapt(self, row: Any) -> Any:
-        """Adapt a row of results based on the validate flag."""
-        if self.validate:
-            return self.adapter.validate_python(row)
-        else:
-            # Use model_construct for each entity in the row
-            if isinstance(row, tuple):
-                return tuple(
-                    entity.model_construct(data=item)
-                    if isinstance(entity, type) and issubclass(entity, BaseTransmuter)
-                    else item
-                    for entity, item in zip(self.entities, row)
-                )
-            return row
+        """Adapt a row using TypeAdapter validation."""
+        return self.adapter.validate_python(row)
 
     def _adapt_scalar(self, item: Any) -> Any:
-        """Adapt a scalar result based on the validate flag."""
-        if self.validate:
-            return self.scalar_adapter.validate_python(item)
-        else:
-            entity = self.entities[0] if self.entities else None
-            if (
-                entity
-                and isinstance(entity, type)
-                and issubclass(entity, BaseTransmuter)
-            ):
-                return entity.model_construct(data=item)
-            return item
+        """Adapt a scalar result using TypeAdapter validation."""
+        return self.scalar_adapter.validate_python(item)
 
     @property
     def t(self) -> Self:
@@ -907,24 +807,9 @@ class AsyncAdaptedScalarResult(AsyncAdaptedCommon[_R]):
             else TypeAdapter(object)
         )
 
-    @cached_property
-    def validate(self) -> bool:
-        """Get validate flag from active materia context."""
-        return active_materia.get().validate
-
     def _adapt_scalar(self, item: Any) -> Any:
-        """Adapt a scalar result based on the validate flag."""
-        if self.validate:
-            return self.scalar_adapter.validate_python(item)
-        else:
-            entity = self._entities[0] if self._entities else None
-            if (
-                entity
-                and isinstance(entity, type)
-                and issubclass(entity, BaseTransmuter)
-            ):
-                return entity.model_construct(data=item)
-            return item
+        """Adapt a scalar result using TypeAdapter validation."""
+        return self.scalar_adapter.validate_python(item)
 
     def unique(
         self,
@@ -1013,25 +898,9 @@ class AsyncAdaptedMappingResult(_WithKeys, AsyncAdaptedCommon[RowMapping]):
         """Get the adapter for tuple results."""
         return get_cached_adapter(tuple[*self._entities])
 
-    @cached_property
-    def validate(self) -> bool:
-        """Get validate flag from active materia context."""
-        return active_materia.get().validate
-
     def _adapt(self, row: Any) -> Any:
-        """Adapt a row of results based on the validate flag."""
-        if self.validate:
-            return self.adapter.validate_python(row)
-        else:
-            # Use model_construct for each entity in the row
-            if isinstance(row, (tuple, list)):
-                return tuple(
-                    entity.model_construct(data=item)
-                    if isinstance(entity, type) and issubclass(entity, BaseTransmuter)
-                    else item
-                    for entity, item in zip(self._entities, row)
-                )
-            return row
+        """Adapt a row using TypeAdapter validation."""
+        return self.adapter.validate_python(row)
 
     @_generative
     def unique(self, strategy: Optional[_UniqueFilterType] = None) -> Self:

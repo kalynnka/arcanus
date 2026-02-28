@@ -4,15 +4,18 @@ from arcanus.association import (
     Relationship,
     Relationships,
 )
-from arcanus.base import BaseTransmuter, validation_context
-from arcanus.materia.base import NoOpMateria
+from arcanus.base import (
+    BaseTransmuter,
+    Transmuter,
+    TransmuterProtocol,
+)
 
 __all__ = [
     "BaseTransmuter",
+    "Transmuter",
+    "TransmuterProtocol",
     "Relation",
     "RelationCollection",
     "Relationship",
     "Relationships",
-    "NoOpMateria",
-    "validation_context",
 ]

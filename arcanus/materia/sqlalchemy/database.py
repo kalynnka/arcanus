@@ -53,6 +53,7 @@ from sqlalchemy.sql.selectable import ForUpdateArg, ForUpdateParameter, TypedRet
 
 from arcanus.base import (
     BaseTransmuter,
+    Transmuter,
     TransmuterProxied,
     ValidateContextGeneratorT,
     ValidationContextT,
@@ -65,7 +66,7 @@ from arcanus.materia.sqlalchemy.result import (
     AsyncAdaptedResult,
 )
 
-T = TypeVar("T", bound=BaseTransmuter)
+T = TypeVar("T", bound=Transmuter)
 
 
 def resolve_statement_entities(statement: Executable) -> list[type[Any]]:
@@ -79,7 +80,7 @@ def resolve_statement_entities(statement: Executable) -> list[type[Any]]:
                 if type is Bundle:
                     entities.append(tuple[*(e.type.python_type for e in expr.exprs)])
                 else:
-                    transmuter = BaseTransmuter.transmuter_formulars.reverse.get(type)
+                    transmuter = active_materia.get().formulars.reverse.get(type)
                     if transmuter:
                         entities.append(transmuter)
                     else:
@@ -91,7 +92,7 @@ def resolve_statement_entities(statement: Executable) -> list[type[Any]]:
     elif isinstance(statement, (Insert, Update, Delete)):
         if statement._returning:
             for item in statement._returning:
-                if transmuter := BaseTransmuter.transmuter_formulars.reverse.get(
+                if transmuter := active_materia.get().formulars.reverse.get(
                     item.entity_namespace
                 ):
                     entities.append(transmuter)
@@ -228,7 +229,7 @@ class Session(SqlalchemySession):
 
         entities = resolve_statement_entities(statement)
         if entities and any(
-            isinstance(e, type) and issubclass(e, BaseTransmuter) for e in entities
+            isinstance(e, type) and issubclass(e, Transmuter) for e in entities
         ):
             return AdaptedResult(
                 real_result=result,
@@ -312,7 +313,7 @@ class Session(SqlalchemySession):
         ).scalars()
 
     def expunge(self, instance: object) -> None:
-        if isinstance(instance, BaseTransmuter):
+        if isinstance(instance, Transmuter):
             if instance.__transmuter_provided__ in self._validation_context:
                 del self._validation_context[instance.__transmuter_provided__]
             super().expunge(instance.__transmuter_provided__)
@@ -324,7 +325,7 @@ class Session(SqlalchemySession):
         return super().expunge_all()
 
     def add(self, instance: object, _warn: bool = True) -> None:
-        if isinstance(instance, BaseTransmuter):
+        if isinstance(instance, Transmuter):
             self._validation_context[instance.__transmuter_provided__] = instance
             super().add(instance.__transmuter_provided__, _warn=_warn)
         else:
@@ -351,7 +352,7 @@ class Session(SqlalchemySession):
         attribute_names: Iterable[str] | None = None,
         with_for_update: ForUpdateArg | None | bool | dict[str, Any] = None,
     ) -> None:
-        if isinstance(instance, BaseTransmuter):
+        if isinstance(instance, Transmuter):
             if instance.__transmuter_provided__ not in self._validation_context:
                 self._validation_context[instance.__transmuter_provided__] = instance
             super().refresh(instance, attribute_names, with_for_update)
@@ -370,7 +371,7 @@ class Session(SqlalchemySession):
         load: bool = True,
         options: Sequence[ORMOption] | None = None,
     ) -> T:
-        if isinstance(instance, BaseTransmuter):
+        if isinstance(instance, Transmuter):
             if self._warn_on_events:
                 self._flush_warning("Session.merge()")
 
@@ -393,10 +394,7 @@ class Session(SqlalchemySession):
                     _recursive=_recursive,
                     _resolve_conflict_map=_resolve_conflict_map,
                 )
-                if active_materia.get().validate:
-                    instance = type(instance).model_validate(merged)
-                else:
-                    instance = type(instance).model_construct(data=merged)
+                instance = type(instance).model_validate(merged)
                 instance.revalidate()
                 return instance
             finally:
@@ -450,7 +448,7 @@ class Session(SqlalchemySession):
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
         bind_arguments: Optional[_BindArguments] = None,
     ) -> Optional[T] | Optional[_O]:
-        if isinstance(entity, type) and issubclass(entity, BaseTransmuter):
+        if isinstance(entity, type) and issubclass(entity, Transmuter):
             instance = super().get(
                 # sqlalchemy materia requires transumter to have a provider blessed
                 entity.__transmuter_provider__,  # pyright: ignore[reportArgumentType]
@@ -464,10 +462,7 @@ class Session(SqlalchemySession):
             )
             if not instance:
                 return None
-            if active_materia.get().validate:
-                return entity.model_validate(instance)
-            else:
-                return entity.model_construct(data=instance)
+            return entity.model_validate(instance)
         else:
             instance = super().get(
                 entity,
@@ -479,7 +474,7 @@ class Session(SqlalchemySession):
                 execution_options=execution_options,
                 bind_arguments=bind_arguments,
             )
-            if isinstance(instance, BaseTransmuter):
+            if isinstance(instance, Transmuter):
                 return instance.__transmuter_provided__  # pyright: ignore[reportReturnType]
             return instance
 

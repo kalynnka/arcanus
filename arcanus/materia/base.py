@@ -11,7 +11,6 @@ from typing import (
     Optional,
     Self,
     TypeVar,
-    Union,
 )
 
 from pydantic import ValidationInfo
@@ -19,12 +18,14 @@ from pydantic_core import core_schema
 
 if TYPE_CHECKING:
     from arcanus.association import Association
-    from arcanus.base import BaseTransmuter, TransmuterMetaclass, TransmuterProxied
+    from arcanus.base import (
+        Transmuter,
+        TransmuterProxied,
+    )
 
 M = TypeVar("M", bound=Any)
 A = TypeVar("A", bound="Association")
-T = TypeVar("T", bound="BaseTransmuter")
-TM = TypeVar("TM", bound=Union["TransmuterMetaclass", type["BaseTransmuter"]])
+T = TypeVar("T", bound="Transmuter")
 
 K = TypeVar("K")
 V = TypeVar("V")
@@ -55,40 +56,28 @@ class BidirectonDict(dict, Generic[K, V]):
 
 
 class BaseMateria:
-    formulars: BidirectonDict[TransmuterMetaclass, type[TransmuterProxied]]
-    validate: bool
+    formulars: BidirectonDict[type[Transmuter], type[TransmuterProxied]]
     token: Optional[Token[BaseMateria]]
 
-    def __init__(self, *, validate: bool = True) -> None:
+    def __init__(self) -> None:
         self.formulars = BidirectonDict()
-        self.validate = validate
         self.token = None
 
     @contextmanager
-    def __call__(self, *, validate: bool | None = None):
-        """Create a shallow copy of the materia with overridden parameters and
-        activate it as a context manager.
+    def __call__(self):
+        """Create a shallow copy of the materia and activate it as a context manager.
 
-        The copy shares the validation context (formulars) with the original instance,
-        but can have overridden settings.
-
-        Args:
-            validate: Override the validate flag for the copy. If None, uses the
-                original instance's validate setting.
+        The copy shares the validation context (formulars) with the original instance.
 
         Yields:
-            A shallow copy with overridden parameters, set as the active materia.
+            A shallow copy set as the active materia.
 
         Example:
             materia = SqlalchemyMateria()
-            with materia(validate=False):
-                # Validation is disabled in this context
+            with materia():
                 instance = MyModel.model_validate(orm_obj)
         """
         copied = shallow_copy(self)
-
-        if validate is not None:
-            copied.validate = validate
 
         copied.token = active_materia.set(copied)
         try:
@@ -111,20 +100,21 @@ class BaseMateria:
             self.token = None
 
     def __getitem__(
-        self, transmuter: TransmuterMetaclass
+        self, transmuter: type[Transmuter]
     ) -> type[TransmuterProxied] | None:
         return self.formulars.get(transmuter)
 
-    def __contains__(self, transmuter: TransmuterMetaclass) -> bool:
+    def __contains__(self, transmuter: type[Transmuter]) -> bool:
         return transmuter in self.formulars
 
     def bless(self, materia: Any):
-        def decorator(transmuter_cls: TM) -> TM:
+        def decorator(transmuter_cls: type[T]) -> type[T]:
             # Check if materia implements TransmuterProxied by verifying required attributes
             if not hasattr(materia, "transmuter_proxy"):
                 raise TypeError(
                     f"{self.__class__.__name__} require materia must implement TransmuterProxied."
                 )
+
             self.formulars[transmuter_cls] = materia
             return transmuter_cls
 
@@ -190,8 +180,7 @@ class NoOpMateria(BaseMateria):
         return
 
     def bless(self):
-        def decorator(transmuter_cls: TM) -> TM:
-            # No operation performed, just return the class as is
+        def decorator(transmuter_cls: type[T]) -> type[T]:
             return transmuter_cls
 
         return decorator
