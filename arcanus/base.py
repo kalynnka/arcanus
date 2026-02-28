@@ -500,19 +500,16 @@ class TransmuterMetaclass(ModelMetaclass):
     ) -> BidirectonDict[type[Transmuter], type[TransmuterProxied]]:
         return self.__transmuter_materia__.formulars
 
-    def _get_config(self) -> ConfigDict:
-        """Get pydantic config, supporting both BaseModel and dataclass transmuters."""
-        if self.__transmuter_is_dataclass__:
-            cfg = getattr(self, "__pydantic_config__", None)
-            return ConfigDict(**cfg) if cfg else ConfigDict()
-        return self.model_config.copy()
-
     @property
     def Create(self) -> type[BaseModel]:
         if self.__transmuter_create_model__:
             return self.__transmuter_create_model__
 
-        config = self._get_config()
+        if self.__transmuter_is_dataclass__:
+            cfg = getattr(self, "__pydantic_config__", None)
+            config = ConfigDict(**cfg) if cfg else ConfigDict()
+        else:
+            config = self.model_config.copy()
 
         field_definitions = {}
         # TODO: include nested associations
@@ -538,7 +535,11 @@ class TransmuterMetaclass(ModelMetaclass):
         if self.__transmuter_update_model__:
             return self.__transmuter_update_model__
 
-        config = self._get_config()
+        if self.__transmuter_is_dataclass__:
+            cfg = getattr(self, "__pydantic_config__", None)
+            config = ConfigDict(**cfg) if cfg else ConfigDict()
+        else:
+            config = self.model_config.copy()
 
         field_definitions = {}
         # TODO: include nested associations
