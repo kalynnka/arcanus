@@ -1,21 +1,21 @@
 from arcanus.association import (
     Relation,
     RelationCollection,
+    RelationSet,
     Relationship,
     Relationships,
 )
 from arcanus.base import (
     BaseTransmuter,
     Transmuter,
-    TransmuterProtocol,
 )
 
 __all__ = [
     "BaseTransmuter",
     "Transmuter",
-    "TransmuterProtocol",
     "Relation",
     "RelationCollection",
+    "RelationSet",
     "Relationship",
     "Relationships",
 ]

@@ -50,7 +50,6 @@ class DefferedAssociation:
     """A type used as a sentinel for already loaded association values, for deffering the blessing"""
 
     def __copy__(self) -> Self: ...
-    def __deepcopy__(self, memo: Any) -> Self: ...
 
 
 def is_association(t: type) -> bool:
@@ -693,5 +692,386 @@ class RelationCollection(list[T], Association[T]):
         super().sort(key=key, reverse=reverse)
 
 
+# built-in types must be put at front to avoid pydantic convert it to built-in types
+class RelationSet(set[T], Association[T]):
+    # new items are held in __payloads__, loaded items are kept in the set itself
+    __payloads__: set[T]
+
+    @classmethod
+    def __get_pydantic_generic_schema__(
+        cls,
+        generic_type: Type[T],
+        handler: GetCoreSchemaHandler,
+    ) -> core_schema.CoreSchema:
+        return core_schema.set_schema(handler.generate_schema(generic_type))
+
+    @classmethod
+    def __get_pydantic_serialize_schema__(
+        cls, generic_type: Type[T], handler: GetCoreSchemaHandler
+    ) -> core_schema.SerSchema | None:
+        def serialize(association: RelationSet[T], serializer) -> Any:
+            fields_set = getattr(
+                association.__instance__, "__pydantic_fields_set__", None
+            )
+            if (
+                association.__instance__
+                and fields_set is not None
+                and association.field_name in fields_set
+            ):
+                return serializer(list(association.copy()))
+            return serializer(list(set.copy(association)))
+
+        return core_schema.wrap_serializer_function_ser_schema(
+            serialize,
+            schema=core_schema.list_schema(handler.generate_schema(generic_type)),
+            when_used="always",
+        )
+
+    def __init__(self, payloads: Iterable[T] | None = None):
+        super().__init__()
+        self.__instance__ = None
+        self.__loaded__ = False
+        self.__payloads__ = set(payloads) if payloads else set()
+
+    @property
+    def __provided__(self) -> Any | None:
+        # The return type should be a duck typed set-like object provided by the current materia provider.
+        # For example, with SQLAlchemyMateria and collection_class=set, it would be an InstrumentedSet.
+        if not self.__instance_provider__:
+            return None
+        return getattr(self.__instance_provider__, self.used_name)
+
+    @cached_property
+    def __set_validator__(self) -> TypeAdapter[set[T]]:
+        return get_cached_adapter(set[self.__generic__])
+
+    @overload
+    def bless(self, value: T) -> T: ...
+    @overload
+    def bless(self, value: Iterable[Any]) -> set[T]: ...
+    @overload
+    def bless(self, value: Any) -> T: ...
+    def bless(self, value: Any | Iterable[Any]) -> T | set[T]:
+        """Bless the value into the generic type."""
+        is_iterable = isinstance(value, Iterable) and not isinstance(
+            value, get_origin(self.__generic__) or self.__generic__
+        )
+
+        if is_iterable:
+            return self.__set_validator__.validate_python(value)
+        else:
+            return self.__validator__.validate_python(value)
+
+    def prepare(self, instance: Transmuter, field_name: str):
+        super().prepare(instance, field_name)
+        if self.__payloads__:
+            # manually enforce loading first to remove duplicates in payloads
+            # objects already assigned to the relationship may be added to payloads during revalidation
+            self._load()
+            self.update(self.__payloads__)
+            self.__payloads__.clear()
+
+    @staticmethod
+    def ensure_loaded(
+        func: Callable[Concatenate[RelationSet[T], P], R],
+    ) -> Callable[Concatenate[RelationSet[T], P], R]:
+        @wraps(func)
+        def wrapper(self: RelationSet[T], *args: P.args, **kwargs: P.kwargs) -> R:
+            self._load()
+            return func(self, *args, **kwargs)
+
+        return wrapper
+
+    def _load(self):
+        # maybe during deepcopy from field default
+        if not self.__instance__:
+            return self
+
+        # or the relationship is already loaded
+        if self.__loaded__:
+            return self
+
+        active_materia.get().load_association(self)
+
+        # A: No provided, None
+        # B: provided value is empty
+        if not self.__provided__:
+            return self
+
+        # Remove payloads that are already present in __provided__
+        provided_set = set(self.__provided__)
+        self.__payloads__ = {
+            payload
+            for payload in self.__payloads__
+            if payload.__transmuter_provided__ not in provided_set
+        }
+
+        if len(self.__provided__) != super().__len__():
+            # If the length of __provided__ is not equal to the length of self,
+            # it means some items were not blessed into transmuter objects.
+            super().clear()
+            super().update(self.bless(self.__provided__))
+        self.__loaded__ = True
+
+        return self
+
+    async def _aload(self):
+        # maybe during deepcopy from field default
+        if not self.__instance__:
+            return self
+
+        # or the relationship is already loaded
+        if self.__loaded__:
+            return self
+
+        # A: No provided, None
+        # B: provided value is empty
+        if not (provided := await active_materia.get().aload_association(self)):
+            return self
+
+        # Remove payloads that are already present in provided
+        provided_set = set(provided)
+        self.__payloads__ = {
+            payload
+            for payload in self.__payloads__
+            if payload.__transmuter_provided__ not in provided_set
+        }
+
+        if len(provided) != super().__len__():
+            # If the length of __provided__ is not equal to the length of self,
+            # it means some items were not blessed into transmuter objects.
+            super().clear()
+            super().update(self.bless(provided))
+        self.__loaded__ = True
+
+        return self
+
+    def __await__(self):
+        return self._aload().__await__()
+
+    @ensure_loaded
+    def __iter__(self):
+        return super().__iter__()
+
+    @ensure_loaded
+    def __len__(self):
+        return super().__len__()
+
+    @ensure_loaded
+    def __contains__(self, item: object) -> bool:
+        return super().__contains__(item)
+
+    @ensure_loaded
+    def __bool__(self):
+        return super().__len__() > 0
+
+    def __repr__(self):
+        return f"RelationSet[{self.__generic__.__name__}], instance={id(self.__instance__)}, size={super().__len__()}"
+
+    @ensure_loaded
+    def __str__(self):
+        return super().__str__()
+
+    @ensure_loaded
+    def add(self, item: T) -> None:
+        """Add an element. No effect if already present (identity-based)."""
+        item = self.bless(item)
+        if item in self:
+            return
+        if self.__provided__ is not None:
+            provided = (
+                item.__transmuter_provided__
+                if hasattr(item, "__transmuter_provided__")
+                else item
+            )
+            self.__provided__.add(provided)
+        super().add(item)
+
+    @ensure_loaded
+    def discard(self, item: T) -> None:
+        """Remove an element if present."""
+        if item not in self:
+            return
+        if self.__provided__ is not None and hasattr(item, "__transmuter_provided__"):
+            self.__provided__.discard(item.__transmuter_provided__)
+        super().discard(item)
+
+    @ensure_loaded
+    def remove(self, item: T) -> None:
+        """Remove an element. Raises KeyError if not present."""
+        if self.__provided__ is not None and hasattr(item, "__transmuter_provided__"):
+            self.__provided__.discard(item.__transmuter_provided__)
+        super().remove(item)
+
+    @ensure_loaded
+    def pop(self) -> T:
+        """Remove and return an arbitrary element. Raises KeyError if empty."""
+        item = super().pop()
+        if self.__provided__ is not None and hasattr(item, "__transmuter_provided__"):
+            self.__provided__.discard(item.__transmuter_provided__)
+        return item
+
+    @ensure_loaded
+    def update(self, *others: Iterable[T]) -> None:
+        """Add all elements from iterables."""
+        for other in others:
+            items = self.bless(other)
+            for item in items:
+                self.add(item)
+
+    @ensure_loaded
+    def clear(self) -> None:
+        """Remove all elements."""
+        if self.__provided__ is not None:
+            self.__provided__.clear()
+        super().clear()
+
+    @ensure_loaded
+    def intersection_update(self, *others: Iterable[T]) -> None:
+        """Keep only elements found in all others."""
+        keep = set.intersection(self, *others)
+        removed = set.difference(self, keep)
+        for item in removed:
+            self.discard(item)
+
+    @ensure_loaded
+    def difference_update(self, *others: Iterable[T]) -> None:
+        """Remove all elements found in others."""
+        to_remove = set.intersection(self, *others)
+        for item in to_remove:
+            self.discard(item)
+
+    @ensure_loaded
+    def symmetric_difference_update(self, other: Iterable[T]) -> None:
+        """Update to symmetric difference with other."""
+        other_set = set(other)
+        to_remove = set.intersection(self, other_set)
+        to_add = other_set - set.copy(self)
+        for item in to_remove:
+            self.discard(item)
+        for item in to_add:
+            self.add(item)
+
+    @ensure_loaded
+    def copy(self) -> set[T]:
+        return super().copy()
+
+    @ensure_loaded
+    def union(self, *others: Iterable[T]) -> set[T]:
+        return super().union(*others)
+
+    @ensure_loaded
+    def intersection(self, *others: Iterable[T]) -> set[T]:
+        return super().intersection(*others)
+
+    @ensure_loaded
+    def difference(self, *others: Iterable[T]) -> set[T]:
+        return super().difference(*others)
+
+    @ensure_loaded
+    def symmetric_difference(self, other: Iterable[T]) -> set[T]:
+        return super().symmetric_difference(other)
+
+    @ensure_loaded
+    def issubset(self, other: Iterable[T]) -> bool:
+        return super().issubset(other)
+
+    @ensure_loaded
+    def issuperset(self, other: Iterable[T]) -> bool:
+        return super().issuperset(other)
+
+    @ensure_loaded
+    def isdisjoint(self, other: Iterable[T]) -> bool:
+        return super().isdisjoint(other)
+
+    @ensure_loaded
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, RelationSet):
+            return set.__eq__(self, other)
+        if isinstance(other, (set, frozenset)):
+            return set.__eq__(self, other)
+        return False
+
+    @ensure_loaded
+    def __ne__(self, other: object) -> bool:
+        if isinstance(other, RelationSet):
+            return set.__ne__(self, other)
+        if isinstance(other, (set, frozenset)):
+            return set.__ne__(self, other)
+        return False
+
+    @ensure_loaded
+    def __le__(self, other: set[T]) -> bool:
+        return super().__le__(other)
+
+    @ensure_loaded
+    def __lt__(self, other: set[T]) -> bool:
+        return super().__lt__(other)
+
+    @ensure_loaded
+    def __ge__(self, other: set[T]) -> bool:
+        return super().__ge__(other)
+
+    @ensure_loaded
+    def __gt__(self, other: set[T]) -> bool:
+        return super().__gt__(other)
+
+    @ensure_loaded
+    def __or__(self, other: set[T]) -> set[T]:
+        return super().__or__(other)
+
+    @ensure_loaded
+    def __and__(self, other: set[T]) -> set[T]:
+        return super().__and__(other)
+
+    @ensure_loaded
+    def __sub__(self, other: set[T]) -> set[T]:
+        return super().__sub__(other)
+
+    @ensure_loaded
+    def __xor__(self, other: set[T]) -> set[T]:
+        return super().__xor__(other)
+
+    @ensure_loaded
+    def __ior__(self, other: Iterable[T]) -> Self:
+        self.update(other)
+        return self
+
+    @ensure_loaded
+    def __iand__(self, other: Iterable[T]) -> Self:
+        self.intersection_update(other)
+        return self
+
+    @ensure_loaded
+    def __isub__(self, other: Iterable[T]) -> Self:
+        self.difference_update(other)
+        return self
+
+    @ensure_loaded
+    def __ixor__(self, other: Iterable[T]) -> Self:
+        self.symmetric_difference_update(other)
+        return self
+
+
 Relationship = partial(Field, default_factory=Relation, frozen=True)
-Relationships = partial(Field, default_factory=RelationCollection, frozen=True)
+
+
+@overload
+def Relationships(*, unique: Literal[True], **kwargs: Any) -> Any: ...
+@overload
+def Relationships(*, unique: Literal[False] = ..., **kwargs: Any) -> Any: ...
+@overload
+def Relationships(**kwargs: Any) -> Any: ...
+def Relationships(*, unique: bool = False, **kwargs: Any) -> Any:
+    """Create a relationship field for a collection of related transmuters.
+
+    Args:
+        unique: If True, use a RelationSet (set semantics, no duplicates).
+                If False (default), use a RelationCollection (list semantics).
+        **kwargs: Additional keyword arguments passed to pydantic's Field().
+
+    Returns:
+        A pydantic Field configured with the appropriate default_factory.
+    """
+    factory = RelationSet if unique else RelationCollection
+    return Field(default_factory=factory, frozen=True, **kwargs)
