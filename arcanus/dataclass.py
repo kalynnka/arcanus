@@ -17,6 +17,11 @@ automatically via a deferred-rebuild mechanism: if ``rebuild_dataclass``
 fails because a referenced type does not exist yet, the rebuild is
 queued and retried each time a new transmuter dataclass is created.
 
+When a dataclass transmuter references a *BaseModel* transmuter that is
+defined later in the same module, call :func:`rebuild_dataclass`
+explicitly after all classes are available — the same pattern pydantic
+uses for ``model_rebuild`` / ``rebuild_dataclass``.
+
 .. todo::
 
    If Python gains intersection types (``type[T & TransmuterProtocol]``),
@@ -44,7 +49,8 @@ from pydantic import PydanticUndefinedAnnotation
 from pydantic._internal._decorators import DecoratorInfos
 from pydantic.config import ConfigDict
 from pydantic.dataclasses import dataclass as pdc_dataclass
-from pydantic.dataclasses import is_pydantic_dataclass, rebuild_dataclass
+from pydantic.dataclasses import is_pydantic_dataclass
+from pydantic.dataclasses import rebuild_dataclass as pydantic_rebuild_dataclass
 from pydantic.fields import Field, PrivateAttr
 
 from arcanus.base import Transmuter, TransmuterMetaclass
@@ -52,13 +58,9 @@ from arcanus.base import Transmuter, TransmuterMetaclass
 if TYPE_CHECKING:
     from pydantic._internal._dataclasses import PydanticDataclass
 
-__all__ = ("dataclass", "make_transmuter_dataclass")
+__all__ = ("dataclass", "make_transmuter_dataclass", "rebuild_dataclass")
 
 _T = TypeVar("_T")
-
-# ---------------------------------------------------------------------------
-# Deferred forward-reference rebuild helpers
-# ---------------------------------------------------------------------------
 
 # Transmuter dataclasses whose ``rebuild_dataclass`` was deferred because
 # one or more forward-referenced types were not yet available.
@@ -74,7 +76,7 @@ def _rebuild_transmuter_dataclass(cls: TransmuterMetaclass) -> bool:
     module = sys.modules.get(cls.__module__)
     types_ns = vars(module) if module else None
     try:
-        rebuild_dataclass(cls, force=True, _types_namespace=types_ns)  # type: ignore[arg-type]
+        pydantic_rebuild_dataclass(cls, force=True, _types_namespace=types_ns)  # type: ignore[arg-type]
     except PydanticUndefinedAnnotation:
         return False
     cls._finalize_transmuter()
@@ -82,10 +84,11 @@ def _rebuild_transmuter_dataclass(cls: TransmuterMetaclass) -> bool:
 
 
 def _retry_deferred_transmuters() -> None:
-    """Retry ``rebuild_dataclass`` for all previously deferred transmuters.
+    """Retry deferred transmuter dataclass rebuilds.
 
     Called after each new transmuter dataclass is created so that
-    circular forward references are resolved once all classes exist.
+    circular forward references between *dataclass* transmuters are
+    resolved once both classes exist.
     """
     still_deferred: list[TransmuterMetaclass] = []
     for dc_cls in _deferred_transmuter_dataclasses:
@@ -96,9 +99,54 @@ def _retry_deferred_transmuters() -> None:
     _deferred_transmuter_dataclasses[:] = still_deferred
 
 
-# ---------------------------------------------------------------------------
-# make_transmuter_dataclass – low-level helper
-# ---------------------------------------------------------------------------
+def rebuild_dataclass(
+    cls: type,
+    *,
+    force: bool = True,
+    raise_errors: bool = True,
+    _types_namespace: dict[str, Any] | None = None,
+) -> bool | None:
+    """Rebuild a transmuter dataclass and finalize its schema.
+
+    Like ``pydantic.dataclasses.rebuild_dataclass`` but also completes
+    transmuter setup (associations, identities, ``Create`` / ``Update``
+    partial models).
+
+    Call this after all forward-referenced types used by the dataclass
+    are defined::
+
+        @dataclass
+        class Foo(Transmuter):
+            bar: Relation[Bar]    # Bar not yet defined
+
+        class Bar(BaseTransmuter): ...
+
+        rebuild_dataclass(Foo)    # resolve Foo → Bar
+
+    Returns ``True`` if the schema was rebuilt, or ``None`` if it was
+    already complete and *force* is ``False``.
+
+    Raises ``PydanticUndefinedAnnotation`` when *raise_errors* is
+    ``True`` and forward references still cannot be resolved.
+    """
+    if not isinstance(cls, TransmuterMetaclass):
+        raise TypeError(
+            f"{cls.__qualname__} is not a transmuter dataclass. "
+            f"Use pydantic.dataclasses.rebuild_dataclass for plain pydantic dataclasses."
+        )
+    if not force and cls.__transmuter_complete__:
+        return None
+    module = sys.modules.get(cls.__module__)
+    types_ns = _types_namespace or (vars(module) if module else None)
+    try:
+        pydantic_rebuild_dataclass(cls, force=force, _types_namespace=types_ns)  # type: ignore[arg-type]
+    except PydanticUndefinedAnnotation:
+        if raise_errors:
+            raise
+        return False
+    if not cls.__transmuter_complete__:
+        cls._finalize_transmuter()
+    return True
 
 
 def make_transmuter_dataclass(cls: type[PydanticDataclass]) -> type:
@@ -160,11 +208,6 @@ def make_transmuter_dataclass(cls: type[PydanticDataclass]) -> type:
     _retry_deferred_transmuters()
 
     return new_cls
-
-
-# ---------------------------------------------------------------------------
-# @dataclass – public decorator
-# ---------------------------------------------------------------------------
 
 
 @dataclass_transform(field_specifiers=(Field, PrivateAttr))

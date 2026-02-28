@@ -26,7 +26,7 @@ from typing import (
     overload,
 )
 
-from pydantic import BaseModel, Field, GetCoreSchemaHandler, TypeAdapter
+from pydantic import Field, GetCoreSchemaHandler, TypeAdapter
 from pydantic_core import core_schema
 
 from arcanus.materia.base import active_materia
@@ -174,15 +174,6 @@ class Association(Generic[A]):
     def __await__(self):
         raise NotImplementedError("This association is not awaitable.")
 
-    def __construct__(self, value: Any) -> Any:
-        if issubclass(self.__generic__, BaseModel):
-            if hasattr(self.__generic__, "__transmuter_materia__"):
-                return self.__generic__.model_construct(data=value)
-            return self.__generic__.model_construct(
-                **value if isinstance(value, dict) else value.__dict__
-            )
-        return value
-
     def _load(self) -> Self:
         raise NotImplementedError(
             "This association does not support synchronous loading."
@@ -212,9 +203,7 @@ class Association(Generic[A]):
 
     def bless(self, value: Any) -> Any:
         """Bless the value into the generic type."""
-        if active_materia.get().validate:
-            return self.__validator__.validate_python(value)
-        return self.__construct__(value)
+        return self.__validator__.validate_python(value)
 
 
 class Relation(Association[Optional_T]):
@@ -416,21 +405,14 @@ class RelationCollection(list[T], Association[T]):
     def bless(self, value: Any) -> T: ...
     def bless(self, value: Any | Iterable[Any]) -> T | Iterable[T]:
         """Bless the value into the generic type."""
-        validate = active_materia.get().validate
         is_iterable = isinstance(value, Iterable) and not isinstance(
             value, get_origin(self.__generic__) or self.__generic__
         )
 
-        if validate:
-            if is_iterable:
-                return self.__list_validator__.validate_python(value)
-            else:
-                return self.__validator__.validate_python(value)
+        if is_iterable:
+            return self.__list_validator__.validate_python(value)
         else:
-            if is_iterable:
-                return [self.__construct__(item) for item in value]
-            else:
-                return self.__construct__(value)
+            return self.__validator__.validate_python(value)
 
     def prepare(self, instance: Transmuter, field_name: str):
         super().prepare(instance, field_name)

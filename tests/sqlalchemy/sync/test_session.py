@@ -20,7 +20,7 @@ import pytest
 from sqlalchemy import Engine, select
 from sqlalchemy.exc import NoResultFound
 
-from arcanus.base import BaseTransmuter
+from arcanus.base import BaseTransmuter, Transmuter
 from arcanus.materia.sqlalchemy import Session
 from tests.transmuters import Author, Book, BookCategory, Category, Publisher
 
@@ -1229,7 +1229,7 @@ class TestMerge:
 
             # Verify returned instance is properly setup
             assert isinstance(merged, Category)
-            assert isinstance(merged, BaseTransmuter)
+            assert isinstance(merged, Transmuter)
             assert merged.id == category_id
             assert merged.name == "Test Category"
 

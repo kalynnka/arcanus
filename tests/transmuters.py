@@ -11,7 +11,8 @@ from arcanus.association import (
     Relationship,
     Relationships,
 )
-from arcanus.base import BaseTransmuter, Identity
+from arcanus.base import BaseTransmuter, Identity, Transmuter
+from arcanus.dataclass import dataclass
 from arcanus.materia.sqlalchemy.base import SqlalchemyMateria
 from tests import models
 
@@ -84,14 +85,14 @@ class BookDetail(TestIdMixin, BaseTransmuter):
     book: Relation[Book] = Relationship()
 
 
-# Category schema (M-M with Book)
+# Category schema (M-M with Book) — dataclass transmuter
 @sqlalchemy_materia.bless(models.Category)
-class Category(TestIdMixin, BaseTransmuter):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+@dataclass(config=ConfigDict(from_attributes=True))
+class Category(Transmuter):
     name: str
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     description: str | None = None
+    test_id: Optional[UUID] = Field(default=None, frozen=True, exclude=True)
 
     books: RelationCollection[Book] = Relationships()
 
@@ -122,15 +123,16 @@ class Review(TestIdMixin, BaseTransmuter):
     book: Relation[Optional[Book]] = Relationship()
 
 
+# Company schema — dataclass transmuter (Relation + RelationCollection)
 @sqlalchemy_materia.bless(models.Company)
-class Company(TestIdMixin, BaseTransmuter):
+@dataclass(config=ConfigDict(from_attributes=True))
+class Company(Transmuter):
     """Schema for Company with circular references."""
 
-    model_config = ConfigDict(from_attributes=True)
-
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
     industry: str
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    test_id: Optional[UUID] = Field(default=None, frozen=True, exclude=True)
 
     departments: RelationCollection[Department] = Relationships()
     employees: RelationCollection[Employee] = Relationships()

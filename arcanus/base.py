@@ -111,17 +111,26 @@ class TransmuterProtocol(Protocol):
     the ``Transmuter`` alias) for full static access.
     """
 
+    __pydantic_fields__: ClassVar[dict[str, FieldInfo]]
+    __pydantic_validator__: ClassVar[SchemaValidator]
+    __transmuter_is_dataclass__: ClassVar[bool]
+    __transmuter_complete__: ClassVar[bool]
+    __transmuter_provider__: ClassVar[type[TransmuterProxied] | None]
     __transmuter_provided__: TransmuterProxied | None
     __transmuter_revalidating__: bool
+    model_associations: ClassVar[dict[str, FieldInfo]]
+    model_identities: ClassVar[dict[str, FieldInfo]]
+    Create: ClassVar[type[BaseModel]]
+    Update: ClassVar[type[BaseModel]]
 
-    def revalidate(self) -> Self: ...
     @classmethod
     def shell(cls, create_partial: BaseModel) -> Self: ...
     def absorb(self, update_partial: BaseModel) -> Self: ...
+    def revalidate(self) -> Self: ...
 
 
 @dataclass_transform(
-    field_specifiers=(Field, PrivateAttr),
+    field_specifiers=(Field, PrivateAttr, NoInitField),
 )
 class Transmuter:
     """Mixin providing common transmuter instance methods.
@@ -144,20 +153,19 @@ class Transmuter:
         __pydantic_validator__: ClassVar[SchemaValidator]
         __transmuter_is_dataclass__: ClassVar[bool]
         __transmuter_complete__: ClassVar[bool]
+        __transmuter_provider__: ClassVar[type[TransmuterProxied] | None]
+        __transmuter_provided__: TransmuterProxied | None
+        __transmuter_revalidating__: bool
         model_associations: ClassVar[dict[str, FieldInfo]]
         model_identities: ClassVar[dict[str, FieldInfo]]
         Create: ClassVar[type[BaseModel]]
         Update: ClassVar[type[BaseModel]]
-        __transmuter_provided__: TransmuterProxied | None
-        __transmuter_revalidating__: bool
 
-    if not TYPE_CHECKING:
-
-        def __getattribute__(self, name: str) -> Any:
-            value = super().__getattribute__(name)
-            if isinstance(value, Association):
-                value.prepare(self, name)
-            return value
+    def __getattribute__(self, name: str) -> Any:
+        value = super().__getattribute__(name)
+        if isinstance(value, Association):
+            value.prepare(self, name)
+        return value
 
     def __getattr__(self, name: str) -> Any:
         # Try the normal __getattr__ chain (handles BaseModel specifics)
@@ -190,6 +198,30 @@ class Transmuter:
         ):
             setattr(provided, name, object.__getattribute__(self, name))
 
+    if not TYPE_CHECKING:
+
+        @classmethod
+        def model_validate(
+            cls,
+            obj: Any,
+            *,
+            strict: bool | None = None,
+            from_attributes: bool | None = None,
+            context: dict[str, Any] | None = None,
+        ) -> Any:
+            """Validate *obj* and return a transmuter instance.
+
+            For BaseModel transmuters, ``BaseTransmuter.model_validate`` takes
+            precedence in MRO. This branch handles dataclass transmuters using
+            ``TypeAdapter``.
+            """
+            return get_cached_adapter(cast(TransmuterMetaclass, cls)).validate_python(
+                obj,
+                strict=strict,
+                from_attributes=from_attributes,
+                context=context,
+            )
+
     @model_validator(mode="wrap")
     @classmethod
     def model_formulate(
@@ -200,9 +232,6 @@ class Transmuter:
     ) -> Self:
         if isinstance(data, cls):
             return handler(data)
-
-        is_dc = cls.__transmuter_is_dataclass__
-        instance: Self
 
         # Get materia once to avoid repeated ContextVar lookups
         materia = active_materia.get()
@@ -222,8 +251,12 @@ class Transmuter:
             instance = cast(Self, cached or data.transmuter_proxy)
             if instance is None or instance.__transmuter_revalidating__:
                 loaded = materia.transmuter_before_validator(cls, data, info)
-                # Dataclass validators only accept dict or same-type, not arbitrary objects
-                if is_dc and not isinstance(loaded, (dict, cls)):
+                # Pydantic dataclasses only accept dicts or the exact dataclass
+                # type — not arbitrary objects like LoadedData.  Convert to dict
+                # so the inner handler can process it.
+                if cls.__transmuter_is_dataclass__ and not isinstance(
+                    loaded, (dict, cls)
+                ):
                     loaded = loaded.__dict__
                 instance = handler(loaded)
                 object.__setattr__(instance, "__transmuter_provided__", data)
@@ -236,7 +269,7 @@ class Transmuter:
 
         else:
             # Normal validation
-            instance = handler(data)
+            instance: Self = handler(data)
             if provider is not None:
                 model_fields = cls.__pydantic_fields__
                 _excl = set(cls.model_associations.keys())

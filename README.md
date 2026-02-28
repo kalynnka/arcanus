@@ -120,6 +120,37 @@ Bar.Create                # ✅ pyright sees it
 Both forms are fully functional at runtime — the only difference is static type
 visibility. Choose whichever style suits your project.
 
+#### Rebuilding Forward References
+
+When a `@dataclass` transmuter uses forward references to types defined later in
+the module (just like `BaseModel.model_rebuild()` in pydantic), you must call
+`rebuild_dataclass` after all referenced types are available:
+
+```python
+from arcanus import Transmuter, dataclass, rebuild_dataclass
+from arcanus.base import BaseTransmuter
+from arcanus.association import Relation, Relationship
+
+# Category references Book, which isn't defined yet
+@dataclass
+class Category(Transmuter):
+    name: str
+    books: RelationCollection[Book] = Relationships()  # forward ref
+
+# Book is defined after Category
+class Book(BaseTransmuter):
+    title: str
+    categories: RelationCollection[Category] = Relationships()
+
+# Resolve Category → Book now that Book exists
+rebuild_dataclass(Category)
+```
+
+Forward references between dataclass transmuters are retried automatically when
+new `@dataclass` transmuters are created. The explicit `rebuild_dataclass` call
+is only needed when a dataclass transmuter references a `BaseTransmuter`
+(BaseModel) type that is defined later.
+
 ### SQLAlchemy Materia
 
 Connect schemas to SQLAlchemy ORM models for full database functionality, **enabling operations on Pydantic transmuter objects just like ORM objects**, seamlessly gluing together the best of both worlds.

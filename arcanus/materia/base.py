@@ -57,39 +57,27 @@ class BidirectonDict(dict, Generic[K, V]):
 
 class BaseMateria:
     formulars: BidirectonDict[type[Transmuter], type[TransmuterProxied]]
-    validate: bool
     token: Optional[Token[BaseMateria]]
 
-    def __init__(self, *, validate: bool = True) -> None:
+    def __init__(self) -> None:
         self.formulars = BidirectonDict()
-        self.validate = validate
         self.token = None
 
     @contextmanager
-    def __call__(self, *, validate: bool | None = None):
-        """Create a shallow copy of the materia with overridden parameters and
-        activate it as a context manager.
+    def __call__(self):
+        """Create a shallow copy of the materia and activate it as a context manager.
 
-        The copy shares the validation context (formulars) with the original instance,
-        but can have overridden settings.
-
-        Args:
-            validate: Override the validate flag for the copy. If None, uses the
-                original instance's validate setting.
+        The copy shares the validation context (formulars) with the original instance.
 
         Yields:
-            A shallow copy with overridden parameters, set as the active materia.
+            A shallow copy set as the active materia.
 
         Example:
             materia = SqlalchemyMateria()
-            with materia(validate=False):
-                # Validation is disabled in this context
+            with materia():
                 instance = MyModel.model_validate(orm_obj)
         """
         copied = shallow_copy(self)
-
-        if validate is not None:
-            copied.validate = validate
 
         copied.token = active_materia.set(copied)
         try:

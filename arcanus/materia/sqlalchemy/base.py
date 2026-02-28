@@ -9,7 +9,7 @@ from sqlalchemy.orm import InstanceState
 from sqlalchemy.util import greenlet_spawn
 
 from arcanus.association import Association, DefferedAssociation
-from arcanus.base import BaseTransmuter
+from arcanus.base import Transmuter
 from arcanus.materia.base import BaseMateria, T
 
 
@@ -33,7 +33,7 @@ class SqlalchemyMateria(BaseMateria):
 
             # Inject __clause_element__ methods to make transmuter_cls compatible with SQLAlchemy SQL constructions
             @classmethod
-            def __clause_element__(cls: type[BaseTransmuter]):
+            def __clause_element__(cls: type[Transmuter]):
                 return inspect(cls.__transmuter_provider__)
 
             transmuter_cls.__clause_element__ = __clause_element__
@@ -43,11 +43,8 @@ class SqlalchemyMateria(BaseMateria):
         return decorator
 
     def transmuter_before_validator(
-        self, transmuter_type: type[BaseTransmuter], materia: Any, info: ValidationInfo
+        self, transmuter_type: type[Transmuter], materia: Any, info: ValidationInfo
     ):
-        if not self.validate:
-            return materia
-
         # don't use a dict to hold loaded data here
         # to avoid pydantic's handler call this formulate function again and go to the else block
         # use an object instead to keep the behavior same with pydantic's original model_validate
@@ -89,7 +86,7 @@ class SqlalchemyMateria(BaseMateria):
         return loaded
 
     def transmuter_before_construct(
-        self, transmuter_type: type[BaseTransmuter], materia: Any
+        self, transmuter_type: type[Transmuter], materia: Any
     ):
         # inspector: InstanceState = inspect(materia)
 
