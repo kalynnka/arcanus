@@ -26,7 +26,7 @@ from arcanus.base import (
     TransmuterMetaclass,
     validation_context,
 )
-from tests.dataclass import (
+from tests.transmuters import (
     DCAuthor,
     DCBook,
     IdentifiedUser,
