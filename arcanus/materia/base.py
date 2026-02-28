@@ -11,7 +11,6 @@ from typing import (
     Optional,
     Self,
     TypeVar,
-    Union,
 )
 
 from pydantic import ValidationInfo
@@ -19,12 +18,14 @@ from pydantic_core import core_schema
 
 if TYPE_CHECKING:
     from arcanus.association import Association
-    from arcanus.base import BaseTransmuter, TransmuterMetaclass, TransmuterProxied
+    from arcanus.base import (
+        Transmuter,
+        TransmuterProxied,
+    )
 
 M = TypeVar("M", bound=Any)
 A = TypeVar("A", bound="Association")
-T = TypeVar("T", bound="BaseTransmuter")
-TM = TypeVar("TM", bound=Union["TransmuterMetaclass", type["BaseTransmuter"]])
+T = TypeVar("T", bound="Transmuter")
 
 K = TypeVar("K")
 V = TypeVar("V")
@@ -55,7 +56,7 @@ class BidirectonDict(dict, Generic[K, V]):
 
 
 class BaseMateria:
-    formulars: BidirectonDict[TransmuterMetaclass, type[TransmuterProxied]]
+    formulars: BidirectonDict[type[Transmuter], type[TransmuterProxied]]
     validate: bool
     token: Optional[Token[BaseMateria]]
 
@@ -111,20 +112,21 @@ class BaseMateria:
             self.token = None
 
     def __getitem__(
-        self, transmuter: TransmuterMetaclass
+        self, transmuter: type[Transmuter]
     ) -> type[TransmuterProxied] | None:
         return self.formulars.get(transmuter)
 
-    def __contains__(self, transmuter: TransmuterMetaclass) -> bool:
+    def __contains__(self, transmuter: type[Transmuter]) -> bool:
         return transmuter in self.formulars
 
     def bless(self, materia: Any):
-        def decorator(transmuter_cls: TM) -> TM:
+        def decorator(transmuter_cls: type[T]) -> type[T]:
             # Check if materia implements TransmuterProxied by verifying required attributes
             if not hasattr(materia, "transmuter_proxy"):
                 raise TypeError(
                     f"{self.__class__.__name__} require materia must implement TransmuterProxied."
                 )
+
             self.formulars[transmuter_cls] = materia
             return transmuter_cls
 
@@ -190,8 +192,7 @@ class NoOpMateria(BaseMateria):
         return
 
     def bless(self):
-        def decorator(transmuter_cls: TM) -> TM:
-            # No operation performed, just return the class as is
+        def decorator(transmuter_cls: type[T]) -> type[T]:
             return transmuter_cls
 
         return decorator

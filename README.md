@@ -41,7 +41,7 @@ class Author(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
     field: str
-    
+
     books: RelationCollection[Book] = Relationships()
 
 class Book(BaseTransmuter):
@@ -49,7 +49,7 @@ class Book(BaseTransmuter):
     title: str
     year: int
     author_id: int | None = None
-    
+
     author: Relation[Author] = Relationships()
 
 # Use them like regular Pydantic models
@@ -60,6 +60,65 @@ book = Book(id=1, title="Foundation", year=1951, author=Relation(author))
 print(book.author.value.name)  # Isaac Asimov
 print(list(author.books))  # [Book(...)]
 ```
+
+### Dataclass Transmuters
+
+In addition to `BaseTransmuter` (which extends `BaseModel`), arcanus provides a
+`@dataclass` decorator for lightweight transmuters built on **pydantic dataclasses**.
+
+```python
+from arcanus import dataclass
+
+@dataclass
+class SimpleTag:
+    """A simple tag with no associations."""
+    label: str
+
+tag = SimpleTag(label="example")
+tag.revalidate()          # transmuter method, injected at runtime
+print(SimpleTag.Create)   # partial model, also available
+```
+
+The `@dataclass` decorator handles pydantic dataclass creation **and** transmuter
+protocol injection automatically. It accepts plain classes, stdlib dataclasses,
+and pydantic dataclasses as input.
+
+#### Inheriting `Transmuter` (optional)
+
+By default, `@dataclass` injects `Transmuter` as a base class **at runtime**.
+This means transmuter methods (`revalidate()`, `Create`, `Update`, `shell()`,
+`absorb()`, etc.) are always available on instances regardless of how the class
+is declared.
+
+However, since Python's type system cannot express intersection types
+(`type[T & TransmuterProtocol]`), type checkers like pyright won't see the
+transmuter-specific attributes unless you explicitly inherit from `Transmuter`:
+
+```python
+from arcanus import Transmuter, dataclass
+
+# Option 1: Minimal — fields work, transmuter attrs not visible to type checkers
+@dataclass
+class Foo:
+    name: str
+
+foo = Foo(name="bar")
+foo.revalidate()          # ✅ works at runtime
+foo.revalidate()          # ❌ pyright: "revalidate" is not a known member
+
+# Option 2: Full type safety — inherit Transmuter
+@dataclass
+class Bar(Transmuter):
+    name: str
+
+bar = Bar(name="baz")
+bar.revalidate()          # ✅ works at runtime
+bar.revalidate()          # ✅ pyright sees it
+Bar.Create                # ✅ pyright sees it
+```
+
+Both forms are fully functional at runtime — the only difference is static type
+visibility. Choose whichever style suits your project.
 
 ### SQLAlchemy Materia
 
@@ -107,21 +166,21 @@ class Base(DeclarativeBase): ...
 
 class AuthorModel(Base):
     __tablename__ = "authors"
-    
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     field: Mapped[str] = mapped_column(String(50), nullable=False)
-    
+
     books: Mapped[list["BookModel"]] = relationship(back_populates="author")
 
 class BookModel(Base):
     __tablename__ = "books"
-    
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     author_id: Mapped[int] = mapped_column(ForeignKey(AuthorModel.id), nullable=False)
-    
+
     author: Mapped[AuthorModel] = relationship(back_populates="books")
 
 # Initialize SQLAlchemy Materia and bless schemas
@@ -132,7 +191,7 @@ class Author(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
     field: str
-    
+
     books: RelationCollection[Book] = Relationships()
 
 @sqlalchemy_materia.bless(BookModel)
@@ -141,7 +200,7 @@ class Book(BaseTransmuter):
     title: str
     year: int
     author_id: int | None = None
-    
+
     author: Relation[Author] = Relationships()
 
 # Create engine
@@ -156,29 +215,29 @@ All objects retrieved from arcanus Session are transmuter instances, wrapping th
 ```python
 with Session(engine) as session:
     author = session.get_one(Author, 1)
-    
+
     # This is a transmuter object with Pydantic validation
     assert isinstance(author, Author)
     assert isinstance(author, BaseTransmuter)
-    
+
     # Access the underlying ORM object via __transmuter_provided__
     orm_author = author.__transmuter_provided__
     assert isinstance(orm_author, AuthorModel)
-    
+
     # Changes sync bi-directionally
     author.name = "Arthur C. Clarke"
     assert orm_author.name == "Arthur C. Clarke"  # Synced to ORM
-    
+
     # ORM changes reflect in transmuter after revalidation
     orm_author.field = "Hard Science Fiction"
     author.revalidate()  # Sync ORM changes back to transmuter
     assert author.field == "Hard Science Fiction"
-    
+
     # Related objects are also transmuters
     for book in author.books:
         assert isinstance(book, Book)
         assert hasattr(book, '__transmuter_provided__')
-        
+
     session.commit()
 ```
 
@@ -191,19 +250,19 @@ with Session(engine) as session:
 with Session(engine) as session:
     author = Author(name="Isaac Asimov", field="Science Fiction")
     book = Book(title="Foundation", year=1951, author=Relation(author))
-    
+
     session.add(book)  # Adding book automatically adds author
     session.flush()
-    
+
     # Sync server-generated values (autoincrement IDs)
     # PostgreSQL/SQLite with RETURNING support:
     author.revalidate()  # No extra query
     book.revalidate()
-    
+
     # MySQL without RETURNING:
     # session.refresh(author)  # Issues SELECT
     # session.refresh(book)
-    
+
     session.commit()
     print(f"Created book #{book.id}: {book.title}")
 ```
@@ -214,18 +273,18 @@ with Session(engine) as session:
 with Session(engine) as session:
     # By primary key
     author = session.get_one(Author, 1)
-    
+
     # Using filters
     author = session.one(Author, name="Isaac Asimov")
-    
+
     # With expressions
     from sqlalchemy import select
     stmt = select(Author).where(Author["field"] == "Science Fiction")
     result = session.execute(stmt)
     authors = result.scalars().all()
-    
+
     # List with pagination
-    books = session.list(Book, limit=10, offset=0, 
+    books = session.list(Book, limit=10, offset=0,
                         order_bys=[Book["year"].desc()])
 ```
 
@@ -234,11 +293,11 @@ with Session(engine) as session:
 ```python
 with Session(engine) as session:
     author = session.get_one(Author, 1)
-    
+
     # Navigate one-to-many
     for book in author.books:
         print(f"{book.title} ({book.year})")
-        
+
         # Navigate many-to-one (same object reference)
         assert book.author.value is author
 ```
@@ -251,7 +310,7 @@ with Session(engine) as session:
     book = session.get_one(Book, 1)
     book.title = "Foundation (Revised)"
     session.commit()
-    
+
     # Bulk update with RETURNING
     from sqlalchemy import update
     stmt = (
@@ -291,7 +350,7 @@ with Session(engine) as session:
     author = session.get_one(Author, 1)
     session.delete(author)  # Related books deleted by cascade
     session.commit()
-    
+
     # Bulk delete with RETURNING
     from sqlalchemy import delete
     stmt = delete(Book).where(Book["year"] < 2000).returning(Book)
@@ -303,40 +362,47 @@ with Session(engine) as session:
 #### Session Helper Methods
 
 **`get` / `get_one`** - Retrieve by primary key:
+
 ```python
 author = session.get(Author, 1)  # Returns None if not found
 author = session.get_one(Author, 1)  # Raises if not found
 ```
 
 **`one` / `one_or_none`** - Single result with filters:
+
 ```python
 author = session.one(Author, name="Isaac Asimov")
 author = session.one_or_none(Author, name="Maybe Exists")
 ```
 
 **`first`** - First result with ordering:
+
 ```python
 author = session.first(Author, order_bys=[Author["name"]])
 ```
 
 **`list`** - Multiple results with pagination:
+
 ```python
 authors = session.list(Author, limit=10, offset=20,
                       expressions=[Author["field"].like("Science%")])
 ```
 
 **`bulk`** - Multiple by IDs:
+
 ```python
 authors = session.bulk(Author, [1, 2, 3, 4, 5])
 ```
 
 **`count`** - Count matching rows:
+
 ```python
 total = session.count(Author)
 filtered = session.count(Author, expressions=[Author["field"] == "Physics"])
 ```
 
 **`partitions`** - Stream large result sets:
+
 ```python
 for partition in session.partitions(Author, size=100):
     for author in partition:
@@ -363,15 +429,15 @@ async_engine = create_async_engine(
 async with AsyncSession(async_engine, expire_on_commit=True) as session:
     # Query
     author = await session.get_one(Author, 1)
-    
+
     # Create
     book = Book(title="Async Book", year=2024, author=Relation(author))
     session.add(book)
     await session.flush()
     await session.commit()
-    
+
     # List with filters
-    books = await session.list(Book, limit=10, 
+    books = await session.list(Book, limit=10,
                                expressions=[Book["year"] > 2020])
 ```
 
@@ -380,6 +446,7 @@ async with AsyncSession(async_engine, expire_on_commit=True) as session:
 SQLAlchemy's relationship loading strategies work with arcanus transmuters. The await syntax depends on the loading strategy:
 
 **Lazy loading (select)** - Requires await to trigger the query, otherwise a greenlet issue will be raised:
+
 ```python
 class BookModel(Base):
     # Default lazy="select" - loads on access
@@ -387,7 +454,7 @@ class BookModel(Base):
 
 async with AsyncSession(async_engine) as session:
     book = await session.get_one(Book, 1)
-    
+
     # Must await for lazy loading - triggers SELECT query
     parent_author = await book.author  # Returns Author object directly
     parent_author is book.author.value # standerd usage, no need for await for the second time visit
@@ -395,6 +462,7 @@ async with AsyncSession(async_engine) as session:
 ```
 
 **Eager loading (selectin/joined)** - Loaded upfront, but keep await syntax for consistency:
+
 ```python
 class BookModel(Base):
     # Eager loading strategies - data already loaded
@@ -403,42 +471,39 @@ class BookModel(Base):
 
 async with AsyncSession(async_engine) as session:
     book = await session.get_one(Book, 1)
-    
+
     # No I/O needed (data already loaded), but await still works
-    
+
     parent_author = await book.author  # Returns cached data
 
     book2 = await session.get_one(Book, 2)
     # also works without await for selectin/joined strategies
     # but recommended to keep await syntax consistent across strategies
     parent_author = book.author.value
-    
+
 ```
 
 **Syntactic sugar for await:**
+
 - `await relation` (Relation) → Returns the related object directly (equivalent to `relation.value`)
 - `await relation_collection` (RelationCollection) → Returns a shallow list copy of all related objects
 
 ```python
 async with AsyncSession(async_engine) as session:
     author = await session.get_one(Author, 1)
-    
+
     # RelationCollection: await returns list of related objects
     books_list = await author.books  # Returns list[Book]
     for book in books_list:
         print(book.title)
-    
+
     # Can also iterate the collection directly after await
     await author.books
     for book in author.books:  # Iterates the collection
         print(book.title)
-    
+
     # Relation: await returns the related object
     book = await session.get_one(Book, 1)
     parent_author = await book.author  # Returns Author, not Relation[Author]
     assert parent_author.id == book.author_id
 ```
-
-
-
-
