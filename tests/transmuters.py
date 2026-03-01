@@ -275,6 +275,17 @@ class Catalog(BaseTransmuter):
     tags: RelationMap[str, Tag] = RelationMaps()
 
 
+class LabeledCatalog(BaseTransmuter):
+    """Catalog with Literal-keyed tag mapping for key validation tests."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None)
+    title: str
+
+    tags: RelationMap[Literal["python", "rust", "go"], Tag] = RelationMaps()
+
+
 class AuthorFlat(BaseTransmuter):
     """Flat Author transmuter without relationships (for benchmarks)."""
 

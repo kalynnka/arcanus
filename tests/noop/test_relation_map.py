@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import Annotated, Optional
 
 import pytest
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, ValidationError
 
 from arcanus.association import RelationMap, RelationMaps
 from arcanus.base import BaseTransmuter, Identity
-from tests.transmuters import Catalog, Tag
+from tests.transmuters import Catalog, LabeledCatalog, Tag
 
 """Test RelationMap association fields with NoOpMateria."""
 
@@ -432,3 +432,142 @@ class TestRelationMapEdgeCases:
         catalog = Catalog(id=1, title="Test")
         s = str(catalog.tags)
         assert isinstance(s, str)
+
+
+class TestRelationMapLiteralKeys:
+    """Test RelationMap with Literal key type to verify key blessing."""
+
+    def test_valid_literal_key_setitem(self):
+        cat = LabeledCatalog(id=1, title="Test")
+        t = Tag(id=1, name="py")
+        cat.tags["python"] = t
+        assert cat.tags["python"] is t
+
+    def test_invalid_literal_key_setitem_raises(self):
+        cat = LabeledCatalog(id=1, title="Test")
+        t = Tag(id=1, name="x")
+        with pytest.raises(ValidationError):
+            cat.tags["java"] = t  # type: ignore[index]
+
+    def test_valid_literal_key_getitem(self):
+        cat = LabeledCatalog(id=1, title="Test")
+        cat.tags["rust"] = Tag(id=1, name="rs")
+        assert cat.tags["rust"].name == "rs"
+
+    def test_invalid_literal_key_getitem_raises(self):
+        cat = LabeledCatalog(id=1, title="Test")
+        with pytest.raises(ValidationError):
+            cat.tags["java"]  # type: ignore[index]
+
+    def test_valid_literal_key_contains(self):
+        cat = LabeledCatalog(id=1, title="Test")
+        cat.tags["go"] = Tag(id=1, name="g")
+        assert "go" in cat.tags
+
+    def test_invalid_literal_key_contains_raises(self):
+        cat = LabeledCatalog(id=1, title="Test")
+        with pytest.raises(ValidationError):
+            "java" in cat.tags  # type: ignore[operator]
+
+    def test_valid_literal_key_delitem(self):
+        cat = LabeledCatalog(id=1, title="Test")
+        cat.tags["python"] = Tag(id=1, name="py")
+        del cat.tags["python"]
+        assert len(cat.tags) == 0
+
+    def test_invalid_literal_key_delitem_raises(self):
+        cat = LabeledCatalog(id=1, title="Test")
+        with pytest.raises(ValidationError):
+            del cat.tags["java"]  # type: ignore[arg-type]
+
+    def test_valid_literal_key_get(self):
+        cat = LabeledCatalog(id=1, title="Test")
+        cat.tags["rust"] = Tag(id=1, name="rs")
+        assert cat.tags.get("rust").name == "rs"
+        assert cat.tags.get("python") is None
+
+    def test_invalid_literal_key_get_raises(self):
+        cat = LabeledCatalog(id=1, title="Test")
+        with pytest.raises(ValidationError):
+            cat.tags.get("java")  # type: ignore[arg-type]
+
+    def test_valid_literal_key_pop(self):
+        cat = LabeledCatalog(id=1, title="Test")
+        cat.tags["go"] = Tag(id=1, name="g")
+        popped = cat.tags.pop("go")
+        assert popped.name == "g"
+        assert len(cat.tags) == 0
+
+    def test_invalid_literal_key_pop_raises(self):
+        cat = LabeledCatalog(id=1, title="Test")
+        with pytest.raises(ValidationError):
+            cat.tags.pop("java")  # type: ignore[arg-type]
+
+    def test_valid_literal_key_setdefault(self):
+        cat = LabeledCatalog(id=1, title="Test")
+        t = Tag(id=1, name="py")
+        result = cat.tags.setdefault("python", t)
+        assert result is t
+        assert cat.tags["python"] is t
+
+    def test_invalid_literal_key_setdefault_raises(self):
+        cat = LabeledCatalog(id=1, title="Test")
+        t = Tag(id=1, name="x")
+        with pytest.raises(ValidationError):
+            cat.tags.setdefault("java", t)  # type: ignore[arg-type]
+
+    def test_all_valid_keys(self):
+        cat = LabeledCatalog(id=1, title="Test")
+        cat.tags["python"] = Tag(id=1, name="py")
+        cat.tags["rust"] = Tag(id=2, name="rs")
+        cat.tags["go"] = Tag(id=3, name="g")
+        assert len(cat.tags) == 3
+        assert set(cat.tags.keys()) == {"python", "rust", "go"}
+
+    def test_update_with_valid_keys(self):
+        cat = LabeledCatalog(id=1, title="Test")
+        cat.tags.update({"python": Tag(id=1, name="py"), "rust": Tag(id=2, name="rs")})
+        assert len(cat.tags) == 2
+
+    def test_update_with_invalid_key_raises(self):
+        cat = LabeledCatalog(id=1, title="Test")
+        with pytest.raises(ValidationError):
+            cat.tags.update({"java": Tag(id=1, name="j")})  # type: ignore[dict-item]
+
+    def test_init_with_valid_keys(self):
+        t = Tag(id=1, name="py")
+        cat = LabeledCatalog(
+            id=1,
+            title="Test",
+            tags=RelationMap({"python": t}),
+        )
+        assert len(cat.tags) == 1
+        assert cat.tags["python"] is t
+
+    def test_init_with_invalid_key_raises(self):
+        t = Tag(id=1, name="x")
+        with pytest.raises(ValidationError):
+            LabeledCatalog(
+                id=1,
+                title="Test",
+                tags={"java": t},  # type: ignore[dict-item]
+            )
+
+    def test_model_validate_with_valid_keys(self):
+        data = {
+            "id": 1,
+            "title": "Test",
+            "tags": {"python": {"id": 1, "name": "py"}},
+        }
+        cat = LabeledCatalog.model_validate(data)
+        assert len(cat.tags) == 1
+        assert cat.tags["python"].name == "py"
+
+    def test_model_validate_with_invalid_key_raises(self):
+        data = {
+            "id": 1,
+            "title": "Test",
+            "tags": {"java": {"id": 1, "name": "j"}},
+        }
+        with pytest.raises(ValidationError):
+            LabeledCatalog.model_validate(data)
