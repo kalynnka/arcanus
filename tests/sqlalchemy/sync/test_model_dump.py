@@ -16,7 +16,6 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import selectinload
 
 from arcanus.materia.sqlalchemy import Session
-from tests import models
 from tests.transmuters import (
     Author,
     Book,
@@ -60,7 +59,7 @@ class TestModelDumpWithSelectinload:
             stmt = (
                 select(Book)
                 .where(Book["id"] == book_id)
-                .options(selectinload(models.Book.detail))
+                .options(selectinload(Book["detail"]))
             )
             loaded_book = session.execute(stmt).scalars().one()
 
@@ -101,8 +100,8 @@ class TestModelDumpWithSelectinload:
                 select(Book)
                 .where(Book["id"] == book_id)
                 .options(
-                    selectinload(models.Book.author),
-                    selectinload(models.Book.publisher),
+                    selectinload(Book["author"]),
+                    selectinload(Book["publisher"]),
                 )
             )
             loaded_book = session.execute(stmt).scalars().one()
@@ -146,7 +145,7 @@ class TestModelDumpWithSelectinload:
             stmt = (
                 select(Author)
                 .where(Author["id"] == author_id)
-                .options(selectinload(models.Author.books))
+                .options(selectinload(Author["books"]))
             )
             loaded_author = session.execute(stmt).scalars().one()
 
@@ -197,7 +196,7 @@ class TestModelDumpWithSelectinload:
             stmt = (
                 select(Book)
                 .where(Book["id"] == book_id)
-                .options(selectinload(models.Book.categories))
+                .options(selectinload(Book["categories"]))
             )
             loaded_book = session.execute(stmt).scalars().one()
 
@@ -236,7 +235,7 @@ class TestModelDumpWithSelectinload:
             stmt = (
                 select(Book)
                 .where(Book["id"] == book_id)
-                .options(selectinload(models.Book.translator))
+                .options(selectinload(Book["translator"]))
             )
             loaded_book = session.execute(stmt).scalars().one()
 
@@ -272,7 +271,7 @@ class TestModelDumpWithSelectinload:
             stmt = (
                 select(Book)
                 .where(Book["id"] == book_id)
-                .options(selectinload(models.Book.translator))
+                .options(selectinload(Book["translator"]))
             )
             loaded_book = session.execute(stmt).scalars().one()
 
@@ -319,8 +318,8 @@ class TestModelDumpWithSelectinload:
                 select(Author)
                 .where(Author["id"] == author_id)
                 .options(
-                    selectinload(models.Author.books).selectinload(models.Book.detail),
-                    selectinload(models.Author.books).selectinload(models.Book.reviews),
+                    selectinload(Author["books"]).selectinload(Book["detail"]),
+                    selectinload(Author["books"]).selectinload(Book["reviews"]),
                 )
             )
             loaded_author = session.execute(stmt).scalars().one()
@@ -394,12 +393,12 @@ class TestModelDumpWithSelectinload:
                 select(Book)
                 .where(Book["id"] == book_id)
                 .options(
-                    selectinload(models.Book.author),
-                    selectinload(models.Book.publisher),
-                    selectinload(models.Book.detail),
-                    selectinload(models.Book.categories),
-                    selectinload(models.Book.reviews),
-                    selectinload(models.Book.translator),
+                    selectinload(Book["author"]),
+                    selectinload(Book["publisher"]),
+                    selectinload(Book["detail"]),
+                    selectinload(Book["categories"]),
+                    selectinload(Book["reviews"]),
+                    selectinload(Book["translator"]),
                 )
             )
             loaded_book = session.execute(stmt).scalars().one()
@@ -451,8 +450,8 @@ class TestModelDumpJsonWithSelectinload:
                 select(Book)
                 .where(Book["id"] == book_id)
                 .options(
-                    selectinload(models.Book.author),
-                    selectinload(models.Book.publisher),
+                    selectinload(Book["author"]),
+                    selectinload(Book["publisher"]),
                 )
             )
             loaded_book = session.execute(stmt).scalars().one()
@@ -493,7 +492,7 @@ class TestModelDumpJsonWithSelectinload:
             stmt = (
                 select(Author)
                 .where(Author["id"] == author_id)
-                .options(selectinload(models.Author.books))
+                .options(selectinload(Author["books"]))
             )
             loaded_author = session.execute(stmt).scalars().one()
 
@@ -537,8 +536,8 @@ class TestModelDumpJsonWithSelectinload:
                 select(Book)
                 .where(Book["id"] == book_id)
                 .options(
-                    selectinload(models.Book.author),
-                    selectinload(models.Book.categories),
+                    selectinload(Book["author"]),
+                    selectinload(Book["categories"]),
                 )
             )
             loaded_book = session.execute(stmt).scalars().one()
@@ -593,9 +592,7 @@ class TestModelDumpJsonWithSelectinload:
                 select(Book)
                 .where(Book["id"] == book1_id)
                 .options(
-                    selectinload(models.Book.categories).selectinload(
-                        models.Category.books
-                    )
+                    selectinload(Book["categories"]).selectinload(Category["books"])
                 )
             )
             loaded_book = session.execute(stmt).scalars().one()
@@ -641,8 +638,8 @@ class TestModelDumpWithExcludeInclude:
                 select(Book)
                 .where(Book["id"] == book_id)
                 .options(
-                    selectinload(models.Book.author),
-                    selectinload(models.Book.publisher),
+                    selectinload(Book["author"]),
+                    selectinload(Book["publisher"]),
                 )
             )
             loaded_book = session.execute(stmt).scalars().one()
@@ -677,8 +674,8 @@ class TestModelDumpWithExcludeInclude:
                 select(Book)
                 .where(Book["id"] == book_id)
                 .options(
-                    selectinload(models.Book.author),
-                    selectinload(models.Book.publisher),
+                    selectinload(Book["author"]),
+                    selectinload(Book["publisher"]),
                 )
             )
             loaded_book = session.execute(stmt).scalars().one()
@@ -718,7 +715,7 @@ class TestModelDumpWithExcludeInclude:
             stmt = (
                 select(Author)
                 .where(Author["id"] == author_id)
-                .options(selectinload(models.Author.books))
+                .options(selectinload(Author["books"]))
             )
             loaded_author = session.execute(stmt).scalars().one()
 

@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from arcanus.association import (
     Relation,
     RelationCollection,
+    RelationMap,
+    RelationMaps,
     Relationship,
     Relationships,
 )
@@ -226,6 +228,51 @@ class Book(TestIdMixin, BaseTransmuter):
     detail: Relation[Optional[BookDetail]] = Relationship()
     categories: RelationCollection[Category] = Relationships()
     reviews: RelationCollection[Review] = Relationships()  # Optional 1-M
+
+
+# ShelfItem schema (M-1 with Shelf)
+@sqlalchemy_materia.bless(models.ShelfItem)
+class ShelfItem(TestIdMixin, BaseTransmuter):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    label: str
+    description: str
+    shelf_id: int | None = None
+
+    shelf: Relation[Shelf] = Relationship()
+
+
+# Shelf schema (1-M dict-based with ShelfItem)
+@sqlalchemy_materia.bless(models.Shelf)
+class Shelf(TestIdMixin, BaseTransmuter):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    name: str
+
+    items: RelationMap[str, ShelfItem] = RelationMaps()
+
+
+# Unblessed transmuters for noop RelationMap tests
+class Tag(BaseTransmuter):
+    """Tag model used as dict value."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None)
+    name: str
+
+
+class Catalog(BaseTransmuter):
+    """Catalog with dict-based tag mapping."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None)
+    title: str
+
+    tags: RelationMap[str, Tag] = RelationMaps()
 
 
 class AuthorFlat(BaseTransmuter):

@@ -11,6 +11,7 @@ from typing import (
     Generic,
     Iterable,
     Literal,
+    Mapping,
     Optional,
     ParamSpec,
     Self,
@@ -38,6 +39,7 @@ if TYPE_CHECKING:
     from arcanus.base import Transmuter
 
 A = TypeVar("A")
+K = TypeVar("K")
 T = TypeVar("T", bound="Transmuter")
 Optional_T = TypeVar("Optional_T", bound="Transmuter | Optional[Transmuter]")
 
@@ -1053,7 +1055,395 @@ class RelationSet(set[T], Association[T]):
         return self
 
 
+# built-in types must be put at front to avoid pydantic convert it to built-in types
+class RelationMap(dict[K, T], Association[T]):
+    # new items are held in __payloads__, loaded items are kept in the dict itself
+    __payloads__: dict[K, T]
+    __key_type__: Type[K]
+
+    @classmethod
+    def __get_pydantic_generic_schema__(
+        cls,
+        key_type: Type[K],
+        value_type: Type[T],
+        handler: GetCoreSchemaHandler,
+    ) -> core_schema.CoreSchema:
+        return core_schema.dict_schema(
+            keys_schema=handler.generate_schema(key_type),
+            values_schema=handler.generate_schema(value_type),
+        )
+
+    @classmethod
+    def __get_pydantic_serialize_schema__(
+        cls,
+        key_type: Type[K],
+        value_type: Type[T],
+        handler: GetCoreSchemaHandler,
+    ) -> core_schema.SerSchema | None:
+        def serialize(association: RelationMap[K, T], serializer) -> Any:
+            fields_set = getattr(
+                association.__instance__, "__pydantic_fields_set__", None
+            )
+            if (
+                association.__instance__
+                and fields_set is not None
+                and association.field_name in fields_set
+            ):
+                return serializer(dict(association.copy()))
+            return serializer(dict(dict.copy(association)))
+
+        return core_schema.wrap_serializer_function_ser_schema(
+            serialize,
+            schema=core_schema.dict_schema(
+                keys_schema=handler.generate_schema(key_type),
+                values_schema=handler.generate_schema(value_type),
+            ),
+            when_used="always",
+        )
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Type[RelationMap[K, T]], handler: GetCoreSchemaHandler
+    ) -> core_schema.CoreSchema:
+        args = get_args(source_type)
+
+        if not args or len(args) < 2:
+            raise TypeError(
+                f"Two generic types (key, value) must be provided to {source_type}."
+            )
+
+        key_type = args[0]
+        value_type = args[1]
+
+        def validate(
+            value: Any,
+            handler: core_schema.ValidatorFunctionWrapHandler,
+            info: core_schema.ValidationInfo,
+        ) -> RelationMap[K, T]:
+            if value is DefferedAssociation:
+                instance = cls()
+            elif type(value) is cls:
+                instance = value
+                instance.__payloads__ = handler(instance.__payloads__)
+            else:
+                instance = cls(handler(value))
+
+            instance.__generic__ = value_type
+            instance.__key_type__ = key_type
+            instance.field_name = info.field_name  # pyright: ignore[reportAttributeAccessIssue]
+
+            return instance
+
+        return core_schema.with_default_schema(
+            core_schema.with_info_wrap_validator_function(
+                validate,
+                cls.__get_pydantic_generic_schema__(key_type, value_type, handler),
+            ),
+            default_factory=cls,
+            serialization=cls.__get_pydantic_serialize_schema__(
+                key_type, value_type, handler
+            ),
+        )
+
+    def __init__(self, payloads: Mapping[K, T] | None = None):
+        super().__init__()
+        self.__instance__ = None
+        self.__loaded__ = False
+        self.__payloads__ = dict(payloads) if payloads else {}
+
+    @property
+    def __provided__(self) -> Any | None:
+        # The return type should be a duck typed dict-like object provided by the current materia provider.
+        # For example, with SQLAlchemyMateria and collection_class=attribute_keyed_dict,
+        # it would be a KeyFuncDict.
+        if not self.__instance_provider__:
+            return None
+        return getattr(self.__instance_provider__, self.used_name)
+
+    @cached_property
+    def __dict_validator__(self) -> TypeAdapter[dict[K, T]]:
+        return get_cached_adapter(dict[self.__key_type__, self.__generic__])
+
+    @overload
+    def bless(self, value: T) -> T: ...
+    @overload
+    def bless(self, value: Mapping[K, Any]) -> dict[K, T]: ...
+    @overload
+    def bless(self, value: Any) -> T: ...
+    def bless(self, value: Any | Mapping[K, Any]) -> T | dict[K, T]:
+        """Bless the value into the generic type."""
+        if isinstance(value, Mapping) and not isinstance(
+            value, get_origin(self.__generic__) or self.__generic__
+        ):
+            return self.__dict_validator__.validate_python(value)
+        else:
+            return self.__validator__.validate_python(value)
+
+    def prepare(self, instance: Transmuter, field_name: str):
+        if self.__instance__ is not None:
+            return
+
+        self.field_name = field_name
+        self.field_info = type(instance).__pydantic_fields__[field_name]
+
+        self.__instance__ = instance
+
+        annotation = self.field_info.annotation
+        if isinstance(annotation, ForwardRef):
+            resolved_hints = get_type_hints(type(instance))
+            actual_type = resolved_hints[field_name]
+            args = get_args(actual_type)
+        else:
+            args = get_args(annotation)
+
+        self.__key_type__ = args[0]
+        self.__generic__ = args[1]
+
+        if self.__payloads__:
+            # manually enforce loading first to remove duplicates in payloads
+            # objects already assigned to the relationship may be added to payloads during revalidation
+            self._load()
+            self.update(self.__payloads__)
+            self.__payloads__.clear()
+
+    @staticmethod
+    def ensure_loaded(
+        func: Callable[Concatenate[RelationMap[K, T], P], R],
+    ) -> Callable[Concatenate[RelationMap[K, T], P], R]:
+        @wraps(func)
+        def wrapper(self: RelationMap[K, T], *args: P.args, **kwargs: P.kwargs) -> R:
+            self._load()
+            return func(self, *args, **kwargs)
+
+        return wrapper
+
+    def _load(self):
+        # maybe during deepcopy from field default
+        if not self.__instance__:
+            return self
+
+        # or the relationship is already loaded
+        if self.__loaded__:
+            return self
+
+        active_materia.get().load_association(self)
+
+        # A: No provided, None
+        # B: provided value is empty, {}
+        if not self.__provided__:
+            return self
+
+        # Remove payloads whose provider is already in __provided__
+        provided_values = set(self.__provided__.values())
+        self.__payloads__ = {
+            k: v
+            for k, v in self.__payloads__.items()
+            if v.__transmuter_provided__ not in provided_values
+        }
+
+        if len(self.__provided__) != super().__len__():
+            # If the length of __provided__ is not equal to the length of self,
+            # it means some items were not blessed into transmuter objects.
+            super().clear()
+            super().update(self.bless(self.__provided__))
+        self.__loaded__ = True
+
+        return self
+
+    async def _aload(self):
+        # maybe during deepcopy from field default
+        if not self.__instance__:
+            return self
+
+        # or the relationship is already loaded
+        if self.__loaded__:
+            return self
+
+        # A: No provided, None
+        # B: provided value is empty, {}
+        if not (provided := await active_materia.get().aload_association(self)):
+            return self
+
+        # Remove payloads whose provider is already in provided
+        provided_values = set(provided.values())
+        self.__payloads__ = {
+            k: v
+            for k, v in self.__payloads__.items()
+            if v.__transmuter_provided__ not in provided_values
+        }
+
+        if len(provided) != super().__len__():
+            # If the length of __provided__ is not equal to the length of self,
+            # it means some items were not blessed into transmuter objects.
+            super().clear()
+            super().update(self.bless(provided))
+        self.__loaded__ = True
+
+        return self
+
+    def __await__(self):
+        return self._aload().__await__()
+
+    @ensure_loaded
+    def __getitem__(self, key: K) -> T:
+        return super().__getitem__(key)
+
+    @ensure_loaded
+    def __iter__(self):
+        return super().__iter__()
+
+    @ensure_loaded
+    def __len__(self):
+        return super().__len__()
+
+    @ensure_loaded
+    def __contains__(self, key: object) -> bool:
+        return super().__contains__(key)
+
+    @ensure_loaded
+    def __bool__(self):
+        return super().__len__() > 0
+
+    @ensure_loaded
+    def __setitem__(self, key: K, value: T) -> None:
+        value = self.bless(value)
+        if self.__provided__ is not None:
+            self.__provided__[key] = (
+                value.__transmuter_provided__
+                if hasattr(value, "__transmuter_provided__")
+                else value
+            )
+        super().__setitem__(key, value)
+
+    @ensure_loaded
+    def __delitem__(self, key: K) -> None:
+        if self.__provided__ is not None:
+            try:
+                del self.__provided__[key]
+            except (KeyError, TypeError):
+                # The provided dict may use different keys (e.g. ORM objects as values)
+                # Try to remove by finding the matching value
+                item = super().__getitem__(key)
+                if hasattr(item, "__transmuter_provided__"):
+                    for pk, pv in list(self.__provided__.items()):
+                        if pv is item.__transmuter_provided__:
+                            del self.__provided__[pk]
+                            break
+        super().__delitem__(key)
+
+    def __repr__(self):
+        return f"RelationMap[{self.__key_type__.__name__}, {self.__generic__.__name__}], instance={id(self.__instance__)}, size={super().__len__()}"
+
+    @ensure_loaded
+    def __str__(self):
+        return super().__str__()
+
+    @ensure_loaded
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, RelationMap):
+            return dict.__eq__(self, other)
+        if isinstance(other, dict):
+            return dict.__eq__(self, other)
+        return False
+
+    @ensure_loaded
+    def __ne__(self, other: object) -> bool:
+        if isinstance(other, RelationMap):
+            return dict.__ne__(self, other)
+        if isinstance(other, dict):
+            return dict.__ne__(self, other)
+        return True
+
+    @ensure_loaded
+    def __or__(self, other: Mapping[K, T]) -> dict[K, T]:
+        return dict.__or__(dict.copy(self), dict(other))
+
+    @ensure_loaded
+    def __ior__(self, other: Mapping[K, T]) -> Self:
+        self.update(other)
+        return self
+
+    @ensure_loaded
+    def __reversed__(self):
+        return super().__reversed__()
+
+    @ensure_loaded
+    def get(self, key: K, default: T | None = None) -> T | None:
+        return super().get(key, default)
+
+    @ensure_loaded
+    def keys(self):
+        return super().keys()
+
+    @ensure_loaded
+    def values(self):
+        return super().values()
+
+    @ensure_loaded
+    def items(self):
+        return super().items()
+
+    @ensure_loaded
+    def pop(self, key: K, *args: Any) -> T:
+        """Remove specified key and return the corresponding value."""
+        item = super().pop(key, *args)
+        if self.__provided__ is not None and hasattr(item, "__transmuter_provided__"):
+            # Remove from provided by value identity
+            for pk, pv in list(self.__provided__.items()):
+                if pv is item.__transmuter_provided__:
+                    del self.__provided__[pk]
+                    break
+        return item
+
+    @ensure_loaded
+    def popitem(self) -> tuple[K, T]:
+        """Remove and return an arbitrary (key, value) pair. Raises KeyError if empty."""
+        key, item = super().popitem()
+        if self.__provided__ is not None and hasattr(item, "__transmuter_provided__"):
+            for pk, pv in list(self.__provided__.items()):
+                if pv is item.__transmuter_provided__:
+                    del self.__provided__[pk]
+                    break
+        return key, item
+
+    @ensure_loaded
+    def update(self, *args: Mapping[K, T] | Iterable[tuple[K, T]], **kwargs: T) -> None:
+        """Update the dict with key-value pairs."""
+        if args:
+            other = args[0]
+            if isinstance(other, Mapping):
+                blessed = self.bless(other)
+                for key, value in blessed.items():
+                    self[key] = value
+            else:
+                for key, value in other:
+                    self[key] = self.bless(value)
+        for key, value in kwargs.items():
+            self[key] = self.bless(value)
+
+    @ensure_loaded
+    def setdefault(self, key: K, default: T | None = None) -> T:
+        """If key is not in the dict, insert key with the default value."""
+        if key not in self:
+            if default is not None:
+                self[key] = default
+        return super().__getitem__(key)
+
+    @ensure_loaded
+    def clear(self) -> None:
+        """Remove all items."""
+        if self.__provided__ is not None:
+            self.__provided__.clear()
+        super().clear()
+
+    @ensure_loaded
+    def copy(self) -> dict[K, T]:
+        return super().copy()
+
+
 Relationship = partial(Field, default_factory=Relation, frozen=True)
+
+RelationMaps = partial(Field, default_factory=RelationMap, frozen=True)
 
 
 @overload

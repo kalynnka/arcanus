@@ -48,10 +48,8 @@ class TestResultScalars:
             session.flush()
 
             # Select multiple columns
-            from tests import models
-
-            stmt = select(models.Author.id, models.Author.name).where(
-                models.Author.name == "Multi Col Test"
+            stmt = select(Author["id"], Author["name"]).where(
+                Author["name"] == "Multi Col Test"
             )
             result = session.execute(stmt)
 
@@ -153,11 +151,9 @@ class TestResultUnique:
             session.flush()
 
             # Query with joined load creates duplicates
-            from tests import models
-
             stmt = (
                 select(Book)
-                .join(models.Book.categories)
+                .join(Book["categories"])
                 .where(Book["title"] == "Unique Test Book")
             )
             result = session.execute(stmt)
@@ -190,12 +186,10 @@ class TestResultUnique:
             session.expunge_all()
 
             # Query with selectinload (no duplicates)
-            from tests import models
-
             stmt = (
                 select(Book)
                 .where(Book["id"] == book.id)
-                .options(selectinload(models.Book.categories))
+                .options(selectinload(Book["categories"]))
             )
             result = session.execute(stmt)
 
@@ -300,8 +294,6 @@ class TestResultMappings:
             session.add(Author(name="Column Mapping", field="History"))
             session.flush()
 
-            from tests import models
-
             stmt = select(
                 Author["id"],
                 Author["name"],
@@ -314,8 +306,8 @@ class TestResultMappings:
 
             row = rows[0]
             # Should be able to access by column
-            assert row[models.Author.name] == "Column Mapping"
-            assert row[models.Author.field] == "History"
+            assert row[Author["name"]] == "Column Mapping"
+            assert row[Author["field"]] == "History"
 
     def test_mappings_one(self, engine: Engine):
         """Test mappings().one()."""
@@ -419,12 +411,10 @@ class TestResultChaining:
             session.add(book)
             session.flush()
 
-            from tests import models
-
             # Join creates duplicates
             stmt = (
                 select(Book)
-                .join(models.Book.categories)
+                .join(Book["categories"])
                 .where(Book["title"] == "Chain Book")
             )
             result = session.execute(stmt)

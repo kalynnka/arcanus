@@ -21,7 +21,6 @@ from sqlalchemy.orm import joinedload, raiseload, selectinload
 
 from arcanus.association import Relation, RelationCollection
 from arcanus.materia.sqlalchemy import Session
-from tests import models
 from tests.transmuters import (
     Author,
     Book,
@@ -478,7 +477,7 @@ class TestEagerLoading:
             stmt = (
                 select(Book)
                 .where(Book["id"].in_([book.id for book in books]))
-                .options(selectinload(models.Book.author))
+                .options(selectinload(Book["author"]))
             )
             books = session.execute(stmt).scalars().all()
 
@@ -515,7 +514,7 @@ class TestEagerLoading:
             stmt = (
                 select(Author)
                 .where(Author["id"] == author.id)
-                .options(joinedload(models.Author.books))
+                .options(joinedload(Author["books"]))
             )
             loaded_author = session.execute(stmt).scalars().unique().one()
 
@@ -560,7 +559,7 @@ class TestEagerLoading:
             stmt = (
                 select(Book)
                 .where(Book["id"].in_(book_ids))
-                .options(selectinload(models.Book.categories))
+                .options(selectinload(Book["categories"]))
             )
             books = session.execute(stmt).scalars().all()
 
@@ -668,7 +667,7 @@ class TestRaiseOnSQLBehavior:
             stmt = (
                 select(Book)
                 .where(Book["id"] == book.id)
-                .options(raiseload(models.Book.author))
+                .options(raiseload(Book["author"]))
             )
             loaded_book = session.execute(stmt).scalars().one()
 
@@ -701,7 +700,7 @@ class TestRaiseOnSQLBehavior:
             stmt = (
                 select(Author)
                 .where(Author["id"] == author.id)
-                .options(raiseload(models.Author.books))
+                .options(raiseload(Author["books"]))
             )
             loaded_author = session.execute(stmt).scalars().one()
 
@@ -800,13 +799,13 @@ class TestComplexRelationshipQueries:
             # Query books with specific author field, category, and page count
             stmt = (
                 select(Book)
-                .join(models.Author)
-                .join(models.BookDetail)
-                .join(models.Book.categories)
+                .join(Author)
+                .join(BookDetail)
+                .join(Book["categories"])
                 .where(
-                    models.Author.field == "Astronomy",
-                    models.Category.name == "Astronomy",
-                    models.BookDetail.pages >= 300,
+                    Author["field"] == "Astronomy",
+                    Category["name"] == "Astronomy",
+                    BookDetail["pages"] >= 300,
                 )
             )
 
@@ -843,9 +842,9 @@ class TestComplexRelationshipQueries:
                 select(Book)
                 .where(Book["id"] == book.id)
                 .options(
-                    selectinload(models.Book.author),
-                    selectinload(models.Book.detail),
-                    selectinload(models.Book.publisher),
+                    selectinload(Book["author"]),
+                    selectinload(Book["detail"]),
+                    selectinload(Book["publisher"]),
                 )
             )
 
@@ -895,7 +894,7 @@ class TestAutoflushBeforeRelationshipLoading:
                 stmt = (
                     select(Author)
                     .where(Author["id"] == author.id)
-                    .options(selectinload(models.Author.books))
+                    .options(selectinload(Author["books"]))
                 )
                 loaded_author = session.execute(stmt).scalars().one()
 
@@ -930,7 +929,7 @@ class TestAutoflushBeforeRelationshipLoading:
                 stmt = (
                     select(Book)
                     .where(Book["id"] == book.id)
-                    .options(selectinload(models.Book.author))
+                    .options(selectinload(Book["author"]))
                 )
                 loaded_book = session.execute(stmt).scalars().one()
 
@@ -973,7 +972,7 @@ class TestAutoflushBeforeRelationshipLoading:
                 stmt = (
                     select(Book)
                     .where(Book["id"] == book.id)
-                    .options(selectinload(models.Book.categories))
+                    .options(selectinload(Book["categories"]))
                 )
                 loaded_book = session.execute(stmt).scalars().one()
 
@@ -1013,7 +1012,7 @@ class TestAutoflushBeforeRelationshipLoading:
                 stmt = (
                     select(Book)
                     .where(Book["id"] == book.id)
-                    .options(selectinload(models.Book.detail))
+                    .options(selectinload(Book["detail"]))
                 )
                 loaded_book = session.execute(stmt).scalars().one()
 
@@ -1051,7 +1050,7 @@ class TestAutoflushBeforeRelationshipLoading:
                 stmt = (
                     select(Author)
                     .where(Author["id"] == author.id)
-                    .options(joinedload(models.Author.books))
+                    .options(joinedload(Author["books"]))
                 )
                 loaded_author = session.execute(stmt).scalars().unique().one()
 
@@ -1090,7 +1089,7 @@ class TestAutoflushBeforeRelationshipLoading:
                 stmt = (
                     select(Author)
                     .where(Author["id"] == author.id)
-                    .options(selectinload(models.Author.books))
+                    .options(selectinload(Author["books"]))
                 )
                 session.execute(stmt).scalars().one()
 
@@ -1134,7 +1133,7 @@ class TestSelectinloadWithORMRelationships:
                 stmt = (
                     select(Author)
                     .where(Author["id"] == author.id)
-                    .options(selectinload(models.Author.books))
+                    .options(selectinload(Author["books"]))
                 )
                 loaded_author = session.execute(stmt).scalars().one()
 
@@ -1173,7 +1172,7 @@ class TestSelectinloadWithORMRelationships:
                 stmt = (
                     select(Book)
                     .where(Book["id"].in_(book_ids))
-                    .options(selectinload(models.Book.author))
+                    .options(selectinload(Book["author"]))
                 )
                 books = session.execute(stmt).scalars().all()
 
@@ -1219,7 +1218,7 @@ class TestSelectinloadWithORMRelationships:
                 stmt = (
                     select(Book)
                     .where(Book["id"].in_(book_ids))
-                    .options(selectinload(models.Book.categories))
+                    .options(selectinload(Book["categories"]))
                 )
                 books = session.execute(stmt).scalars().all()
 
@@ -1263,7 +1262,7 @@ class TestSelectinloadWithORMRelationships:
                 stmt = (
                     select(Book)
                     .where(Book["id"].in_(book_ids))
-                    .options(selectinload(models.Book.detail))
+                    .options(selectinload(Book["detail"]))
                 )
                 books = session.execute(stmt).scalars().all()
 
@@ -1361,10 +1360,10 @@ class TestSelectinloadWithORMRelationships:
                     select(Book)
                     .where(Book["id"] == book.id)
                     .options(
-                        selectinload(models.Book.author),
-                        selectinload(models.Book.publisher),
-                        selectinload(models.Book.detail),
-                        selectinload(models.Book.categories),
+                        selectinload(Book["author"]),
+                        selectinload(Book["publisher"]),
+                        selectinload(Book["detail"]),
+                        selectinload(Book["categories"]),
                     )
                 )
                 loaded_book = session.execute(stmt).scalars().one()
@@ -1414,7 +1413,7 @@ class TestSelectinloadWithORMRelationships:
             stmt = (
                 select(Book)
                 .where(Book["id"] == book_ids[0])
-                .options(selectinload(models.Book.categories))
+                .options(selectinload(Book["categories"]))
             )
             loaded_book = session.execute(stmt).scalars().one()
 
@@ -1452,7 +1451,7 @@ class TestSelectinloadWithORMRelationships:
             stmt = (
                 select(Author)
                 .where(Author["id"] == author.id)
-                .options(selectinload(models.Author.books))
+                .options(selectinload(Author["books"]))
             )
             loaded_author = session.execute(stmt).scalars().one()
 

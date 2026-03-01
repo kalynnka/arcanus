@@ -1,6 +1,8 @@
 from arcanus.association import (
     Relation,
     RelationCollection,
+    RelationMap,
+    RelationMaps,
     RelationSet,
     Relationship,
     Relationships,
@@ -15,6 +17,8 @@ __all__ = [
     "Transmuter",
     "Relation",
     "RelationCollection",
+    "RelationMap",
+    "RelationMaps",
     "RelationSet",
     "Relationship",
     "Relationships",
