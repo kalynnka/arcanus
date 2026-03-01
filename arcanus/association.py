@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from arcanus.base import Transmuter
 
 A = TypeVar("A")
+D = TypeVar("D")
 K = TypeVar("K")
 T = TypeVar("T", bound="Transmuter")
 Optional_T = TypeVar("Optional_T", bound="Transmuter | Optional[Transmuter]")
@@ -615,27 +616,18 @@ class RelationCollection(list[T], Association[T]):
         return super().__reversed__()
 
     @ensure_loaded
-    def append(self, object: T):
-        object = self.bless(object)
+    def append(self, value: T):
+        value = self.bless(value)
         if self.__provided__ is not None:
-            self.__provided__.append(
-                object.__transmuter_provided__
-                if hasattr(object, "__transmuter_provided__")
-                else object
-            )
-        super().append(object)
+            self.__provided__.append(value.__transmuter_provided__)
+        super().append(value)
 
     @ensure_loaded
     def extend(self, iterable: Iterable[T]):
         iterable = self.bless(iterable)
         if self.__provided__ is not None:
             self.__provided__.extend(
-                (
-                    item.__transmuter_provided__
-                    if hasattr(item, "__transmuter_provided__")
-                    else item
-                    for item in iterable
-                )
+                (item.__transmuter_provided__ for item in iterable)
             )
         super().extend(iterable)
 
@@ -881,11 +873,7 @@ class RelationSet(set[T], Association[T]):
         if item in self:
             return
         if self.__provided__ is not None:
-            provided = (
-                item.__transmuter_provided__
-                if hasattr(item, "__transmuter_provided__")
-                else item
-            )
+            provided = item.__transmuter_provided__
             self.__provided__.add(provided)
         super().add(item)
 
@@ -894,14 +882,14 @@ class RelationSet(set[T], Association[T]):
         """Remove an element if present."""
         if item not in self:
             return
-        if self.__provided__ is not None and hasattr(item, "__transmuter_provided__"):
+        if self.__provided__ is not None:
             self.__provided__.discard(item.__transmuter_provided__)
         super().discard(item)
 
     @ensure_loaded
     def remove(self, item: T) -> None:
         """Remove an element. Raises KeyError if not present."""
-        if self.__provided__ is not None and hasattr(item, "__transmuter_provided__"):
+        if self.__provided__ is not None:
             self.__provided__.discard(item.__transmuter_provided__)
         super().remove(item)
 
@@ -909,7 +897,7 @@ class RelationSet(set[T], Association[T]):
     def pop(self) -> T:
         """Remove and return an arbitrary element. Raises KeyError if empty."""
         item = super().pop()
-        if self.__provided__ is not None and hasattr(item, "__transmuter_provided__"):
+        if self.__provided__ is not None:
             self.__provided__.discard(item.__transmuter_provided__)
         return item
 
@@ -1152,7 +1140,7 @@ class RelationMap(dict[K, T], Association[T]):
         self.__payloads__ = dict(payloads) if payloads else {}
 
     @property
-    def __provided__(self) -> Any | None:
+    def __provided__(self) -> dict | None:
         # The return type should be a duck typed dict-like object provided by the current materia provider.
         # For example, with SQLAlchemyMateria and collection_class=attribute_keyed_dict,
         # it would be a KeyFuncDict.
@@ -1164,20 +1152,21 @@ class RelationMap(dict[K, T], Association[T]):
     def __dict_validator__(self) -> TypeAdapter[dict[K, T]]:
         return get_cached_adapter(dict[self.__key_type__, self.__generic__])
 
-    @overload
-    def bless(self, value: T) -> T: ...
-    @overload
-    def bless(self, value: Mapping[K, Any]) -> dict[K, T]: ...
-    @overload
-    def bless(self, value: Any) -> T: ...
-    def bless(self, value: Any | Mapping[K, Any]) -> T | dict[K, T]:
-        """Bless the value into the generic type."""
-        if isinstance(value, Mapping) and not isinstance(
-            value, get_origin(self.__generic__) or self.__generic__
-        ):
-            return self.__dict_validator__.validate_python(value)
-        else:
-            return self.__validator__.validate_python(value)
+    @cached_property
+    def __key_validator__(self) -> TypeAdapter[K]:
+        return get_cached_adapter(self.__key_type__)
+
+    def bless_key(self, key: Any) -> K:
+        """Validate and coerce a key into the key type."""
+        return self.__key_validator__.validate_python(key)
+
+    def bless_value(self, value: Any) -> T:
+        """Validate and coerce a single value into the value type."""
+        return self.__validator__.validate_python(value)
+
+    def bless(self, value: Mapping[K, Any]) -> dict[K, T]:
+        """Validate and coerce an entire dict/mapping into dict[K, T]."""
+        return self.__dict_validator__.validate_python(value)
 
     def prepare(self, instance: Transmuter, field_name: str):
         if self.__instance__ is not None:
@@ -1233,12 +1222,9 @@ class RelationMap(dict[K, T], Association[T]):
         if not self.__provided__:
             return self
 
-        # Remove payloads whose provider is already in __provided__
-        provided_values = set(self.__provided__.values())
+        # Remove payloads whose key is already in __provided__
         self.__payloads__ = {
-            k: v
-            for k, v in self.__payloads__.items()
-            if v.__transmuter_provided__ not in provided_values
+            k: v for k, v in self.__payloads__.items() if k not in self.__provided__
         }
 
         if len(self.__provided__) != super().__len__():
@@ -1264,12 +1250,9 @@ class RelationMap(dict[K, T], Association[T]):
         if not (provided := await active_materia.get().aload_association(self)):
             return self
 
-        # Remove payloads whose provider is already in provided
-        provided_values = set(provided.values())
+        # Remove payloads whose key is already in provided
         self.__payloads__ = {
-            k: v
-            for k, v in self.__payloads__.items()
-            if v.__transmuter_provided__ not in provided_values
+            k: v for k, v in self.__payloads__.items() if k not in provided
         }
 
         if len(provided) != super().__len__():
@@ -1286,6 +1269,7 @@ class RelationMap(dict[K, T], Association[T]):
 
     @ensure_loaded
     def __getitem__(self, key: K) -> T:
+        key = self.bless_key(key)
         return super().__getitem__(key)
 
     @ensure_loaded
@@ -1298,6 +1282,7 @@ class RelationMap(dict[K, T], Association[T]):
 
     @ensure_loaded
     def __contains__(self, key: object) -> bool:
+        key = self.bless_key(key)
         return super().__contains__(key)
 
     @ensure_loaded
@@ -1306,29 +1291,17 @@ class RelationMap(dict[K, T], Association[T]):
 
     @ensure_loaded
     def __setitem__(self, key: K, value: T) -> None:
-        value = self.bless(value)
+        key = self.bless_key(key)
+        value = self.bless_value(value)
         if self.__provided__ is not None:
-            self.__provided__[key] = (
-                value.__transmuter_provided__
-                if hasattr(value, "__transmuter_provided__")
-                else value
-            )
+            self.__provided__[key] = value.__transmuter_provided__
         super().__setitem__(key, value)
 
     @ensure_loaded
     def __delitem__(self, key: K) -> None:
+        key = self.bless_key(key)
         if self.__provided__ is not None:
-            try:
-                del self.__provided__[key]
-            except (KeyError, TypeError):
-                # The provided dict may use different keys (e.g. ORM objects as values)
-                # Try to remove by finding the matching value
-                item = super().__getitem__(key)
-                if hasattr(item, "__transmuter_provided__"):
-                    for pk, pv in list(self.__provided__.items()):
-                        if pv is item.__transmuter_provided__:
-                            del self.__provided__[pk]
-                            break
+            del self.__provided__[key]
         super().__delitem__(key)
 
     def __repr__(self):
@@ -1340,23 +1313,19 @@ class RelationMap(dict[K, T], Association[T]):
 
     @ensure_loaded
     def __eq__(self, other: object) -> bool:
-        if isinstance(other, RelationMap):
-            return dict.__eq__(self, other)
         if isinstance(other, dict):
             return dict.__eq__(self, other)
         return False
 
     @ensure_loaded
     def __ne__(self, other: object) -> bool:
-        if isinstance(other, RelationMap):
-            return dict.__ne__(self, other)
         if isinstance(other, dict):
             return dict.__ne__(self, other)
         return True
 
     @ensure_loaded
     def __or__(self, other: Mapping[K, T]) -> dict[K, T]:
-        return dict.__or__(dict.copy(self), dict(other))
+        return dict.__or__(self.copy(), dict(other))
 
     @ensure_loaded
     def __ior__(self, other: Mapping[K, T]) -> Self:
@@ -1369,7 +1338,7 @@ class RelationMap(dict[K, T], Association[T]):
 
     @ensure_loaded
     def get(self, key: K, default: T | None = None) -> T | None:
-        return super().get(key, default)
+        return super().get(self.bless_key(key), default)
 
     @ensure_loaded
     def keys(self):
@@ -1383,51 +1352,78 @@ class RelationMap(dict[K, T], Association[T]):
     def items(self):
         return super().items()
 
+    @overload
+    def pop(self, key: K) -> T: ...
+
+    @overload
+    def pop(self, key: K, default: T) -> T: ...
+
+    @overload
+    def pop(self, key: K, default: D) -> T | D: ...
+
     @ensure_loaded
-    def pop(self, key: K, *args: Any) -> T:
+    def pop(self, key: K, *args: Any) -> Any:
         """Remove specified key and return the corresponding value."""
+        key = self.bless_key(key)
         item = super().pop(key, *args)
-        if self.__provided__ is not None and hasattr(item, "__transmuter_provided__"):
-            # Remove from provided by value identity
-            for pk, pv in list(self.__provided__.items()):
-                if pv is item.__transmuter_provided__:
-                    del self.__provided__[pk]
-                    break
+        if self.__provided__ is not None:
+            del self.__provided__[key]
         return item
 
     @ensure_loaded
     def popitem(self) -> tuple[K, T]:
         """Remove and return an arbitrary (key, value) pair. Raises KeyError if empty."""
         key, item = super().popitem()
-        if self.__provided__ is not None and hasattr(item, "__transmuter_provided__"):
-            for pk, pv in list(self.__provided__.items()):
-                if pv is item.__transmuter_provided__:
-                    del self.__provided__[pk]
-                    break
+        if self.__provided__ is not None:
+            del self.__provided__[key]
         return key, item
 
-    @ensure_loaded
-    def update(self, *args: Mapping[K, T] | Iterable[tuple[K, T]], **kwargs: T) -> None:
-        """Update the dict with key-value pairs."""
-        if args:
-            other = args[0]
-            if isinstance(other, Mapping):
-                blessed = self.bless(other)
-                for key, value in blessed.items():
-                    self[key] = value
-            else:
-                for key, value in other:
-                    self[key] = self.bless(value)
-        for key, value in kwargs.items():
-            self[key] = self.bless(value)
+    @overload
+    def update(self, m: Mapping[K, T], /, **kwargs: dict[K, T]) -> None: ...
+    @overload
+    def update(self, m: Iterable[tuple[K, T]], /, **kwargs: dict[K, T]) -> None: ...
+    @overload
+    def update(self, **kwargs: T) -> None: ...
 
     @ensure_loaded
-    def setdefault(self, key: K, default: T | None = None) -> T:
+    def update(
+        self,
+        *args: Mapping[K, T] | Iterable[tuple[K, T]],
+        **kwargs: dict[K, T],
+    ) -> None:
+        """Update the dict with key-value pairs."""
+        merged = {}
+        merged.update(kwargs)
+        merged.update()
+        if args:
+            if isinstance(args[0], Mapping):
+                merged.update(args[0])
+            else:
+                merged.update(dict(*args))
+
+        if not merged:
+            return
+
+        blessed = self.bless(merged)
+        if self.__provided__ is not None:
+            self.__provided__.update(
+                {key: value.__transmuter_provided__ for key, value in blessed.items()}
+            )
+        super().update(blessed)
+
+    @overload
+    def setdefault(self, key: K) -> T | None: ...
+    @overload
+    def setdefault(self, key: K, default: T) -> T: ...
+
+    @ensure_loaded
+    def setdefault(self, key: K, default: T | None = None) -> T | None:
         """If key is not in the dict, insert key with the default value."""
+        key = self.bless_key(key)
         if key not in self:
             if default is not None:
                 self[key] = default
-        return super().__getitem__(key)
+        return super().get(key, default)
 
     @ensure_loaded
     def clear(self) -> None:
@@ -1442,7 +1438,6 @@ class RelationMap(dict[K, T], Association[T]):
 
 
 Relationship = partial(Field, default_factory=Relation, frozen=True)
-
 RelationMaps = partial(Field, default_factory=RelationMap, frozen=True)
 
 
