@@ -71,7 +71,7 @@ def is_association(t: type) -> bool:
 
 
 class Association(Generic[A]):
-    __generic__: Type[A]
+    __args__: tuple[type, ...]
     __instance__: Transmuter | None
     __loaded__: bool
     __payloads__: A | None
@@ -130,7 +130,7 @@ class Association(Generic[A]):
             else:
                 instance = cls(handler(value))
 
-            instance.__generic__ = generic_type
+            instance.__args__ = (generic_type,)
             instance.field_name = info.field_name  # pyright: ignore[reportAttributeAccessIssue]
             # instance = materia.association_after_validator(instance, info)
 
@@ -158,7 +158,7 @@ class Association(Generic[A]):
 
     @cached_property
     def __validator__(self) -> TypeAdapter[A]:
-        return get_cached_adapter(self.__generic__)
+        return get_cached_adapter(self.__args__[0])
 
     @cached_property
     def used_name(self) -> str:
@@ -199,9 +199,9 @@ class Association(Generic[A]):
         if isinstance(annotation, ForwardRef):
             resolved_hints = get_type_hints(type(instance))
             actual_type = resolved_hints[field_name]
-            self.__generic__ = get_args(actual_type)[0]
+            self.__args__ = (get_args(actual_type)[0],)
         else:
-            self.__generic__ = get_args(annotation)[0]
+            self.__args__ = (get_args(annotation)[0],)
 
     def bless(self, value: Any) -> Any:
         """Bless the value into the generic type."""
@@ -397,7 +397,7 @@ class RelationCollection(list[T], Association[T]):
 
     @cached_property
     def __list_validator__(self) -> TypeAdapter[list[T]]:
-        return get_cached_adapter(list[self.__generic__])
+        return get_cached_adapter(list[self.__args__[0]])
 
     @overload
     def bless(self, value: T) -> T: ...
@@ -408,7 +408,7 @@ class RelationCollection(list[T], Association[T]):
     def bless(self, value: Any | Iterable[Any]) -> T | Iterable[T]:
         """Bless the value into the generic type."""
         is_iterable = isinstance(value, Iterable) and not isinstance(
-            value, get_origin(self.__generic__) or self.__generic__
+            value, get_origin(self.__args__[0]) or self.__args__[0]
         )
 
         if is_iterable:
@@ -605,7 +605,7 @@ class RelationCollection(list[T], Association[T]):
     # @ensure_loaded
     def __repr__(self):
         # return super().__repr__()
-        return f"RelationCollection[{self.__generic__.__name__}], instance={id(self.__instance__)}, size={super().__len__()}"
+        return f"RelationCollection[{self.__args__[0].__name__}], instance={id(self.__instance__)}, size={super().__len__()}"
 
     @ensure_loaded
     def __str__(self):
@@ -737,7 +737,7 @@ class RelationSet(set[T], Association[T]):
 
     @cached_property
     def __set_validator__(self) -> TypeAdapter[set[T]]:
-        return get_cached_adapter(set[self.__generic__])
+        return get_cached_adapter(set[self.__args__[0]])
 
     @overload
     def bless(self, value: T) -> T: ...
@@ -748,7 +748,7 @@ class RelationSet(set[T], Association[T]):
     def bless(self, value: Any | Iterable[Any]) -> T | set[T]:
         """Bless the value into the generic type."""
         is_iterable = isinstance(value, Iterable) and not isinstance(
-            value, get_origin(self.__generic__) or self.__generic__
+            value, get_origin(self.__args__[0]) or self.__args__[0]
         )
 
         if is_iterable:
@@ -860,7 +860,7 @@ class RelationSet(set[T], Association[T]):
         return super().__len__() > 0
 
     def __repr__(self):
-        return f"RelationSet[{self.__generic__.__name__}], instance={id(self.__instance__)}, size={super().__len__()}"
+        return f"RelationSet[{self.__args__[0].__name__}], instance={id(self.__instance__)}, size={super().__len__()}"
 
     @ensure_loaded
     def __str__(self):
@@ -1046,8 +1046,8 @@ class RelationSet(set[T], Association[T]):
 # built-in types must be put at front to avoid pydantic convert it to built-in types
 class RelationMap(dict[K, T], Association[T]):
     # new items are held in __payloads__, loaded items are kept in the dict itself
+    # __args__[0] = key type (K), __args__[1] = value type (T)
     __payloads__: dict[K, T]
-    __key_type__: Type[K]
 
     @classmethod
     def __get_pydantic_generic_schema__(
@@ -1116,8 +1116,7 @@ class RelationMap(dict[K, T], Association[T]):
             else:
                 instance = cls(handler(value))
 
-            instance.__generic__ = value_type
-            instance.__key_type__ = key_type
+            instance.__args__ = (key_type, value_type)
             instance.field_name = info.field_name  # pyright: ignore[reportAttributeAccessIssue]
 
             return instance
@@ -1149,12 +1148,16 @@ class RelationMap(dict[K, T], Association[T]):
         return getattr(self.__instance_provider__, self.used_name)
 
     @cached_property
+    def __validator__(self) -> TypeAdapter[T]:
+        return get_cached_adapter(self.__args__[1])
+
+    @cached_property
     def __dict_validator__(self) -> TypeAdapter[dict[K, T]]:
-        return get_cached_adapter(dict[self.__key_type__, self.__generic__])
+        return get_cached_adapter(dict[self.__args__[0], self.__args__[1]])
 
     @cached_property
     def __key_validator__(self) -> TypeAdapter[K]:
-        return get_cached_adapter(self.__key_type__)
+        return get_cached_adapter(self.__args__[0])
 
     def bless_key(self, key: Any) -> K:
         """Validate and coerce a key into the key type."""
@@ -1185,8 +1188,7 @@ class RelationMap(dict[K, T], Association[T]):
         else:
             args = get_args(annotation)
 
-        self.__key_type__ = args[0]
-        self.__generic__ = args[1]
+        self.__args__ = (args[0], args[1])
 
         if self.__payloads__:
             # manually enforce loading first to remove duplicates in payloads
@@ -1305,7 +1307,7 @@ class RelationMap(dict[K, T], Association[T]):
         super().__delitem__(key)
 
     def __repr__(self):
-        return f"RelationMap[{self.__key_type__.__name__}, {self.__generic__.__name__}], instance={id(self.__instance__)}, size={super().__len__()}"
+        return f"RelationMap[{self.__args__[0].__name__}, {self.__args__[1].__name__}], instance={id(self.__instance__)}, size={super().__len__()}"
 
     @ensure_loaded
     def __str__(self):
