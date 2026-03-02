@@ -1385,9 +1385,9 @@ class RelationMap(dict[K, T], Association[T]):
         return key, item
 
     @overload
-    def update(self, m: Mapping[K, T], /, **kwargs: dict[K, T]) -> None: ...
+    def update(self, m: Mapping[K, T], /, **kwargs: T) -> None: ...
     @overload
-    def update(self, m: Iterable[tuple[K, T]], /, **kwargs: dict[K, T]) -> None: ...
+    def update(self, m: Iterable[tuple[K, T]], /, **kwargs: T) -> None: ...
     @overload
     def update(self, **kwargs: T) -> None: ...
 
@@ -1395,10 +1395,10 @@ class RelationMap(dict[K, T], Association[T]):
     def update(
         self,
         *args: Mapping[K, T] | Iterable[tuple[K, T]],
-        **kwargs: dict[K, T],
+        **kwargs: T,
     ) -> None:
         """Update the dict with key-value pairs."""
-        merged: dict[K, T] = {}
+        merged = {}
         if args:
             if isinstance(args[0], Mapping):
                 merged.update(args[0])
