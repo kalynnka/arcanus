@@ -1394,14 +1394,14 @@ class RelationMap(dict[K, T], Association[T]):
         **kwargs: dict[K, T],
     ) -> None:
         """Update the dict with key-value pairs."""
-        merged = {}
-        merged.update(kwargs)
-        merged.update()
+        merged: dict[K, T] = {}
         if args:
             if isinstance(args[0], Mapping):
                 merged.update(args[0])
             else:
                 merged.update(dict(*args))
+        if kwargs:
+            merged.update(kwargs)
 
         if not merged:
             return
