@@ -1307,7 +1307,11 @@ class RelationMap(dict[K, T], Association[T]):
         super().__delitem__(key)
 
     def __repr__(self):
-        return f"RelationMap[{self.__args__[0].__name__}, {self.__args__[1].__name__}], instance={id(self.__instance__)}, size={super().__len__()}"
+        key_type = self.__args__[0]
+        value_type = self.__args__[1]
+        key_name = getattr(key_type, "__name__", repr(key_type))
+        value_name = getattr(value_type, "__name__", repr(value_type))
+        return f"RelationMap[{key_name}, {value_name}], instance={id(self.__instance__)}, size={super().__len__()}"
 
     @ensure_loaded
     def __str__(self):
