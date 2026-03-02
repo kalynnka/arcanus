@@ -988,7 +988,7 @@ class RelationSet(set[T], Association[T]):
             return set.__ne__(self, other)
         if isinstance(other, (set, frozenset)):
             return set.__ne__(self, other)
-        return False
+        return True
 
     @ensure_loaded
     def __le__(self, other: set[T]) -> bool:
