@@ -988,7 +988,7 @@ class RelationSet(set[T], Association[T]):
             return set.__ne__(self, other)
         if isinstance(other, (set, frozenset)):
             return set.__ne__(self, other)
-        return False
+        return True
 
     @ensure_loaded
     def __le__(self, other: set[T]) -> bool:
@@ -1307,7 +1307,11 @@ class RelationMap(dict[K, T], Association[T]):
         super().__delitem__(key)
 
     def __repr__(self):
-        return f"RelationMap[{self.__args__[0].__name__}, {self.__args__[1].__name__}], instance={id(self.__instance__)}, size={super().__len__()}"
+        key_type = self.__args__[0]
+        value_type = self.__args__[1]
+        key_name = getattr(key_type, "__name__", repr(key_type))
+        value_name = getattr(value_type, "__name__", repr(value_type))
+        return f"RelationMap[{key_name}, {value_name}], instance={id(self.__instance__)}, size={super().__len__()}"
 
     @ensure_loaded
     def __str__(self):
@@ -1394,14 +1398,14 @@ class RelationMap(dict[K, T], Association[T]):
         **kwargs: dict[K, T],
     ) -> None:
         """Update the dict with key-value pairs."""
-        merged = {}
-        merged.update(kwargs)
-        merged.update()
+        merged: dict[K, T] = {}
         if args:
             if isinstance(args[0], Mapping):
                 merged.update(args[0])
             else:
                 merged.update(dict(*args))
+        if kwargs:
+            merged.update(kwargs)
 
         if not merged:
             return
