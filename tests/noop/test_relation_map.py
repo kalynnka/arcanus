@@ -483,7 +483,7 @@ class TestRelationMapLiteralKeys:
     def test_valid_literal_key_get(self):
         cat = LabeledCatalog(id=1, title="Test")
         cat.tags["rust"] = Tag(id=1, name="rs")
-        assert cat.tags.get("rust").name == "rs"
+        assert cat.tags["rust"].name == "rs"
         assert cat.tags.get("python") is None
 
     def test_invalid_literal_key_get_raises(self):
