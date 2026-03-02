@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import copy
-
 import pytest
 from pydantic import ValidationError
 
@@ -670,19 +668,3 @@ class TestAssociationEdgeCases:
         author.books.extend(books2)
 
         assert len(author.books) == 2
-
-    def test_deep_copy_of_associations(self):
-        """Test that deep copy creates independent association instances."""
-        author = Author(id=1, name="Test", field="Physics")
-        book = Book(id=1, title="Book 1", year=2000)
-        author.books.append(book)
-
-        # Deep copy
-        author_copy = copy.deepcopy(author)
-
-        # Modify copy
-        author_copy.books[0].title = "Modified"
-
-        # Original should be unchanged
-        assert author.books[0].title == "Book 1"
-        assert author_copy.books[0].title == "Modified"

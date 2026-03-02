@@ -13,7 +13,6 @@ from typing import (
     Protocol,
     Self,
     TypeVar,
-    cast,
     dataclass_transform,
     get_origin,
     get_type_hints,
@@ -97,43 +96,10 @@ class Identity:
     """Marker class for identity fields that could not be set in creation and immutable."""
 
 
-@runtime_checkable
-class TransmuterProtocol(Protocol):
-    """Structural typing protocol for transmuter instances.
-
-    Defines the public interface that all transmuters expose.  Use this
-    for ``isinstance`` checks and type annotations that accept any
-    transmuter regardless of its base class.
-
-    Class-level attributes (``__pydantic_fields__``, ``Create``, etc.)
-    are intentionally omitted because pyright cannot structurally match
-    ``ClassVar`` fields in protocols.  Use :class:`Transmuter` (or
-    the ``Transmuter`` alias) for full static access.
-    """
-
-    __pydantic_fields__: ClassVar[dict[str, FieldInfo]]
-    __pydantic_validator__: ClassVar[SchemaValidator]
-    __transmuter_is_dataclass__: ClassVar[bool]
-    __transmuter_complete__: ClassVar[bool]
-    __transmuter_provider__: ClassVar[type[TransmuterProxied] | None]
-    __transmuter_provided__: TransmuterProxied | None
-    __transmuter_revalidating__: bool
-    model_associations: ClassVar[dict[str, FieldInfo]]
-    model_identities: ClassVar[dict[str, FieldInfo]]
-    Create: ClassVar[type[BaseModel]]
-    Update: ClassVar[type[BaseModel]]
-
-    @classmethod
-    def shell(cls, create_partial: BaseModel) -> Self: ...
-    def absorb(self, update_partial: BaseModel) -> Self: ...
-    def revalidate(self) -> Self: ...
-
-
-@dataclass_transform(
-    field_specifiers=(Field, PrivateAttr, NoInitField),
-)
 class Transmuter:
-    """Mixin providing common transmuter instance methods.
+    """
+    A mixin base providing common transmuter instance methods.
+    All the subclasses should use TransmuterMetaclass as their metaclass.
 
     Shared by both :class:`BaseTransmuter` (BaseModel path) and dataclass
     transmuters.  Uses cooperative ``super()`` so it integrates cleanly with
@@ -160,6 +126,9 @@ class Transmuter:
         model_identities: ClassVar[dict[str, FieldInfo]]
         Create: ClassVar[type[BaseModel]]
         Update: ClassVar[type[BaseModel]]
+
+    def __hash__(self) -> int:
+        return id(self)
 
     def __getattribute__(self, name: str) -> Any:
         value = super().__getattribute__(name)
@@ -215,7 +184,7 @@ class Transmuter:
             precedence in MRO. This branch handles dataclass transmuters using
             ``TypeAdapter``.
             """
-            return get_cached_adapter(cast(TransmuterMetaclass, cls)).validate_python(
+            return get_cached_adapter(cls).validate_python(
                 obj,
                 strict=strict,
                 from_attributes=from_attributes,
@@ -243,12 +212,11 @@ class Transmuter:
             object.__setattr__(instance, "__transmuter_revalidating__", False)
             return instance
 
-        provider = materia[cls]
+        provider = materia[cls]  # type: ignore[assignment]
         if provider is not None and isinstance(data, provider):
             context = validated.get()
             cached = context.get(data)
-
-            instance = cast(Self, cached or data.transmuter_proxy)
+            instance = cached or data.transmuter_proxy  # pyright: ignore[reportAssignmentType]
             if instance is None or instance.__transmuter_revalidating__:
                 loaded = materia.transmuter_before_validator(cls, data, info)
                 # Pydantic dataclasses only accept dicts or the exact dataclass
@@ -272,13 +240,13 @@ class Transmuter:
             instance: Self = handler(data)
             if provider is not None:
                 model_fields = cls.__pydantic_fields__
-                _excl = set(cls.model_associations.keys())
+                excludes = set(cls.model_associations.keys())
                 if isinstance(instance, BaseModel):
-                    included = instance.model_dump(exclude=_excl, by_alias=True)
+                    included = instance.model_dump(exclude=excludes, by_alias=True)
                 else:
-                    included = get_cached_adapter(
-                        cast(TransmuterMetaclass, cls)
-                    ).dump_python(instance, exclude=_excl, by_alias=True)
+                    included = get_cached_adapter(cls).dump_python(
+                        instance, exclude=excludes, by_alias=True
+                    )
                 excluded = {
                     model_fields[name].alias or name: getattr(instance, name)
                     for name in cls.__pydantic_fields__.keys()
@@ -337,6 +305,7 @@ class Transmuter:
 
 
 @dataclass_transform(
+    eq_default=False,
     kw_only_default=True,
     field_specifiers=(Field, PrivateAttr, NoInitField),
 )
@@ -351,7 +320,6 @@ class TransmuterMetaclass(ModelMetaclass):
 
     if TYPE_CHECKING:
         __pydantic_fields__: dict[str, FieldInfo]
-        __hash__: Any  # Override to indicate instances are hashable
 
         model_config: ConfigDict
 
@@ -383,23 +351,27 @@ class TransmuterMetaclass(ModelMetaclass):
             **kwargs,
         )
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self: TransmuterMetaclass, *args: Any, **kwargs: Any) -> None:
+        self.__transmuter_complete__ = False
+        self.__transmuter_associations__ = {}
+        self.__transmuter_associations_completed__ = False
+        self.__transmuter_identities__ = {}
+        self.__transmuter_create_model__ = None
+        self.__transmuter_update_model__ = None
+        self.__transmuter_is_dataclass__ = False
+
         # Dataclass path: skip ModelMetaclass.__init__, defer finalization
         if not issubclass(self, BaseModel):
             type.__init__(self, *args)
             self.__transmuter_is_dataclass__ = True
-            self.__transmuter_complete__ = False
-            self.__transmuter_associations__ = {}
-            self.__transmuter_associations_completed__ = False
-            self.__transmuter_identities__ = {}
-            self.__transmuter_create_model__ = None
-            self.__transmuter_update_model__ = None
             return
 
         # BaseModel path
         super().__init__(*args, **kwargs)
-        self.__transmuter_is_dataclass__ = False
-        cast(TransmuterMetaclass, self)._finalize_transmuter()
+        self._finalize_transmuter()
+
+    def __hash__(self) -> int:
+        return id(self)
 
     def _finalize_transmuter(self) -> None:
         """Complete transmuter class setup after pydantic fields are available.
@@ -408,12 +380,6 @@ class TransmuterMetaclass(ModelMetaclass):
         For dataclass transmuters, this is called by the @dataclass decorator
         after pydantic has processed the class.
         """
-        self.__transmuter_associations__ = {}
-        self.__transmuter_associations_completed__ = False
-        self.__transmuter_identities__ = {}
-        self.__transmuter_create_model__ = None
-        self.__transmuter_update_model__ = None
-
         self._ensure_associations_resolved()
 
         for name, info in self.__pydantic_fields__.items():
@@ -461,13 +427,7 @@ class TransmuterMetaclass(ModelMetaclass):
             if not object.__getattribute__(self, "__transmuter_complete__"):
                 raise e
 
-            # Guard: __pydantic_fields__ may not exist for incomplete dataclass transmuters
-            try:
-                fields: dict[str, FieldInfo] = object.__getattribute__(
-                    self, "__pydantic_fields__"
-                )
-            except AttributeError:
-                raise e
+            fields = object.__getattribute__(self, "__pydantic_fields__")
 
             transmuter_name = object.__getattribute__(self, "__name__")
             if info := fields.get(name):
@@ -522,7 +482,7 @@ class TransmuterMetaclass(ModelMetaclass):
 
     @property
     def __transmuter_provider__(self) -> type[TransmuterProxied] | None:
-        return self.__transmuter_materia__[cast(type[Transmuter], self)]
+        return self.__transmuter_materia__[self]
 
     @property
     def model_associations(self) -> dict[str, FieldInfo]:
@@ -540,19 +500,16 @@ class TransmuterMetaclass(ModelMetaclass):
     ) -> BidirectonDict[type[Transmuter], type[TransmuterProxied]]:
         return self.__transmuter_materia__.formulars
 
-    def _get_config(self) -> ConfigDict:
-        """Get pydantic config, supporting both BaseModel and dataclass transmuters."""
-        if self.__transmuter_is_dataclass__:
-            cfg = getattr(self, "__pydantic_config__", None)
-            return ConfigDict(**cfg) if cfg else ConfigDict()
-        return self.model_config.copy()
-
     @property
     def Create(self) -> type[BaseModel]:
         if self.__transmuter_create_model__:
             return self.__transmuter_create_model__
 
-        config = self._get_config()
+        if self.__transmuter_is_dataclass__:
+            cfg = getattr(self, "__pydantic_config__", None)
+            config = ConfigDict(**cfg) if cfg else ConfigDict()
+        else:
+            config = self.model_config.copy()
 
         field_definitions = {}
         # TODO: include nested associations
@@ -578,7 +535,11 @@ class TransmuterMetaclass(ModelMetaclass):
         if self.__transmuter_update_model__:
             return self.__transmuter_update_model__
 
-        config = self._get_config()
+        if self.__transmuter_is_dataclass__:
+            cfg = getattr(self, "__pydantic_config__", None)
+            config = ConfigDict(**cfg) if cfg else ConfigDict()
+        else:
+            config = self.model_config.copy()
 
         field_definitions = {}
         # TODO: include nested associations
@@ -698,4 +659,4 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
             association: Association = object.__getattribute__(instance, name)
             association.prepare(instance, name)
 
-        return instance  # pyright: ignore[reportReturnType]
+        return instance  # type: ignore[return-value]

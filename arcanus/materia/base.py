@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from arcanus.association import Association
     from arcanus.base import (
         Transmuter,
+        TransmuterMetaclass,
         TransmuterProxied,
     )
 
@@ -100,11 +101,11 @@ class BaseMateria:
             self.token = None
 
     def __getitem__(
-        self, transmuter: type[Transmuter]
+        self, transmuter: TransmuterMetaclass
     ) -> type[TransmuterProxied] | None:
         return self.formulars.get(transmuter)
 
-    def __contains__(self, transmuter: type[Transmuter]) -> bool:
+    def __contains__(self, transmuter: TransmuterMetaclass) -> bool:
         return transmuter in self.formulars
 
     def bless(self, materia: Any):

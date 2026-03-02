@@ -17,7 +17,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, select, update
 from sqlalchemy.exc import NoResultFound
 
 from arcanus.base import BaseTransmuter, Transmuter
@@ -853,13 +853,9 @@ class TestExpireRefresh:
             author.revalidate()
 
             # Modify in database directly (simulate external change)
-            from sqlalchemy import update
-
-            from tests import models
-
             stmt = (
-                update(models.Author)
-                .where(models.Author.id == author.id)
+                update(Author)
+                .where(Author["id"] == author.id)
                 .values(name="Externally Modified")
             )
             session.execute(stmt)
@@ -884,13 +880,9 @@ class TestExpireRefresh:
             author.revalidate()
 
             # Modify in database
-            from sqlalchemy import update
-
-            from tests import models
-
             stmt = (
-                update(models.Author)
-                .where(models.Author.id == author.id)
+                update(Author)
+                .where(Author["id"] == author.id)
                 .values(name="DB Modified")
             )
             session.execute(stmt)

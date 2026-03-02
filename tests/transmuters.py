@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from arcanus.association import (
     Relation,
     RelationCollection,
+    RelationMap,
+    RelationMaps,
     Relationship,
     Relationships,
 )
@@ -228,6 +230,62 @@ class Book(TestIdMixin, BaseTransmuter):
     reviews: RelationCollection[Review] = Relationships()  # Optional 1-M
 
 
+# ShelfItem schema (M-1 with Shelf)
+@sqlalchemy_materia.bless(models.ShelfItem)
+class ShelfItem(TestIdMixin, BaseTransmuter):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    label: str
+    description: str
+    shelf_id: int | None = None
+
+    shelf: Relation[Shelf] = Relationship()
+
+
+# Shelf schema (1-M dict-based with ShelfItem)
+@sqlalchemy_materia.bless(models.Shelf)
+class Shelf(TestIdMixin, BaseTransmuter):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    name: str
+
+    items: RelationMap[str, ShelfItem] = RelationMaps()
+
+
+# Unblessed transmuters for noop RelationMap tests
+class Tag(BaseTransmuter):
+    """Tag model used as dict value."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None)
+    name: str
+
+
+class Catalog(BaseTransmuter):
+    """Catalog with dict-based tag mapping."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None)
+    title: str
+
+    tags: RelationMap[str, Tag] = RelationMaps()
+
+
+class LabeledCatalog(BaseTransmuter):
+    """Catalog with Literal-keyed tag mapping for key validation tests."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None)
+    title: str
+
+    tags: RelationMap[Literal["python", "rust", "go"], Tag] = RelationMaps()
+
+
 class AuthorFlat(BaseTransmuter):
     """Flat Author transmuter without relationships (for benchmarks)."""
 
@@ -261,3 +319,77 @@ class PublisherFlat(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
     country: str
+
+
+@dataclass
+class SimpleTag(Transmuter):
+    """A simple tag with no associations."""
+
+    label: str
+
+
+tag = SimpleTag(label="example")
+
+
+@dataclass
+class SimpleUser(Transmuter):
+    """A user with default fields."""
+
+    name: str
+    age: int = 25
+
+
+@dataclass(config=ConfigDict(validate_assignment=True))
+class ValidatedUser(Transmuter):
+    """A user with validate_assignment enabled."""
+
+    name: str
+    age: int = 25
+
+
+@dataclass
+class IdentifiedUser(Transmuter):
+    """A user with identity fields."""
+
+    name: str
+    email: str = ""
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+
+
+@dataclass
+class PydanticItem(Transmuter):
+    """A plain pydantic dataclass."""
+
+    name: str
+    score: float = 0.0
+
+
+@dataclass
+class DCAuthor(Transmuter):
+    """An author with a collection of books."""
+
+    name: str
+    field: Literal["Physics", "Biology", "Chemistry", "Literature", "History"] = (
+        "Physics"
+    )
+    books: RelationCollection[DCBook] = Relationships()
+
+
+@dataclass
+class DCPublisher(Transmuter):
+    """A publisher with books."""
+
+    name: str
+    country: str = "US"
+    books: RelationCollection[DCBook] = Relationships()
+
+
+@dataclass
+class DCBook(Transmuter):
+    """A book with multiple associations."""
+
+    title: str
+    year: int = 2024
+    author: Relation[DCAuthor] = Relationship()
+    publisher: Relation[DCPublisher] = Relationship()
+    tags: RelationCollection[SimpleTag] = Relationships()

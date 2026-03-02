@@ -24,7 +24,7 @@ uses for ``model_rebuild`` / ``rebuild_dataclass``.
 
 .. todo::
 
-   If Python gains intersection types (``type[T & TransmuterProtocol]``),
+   If Python gains intersection types (``type[T & Transmuter]``),
    the ``@dataclass`` return type could express both the original class
    and the transmuter interface, eliminating the need for users to
    explicitly inherit from ``Transmuter`` for full static type

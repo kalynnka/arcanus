@@ -11,6 +11,7 @@ from sqlalchemy.orm import (
     mapped_column,
     relationship,
 )
+from sqlalchemy.orm.collections import attribute_keyed_dict
 
 from arcanus.base import TransmuterProxiedMixin
 
@@ -471,6 +472,41 @@ class Team(Base):
     )
 
 
+# Shelf (1-M dict-based relationship with ShelfItem)
+class Shelf(Base):
+    __tablename__ = "shelf"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    # Dict-based relationship keyed by ShelfItem.label
+    items: Mapped[dict[str, ShelfItem]] = relationship(
+        "ShelfItem",
+        collection_class=attribute_keyed_dict("label"),
+        back_populates="shelf",
+        cascade="all, delete-orphan",
+    )
+
+
+# ShelfItem (M-1 with Shelf, used as dict value keyed by label)
+class ShelfItem(Base):
+    __tablename__ = "shelf_item"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    label: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str] = mapped_column(String(500), nullable=False)
+
+    shelf_id: Mapped[int] = mapped_column(
+        ForeignKey("shelf.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    shelf: Mapped[Shelf] = relationship(
+        "Shelf",
+        back_populates="items",
+        uselist=False,
+    )
+
+
 __all__ = [
     "Base",
     "Publisher",
@@ -487,4 +523,6 @@ __all__ = [
     "Project",
     "Team",
     "team_employee",
+    "Shelf",
+    "ShelfItem",
 ]

@@ -91,7 +91,7 @@ This means transmuter methods (`revalidate()`, `Create`, `Update`, `shell()`,
 is declared.
 
 However, since Python's type system cannot express intersection types
-(`type[T & TransmuterProtocol]`), type checkers like pyright won't see the
+(`type[T & Transmuter]`), type checkers like pyright won't see the
 transmuter-specific attributes unless you explicitly inherit from `Transmuter`:
 
 ```python

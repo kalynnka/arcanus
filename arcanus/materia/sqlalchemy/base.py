@@ -9,7 +9,7 @@ from sqlalchemy.orm import InstanceState
 from sqlalchemy.util import greenlet_spawn
 
 from arcanus.association import Association, DefferedAssociation
-from arcanus.base import Transmuter
+from arcanus.base import Transmuter, TransmuterMetaclass
 from arcanus.materia.base import BaseMateria, T
 
 
@@ -86,7 +86,7 @@ class SqlalchemyMateria(BaseMateria):
         return loaded
 
     def transmuter_before_construct(
-        self, transmuter_type: type[Transmuter], materia: Any
+        self, transmuter_type: TransmuterMetaclass, materia: Any
     ):
         # inspector: InstanceState = inspect(materia)
 

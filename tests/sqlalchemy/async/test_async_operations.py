@@ -22,7 +22,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.orm import raiseload, selectinload
 
 from arcanus.materia.sqlalchemy import AsyncSession
-from tests import models
 from tests.transmuters import Author, Book, BookCategory, Category, Publisher
 
 
@@ -189,7 +188,7 @@ class TestAsyncResultStreaming:
                 select(Author)
                 .join(Book)
                 .where(Author["name"] == "Unique Test")
-                .options(selectinload(models.Author.books))
+                .options(selectinload(Author["books"]))
             )
 
             result = await session.stream(stmt)
@@ -229,7 +228,7 @@ class TestAsyncRelationships:
             stmt = (
                 select(Author)
                 .where(Author["id"] == author.id)
-                .options(selectinload(models.Author.books))
+                .options(selectinload(Author["books"]))
             )
             result = await session.execute(stmt)
             fetched = result.scalars().one()
@@ -271,7 +270,7 @@ class TestAsyncRelationships:
             stmt = (
                 select(Book)
                 .where(Book["id"] == book.id)
-                .options(selectinload(models.Book.categories))
+                .options(selectinload(Book["categories"]))
             )
             result = await session.execute(stmt)
             fetched = result.scalars().one()
@@ -377,7 +376,6 @@ class TestAsyncComplexQueries:
                 .having(func.count(Book["id"]) > 2)
                 .scalar_subquery()
             )
-            models.Author.id.in_(subq)
             stmt = select(Publisher).where(Publisher["id"].in_(subq))
             result = await session.execute(stmt)
             publishers = result.scalars().all()
@@ -807,7 +805,7 @@ class TestAsyncSessionHelpers:
                 Book,
                 limit=6,
                 size=2,
-                options=[selectinload(models.Book.author)],
+                options=[selectinload(Book["author"])],
                 expressions=[Book["title"].startswith("Async Partition Opt Book")],
             ):
                 for book in partition:
@@ -961,7 +959,7 @@ class TestAsyncRaiseOnSQLBehavior:
             stmt = (
                 select(Book)
                 .where(Book["id"] == book_id)
-                .options(raiseload(models.Book.author))
+                .options(raiseload(Book["author"]))
             )
             result = await session.execute(stmt)
             loaded_book = result.scalars().one()
@@ -1003,7 +1001,7 @@ class TestAsyncRaiseOnSQLBehavior:
             stmt = (
                 select(Author)
                 .where(Author["id"] == author_id)
-                .options(raiseload(models.Author.books))
+                .options(raiseload(Author["books"]))
             )
             result = await session.execute(stmt)
             loaded_author = result.scalars().one()
@@ -1044,8 +1042,8 @@ class TestAsyncRaiseOnSQLBehavior:
                 select(Book)
                 .where(Book["id"] == book_id)
                 .options(
-                    raiseload(models.Book.author),
-                    selectinload(models.Book.publisher),
+                    raiseload(Book["author"]),
+                    selectinload(Book["publisher"]),
                 )
             )
             result = await session.execute(stmt)

@@ -16,8 +16,7 @@ from sqlalchemy import Engine, and_, delete, func, insert, or_, select, update
 from sqlalchemy.orm import joinedload, selectinload
 
 from arcanus.materia.sqlalchemy import Session
-from tests import models
-from tests.transmuters import Author, Book, Category, Publisher
+from tests.transmuters import Author, Book, BookDetail, Category, Publisher
 
 
 class TestCRUDOperations:
@@ -94,7 +93,7 @@ class TestCRUDOperations:
 
     def test_bulk_insert_with_core(self, engine: Engine):
         """Test bulk insert using Core insert statement."""
-        stmt = insert(models.Author).values(
+        stmt = insert(Author).values(
             [
                 {"name": "Bulk Author 1", "field": "Physics"},
                 {"name": "Bulk Author 2", "field": "Biology"},
@@ -350,11 +349,7 @@ class TestJoinOperations:
             session.flush()
 
             # Join query
-            stmt = (
-                select(Book)
-                .join(models.Author)
-                .where(models.Author.name == "Join Test Author")
-            )
+            stmt = select(Book).join(Author).where(Author["name"] == "Join Test Author")
             result = session.execute(stmt)
             found_book = result.scalars().one()
 
@@ -376,12 +371,12 @@ class TestJoinOperations:
             # Multi-join query
             stmt = (
                 select(Book)
-                .join(models.Author)
-                .join(models.Publisher)
+                .join(Author)
+                .join(Publisher)
                 .where(
                     and_(
-                        models.Author.field == "Physics",
-                        models.Publisher.country == "UK",
+                        Author["field"] == "Physics",
+                        Publisher["country"] == "UK",
                     )
                 )
             )
@@ -405,7 +400,7 @@ class TestJoinOperations:
             session.flush()
 
             # Left join with BookDetail
-            stmt = select(Book).outerjoin(models.BookDetail)
+            stmt = select(Book).outerjoin(BookDetail)
             result = session.execute(stmt)
             books = result.scalars().all()
 
@@ -440,7 +435,7 @@ class TestLoadingStrategies:
             stmt = (
                 select(Author)
                 .where(Author["id"] == author.id)
-                .options(selectinload(models.Author.books))
+                .options(selectinload(Author["books"]))
             )
             loaded_author = session.execute(stmt).scalars().one()
 
@@ -471,7 +466,7 @@ class TestLoadingStrategies:
             stmt = (
                 select(Book)
                 .where(Book["id"] == book.id)
-                .options(joinedload(models.Book.author))
+                .options(joinedload(Book["author"]))
             )
             loaded_book = session.execute(stmt).scalars().one()
 
@@ -540,15 +535,15 @@ class TestComplexExpressions:
             # Count
             stmt = (
                 select(func.count())
-                .select_from(models.Author)
-                .where(models.Author.name.like("Aggregate Test%"))
+                .select_from(Author)
+                .where(Author["name"].like("Aggregate Test%"))
             )
             count = session.execute(stmt).scalar()
             assert count == 5
 
             # Max ID
-            stmt = select(func.max(models.Author.id)).where(
-                models.Author.name.like("Aggregate Test%")
+            stmt = select(func.max(Author["id"])).where(
+                Author["name"].like("Aggregate Test%")
             )
             max_id = session.execute(stmt).scalar()
             assert max_id is not None
@@ -616,7 +611,7 @@ class TestComplexExpressions:
             session.flush()
 
             # Subquery: authors who have books
-            subq = select(models.Author.id).join(models.Book).subquery()
+            subq = select(Author["id"]).join(Book).subquery()
             stmt = select(Author).where(Author["id"].in_(select(subq)))
 
             result = session.execute(stmt)
