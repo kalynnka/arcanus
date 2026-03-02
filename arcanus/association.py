@@ -1368,7 +1368,7 @@ class RelationMap(dict[K, T], Association[T]):
         """Remove specified key and return the corresponding value."""
         key = self.bless_key(key)
         item = super().pop(key, *args)
-        if self.__provided__ is not None:
+        if self.__provided__ is not None and key in self.__provided__:
             del self.__provided__[key]
         return item
 

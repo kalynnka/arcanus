@@ -1,3 +1,5 @@
+"""Test RelationSet association fields with NoOpMateria."""
+
 from __future__ import annotations
 
 from typing import Annotated, Optional
@@ -7,8 +9,6 @@ from pydantic import ConfigDict, Field
 
 from arcanus.association import RelationSet, Relationships
 from arcanus.base import BaseTransmuter, Identity
-
-"""Test RelationSet association fields with NoOpMateria."""
 
 
 class Tag(BaseTransmuter):

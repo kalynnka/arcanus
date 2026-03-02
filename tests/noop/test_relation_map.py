@@ -1,3 +1,5 @@
+"""Test RelationMap association fields with NoOpMateria."""
+
 from __future__ import annotations
 
 from typing import Annotated, Optional
@@ -8,8 +10,6 @@ from pydantic import ConfigDict, Field, ValidationError
 from arcanus.association import RelationMap, RelationMaps
 from arcanus.base import BaseTransmuter, Identity
 from tests.transmuters import Catalog, LabeledCatalog, Tag
-
-"""Test RelationMap association fields with NoOpMateria."""
 
 
 class TestRelationMapBasics:
