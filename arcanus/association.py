@@ -1044,16 +1044,16 @@ class RelationSet(set[T], Association[T]):
 
 
 # built-in types must be put at front to avoid pydantic convert it to built-in types
-class RelationMap(dict[K, T], Association[T]):
+class RelationMap(dict[K, Optional_T], Association[Optional_T]):
     # new items are held in __payloads__, loaded items are kept in the dict itself
-    # __args__[0] = key type (K), __args__[1] = value type (T)
-    __payloads__: dict[K, T]
+    # __args__[0] = key type (K), __args__[1] = value type (Optional_T)
+    __payloads__: dict[K, Optional_T]
 
     @classmethod
     def __get_pydantic_generic_schema__(
         cls,
         key_type: Type[K],
-        value_type: Type[T],
+        value_type: Type[Optional_T],
         handler: GetCoreSchemaHandler,
     ) -> core_schema.CoreSchema:
         return core_schema.dict_schema(
@@ -1065,10 +1065,10 @@ class RelationMap(dict[K, T], Association[T]):
     def __get_pydantic_serialize_schema__(
         cls,
         key_type: Type[K],
-        value_type: Type[T],
+        value_type: Type[Optional_T],
         handler: GetCoreSchemaHandler,
     ) -> core_schema.SerSchema | None:
-        def serialize(association: RelationMap[K, T], serializer) -> Any:
+        def serialize(association: RelationMap[K, Optional_T], serializer) -> Any:
             fields_set = getattr(
                 association.__instance__, "__pydantic_fields_set__", None
             )
@@ -1091,7 +1091,9 @@ class RelationMap(dict[K, T], Association[T]):
 
     @classmethod
     def __get_pydantic_core_schema__(
-        cls, source_type: Type[RelationMap[K, T]], handler: GetCoreSchemaHandler
+        cls,
+        source_type: Type[RelationMap[K, Optional_T]],
+        handler: GetCoreSchemaHandler,
     ) -> core_schema.CoreSchema:
         args = get_args(source_type)
 
@@ -1107,7 +1109,7 @@ class RelationMap(dict[K, T], Association[T]):
             value: Any,
             handler: core_schema.ValidatorFunctionWrapHandler,
             info: core_schema.ValidationInfo,
-        ) -> RelationMap[K, T]:
+        ) -> RelationMap[K, Optional_T]:
             if value is DefferedAssociation:
                 instance = cls()
             elif type(value) is cls:
@@ -1132,7 +1134,7 @@ class RelationMap(dict[K, T], Association[T]):
             ),
         )
 
-    def __init__(self, payloads: Mapping[K, T] | None = None):
+    def __init__(self, payloads: Mapping[K, Optional_T] | None = None):
         super().__init__()
         self.__instance__ = None
         self.__loaded__ = False
@@ -1148,11 +1150,11 @@ class RelationMap(dict[K, T], Association[T]):
         return getattr(self.__instance_provider__, self.used_name)
 
     @cached_property
-    def __validator__(self) -> TypeAdapter[T]:
+    def __validator__(self) -> TypeAdapter[Optional_T]:
         return get_cached_adapter(self.__args__[1])
 
     @cached_property
-    def __dict_validator__(self) -> TypeAdapter[dict[K, T]]:
+    def __dict_validator__(self) -> TypeAdapter[dict[K, Optional_T]]:
         return get_cached_adapter(dict[self.__args__[0], self.__args__[1]])
 
     @cached_property
@@ -1163,11 +1165,11 @@ class RelationMap(dict[K, T], Association[T]):
         """Validate and coerce a key into the key type."""
         return self.__key_validator__.validate_python(key)
 
-    def bless_value(self, value: Any) -> T:
+    def bless_value(self, value: Any) -> Optional_T:
         """Validate and coerce a single value into the value type."""
         return self.__validator__.validate_python(value)
 
-    def bless(self, value: Mapping[K, Any]) -> dict[K, T]:
+    def bless(self, value: Mapping[K, Any]) -> dict[K, Optional_T]:
         """Validate and coerce an entire dict/mapping into dict[K, T]."""
         return self.__dict_validator__.validate_python(value)
 
@@ -1199,10 +1201,12 @@ class RelationMap(dict[K, T], Association[T]):
 
     @staticmethod
     def ensure_loaded(
-        func: Callable[Concatenate[RelationMap[K, T], P], R],
-    ) -> Callable[Concatenate[RelationMap[K, T], P], R]:
+        func: Callable[Concatenate[RelationMap[K, Optional_T], P], R],
+    ) -> Callable[Concatenate[RelationMap[K, Optional_T], P], R]:
         @wraps(func)
-        def wrapper(self: RelationMap[K, T], *args: P.args, **kwargs: P.kwargs) -> R:
+        def wrapper(
+            self: RelationMap[K, Optional_T], *args: P.args, **kwargs: P.kwargs
+        ) -> R:
             self._load()
             return func(self, *args, **kwargs)
 
@@ -1270,7 +1274,7 @@ class RelationMap(dict[K, T], Association[T]):
         return self._aload().__await__()
 
     @ensure_loaded
-    def __getitem__(self, key: K) -> T:
+    def __getitem__(self, key: K) -> Optional_T:
         key = self.bless_key(key)
         return super().__getitem__(key)
 
@@ -1292,11 +1296,13 @@ class RelationMap(dict[K, T], Association[T]):
         return super().__len__() > 0
 
     @ensure_loaded
-    def __setitem__(self, key: K, value: T) -> None:
+    def __setitem__(self, key: K, value: Optional_T) -> None:
         key = self.bless_key(key)
         value = self.bless_value(value)
         if self.__provided__ is not None:
-            self.__provided__[key] = value.__transmuter_provided__
+            self.__provided__[key] = (
+                value.__transmuter_provided__ if value is not None else None
+            )
         super().__setitem__(key, value)
 
     @ensure_loaded
@@ -1330,11 +1336,11 @@ class RelationMap(dict[K, T], Association[T]):
         return True
 
     @ensure_loaded
-    def __or__(self, other: Mapping[K, T]) -> dict[K, T]:
+    def __or__(self, other: Mapping[K, Optional_T]) -> dict[K, Optional_T]:
         return dict.__or__(self.copy(), dict(other))
 
     @ensure_loaded
-    def __ior__(self, other: Mapping[K, T]) -> Self:
+    def __ior__(self, other: Mapping[K, Optional_T]) -> Self:
         self.update(other)
         return self
 
@@ -1343,7 +1349,7 @@ class RelationMap(dict[K, T], Association[T]):
         return super().__reversed__()
 
     @ensure_loaded
-    def get(self, key: K, default: T | None = None) -> T | None:
+    def get(self, key: K, default: Optional_T | None = None) -> Optional_T | None:
         return super().get(self.bless_key(key), default)
 
     @ensure_loaded
@@ -1359,13 +1365,13 @@ class RelationMap(dict[K, T], Association[T]):
         return super().items()
 
     @overload
-    def pop(self, key: K) -> T: ...
+    def pop(self, key: K) -> Optional_T: ...
 
     @overload
-    def pop(self, key: K, default: T) -> T: ...
+    def pop(self, key: K, default: Optional_T) -> Optional_T: ...
 
     @overload
-    def pop(self, key: K, default: D) -> T | D: ...
+    def pop(self, key: K, default: D) -> Optional_T | D: ...
 
     @ensure_loaded
     def pop(self, key: K, *args: Any) -> Any:
@@ -1377,7 +1383,7 @@ class RelationMap(dict[K, T], Association[T]):
         return item
 
     @ensure_loaded
-    def popitem(self) -> tuple[K, T]:
+    def popitem(self) -> tuple[K, Optional_T]:
         """Remove and return an arbitrary (key, value) pair. Raises KeyError if empty."""
         key, item = super().popitem()
         if self.__provided__ is not None:
@@ -1385,17 +1391,19 @@ class RelationMap(dict[K, T], Association[T]):
         return key, item
 
     @overload
-    def update(self, m: Mapping[K, T], /, **kwargs: T) -> None: ...
+    def update(self, m: Mapping[K, Optional_T], /, **kwargs: Optional_T) -> None: ...
     @overload
-    def update(self, m: Iterable[tuple[K, T]], /, **kwargs: T) -> None: ...
+    def update(
+        self, m: Iterable[tuple[K, Optional_T]], /, **kwargs: Optional_T
+    ) -> None: ...
     @overload
-    def update(self, **kwargs: T) -> None: ...
+    def update(self, **kwargs: Optional_T) -> None: ...
 
     @ensure_loaded
     def update(
         self,
-        *args: Mapping[K, T] | Iterable[tuple[K, T]],
-        **kwargs: T,
+        *args: Mapping[K, Optional_T] | Iterable[tuple[K, Optional_T]],
+        **kwargs: Optional_T,
     ) -> None:
         """Update the dict with key-value pairs."""
         merged = {}
@@ -1413,17 +1421,22 @@ class RelationMap(dict[K, T], Association[T]):
         blessed = self.bless(merged)
         if self.__provided__ is not None:
             self.__provided__.update(
-                {key: value.__transmuter_provided__ for key, value in blessed.items()}
+                {
+                    key: value.__transmuter_provided__ if value is not None else None
+                    for key, value in blessed.items()
+                }
             )
         super().update(blessed)
 
     @overload
-    def setdefault(self, key: K) -> T | None: ...
+    def setdefault(self, key: K) -> Optional_T | None: ...
     @overload
-    def setdefault(self, key: K, default: T) -> T: ...
+    def setdefault(self, key: K, default: Optional_T) -> Optional_T: ...
 
     @ensure_loaded
-    def setdefault(self, key: K, default: T | None = None) -> T | None:
+    def setdefault(
+        self, key: K, default: Optional_T | None = None
+    ) -> Optional_T | None:
         """If key is not in the dict, insert key with the default value."""
         key = self.bless_key(key)
         if key not in self:
@@ -1439,7 +1452,7 @@ class RelationMap(dict[K, T], Association[T]):
         super().clear()
 
     @ensure_loaded
-    def copy(self) -> dict[K, T]:
+    def copy(self) -> dict[K, Optional_T]:
         return super().copy()
 
 
