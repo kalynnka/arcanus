@@ -217,6 +217,15 @@ class Transmuter:
             context = validated.get()
             cached = context.get(data)
             instance = cached or data.transmuter_proxy  # pyright: ignore[reportAssignmentType]
+
+            # Polymorphic narrowing (provider path): the cached/proxy
+            # instance may be a parent or sibling schema when cls expects a
+            # more specific child type.  Force re-validation so the correct
+            # concrete schema is produced.
+            needs_narrowing = instance is not None and not isinstance(instance, cls)
+            if needs_narrowing:
+                instance = None  # pyright: ignore[reportAssignmentType]
+
             if instance is None or instance.__transmuter_revalidating__:
                 loaded = materia.transmuter_before_validator(cls, data, info)
                 # Pydantic dataclasses only accept dicts or the exact dataclass
@@ -232,8 +241,26 @@ class Transmuter:
                 data.transmuter_proxy = instance
                 instance = materia.transmuter_after_validator(instance, info)
 
-            if not cached:
+            if not cached or needs_narrowing:
                 context[data] = instance
+
+        # Polymorphic narrowing (Transmuter path): data is an already-
+        # validated parent schema (e.g. File) but cls expects a child schema
+        # (e.g. Markdown).  Re-validate as the concrete child while
+        # preserving the ORM provider link.
+        elif isinstance(data, Transmuter) and issubclass(cls, type(data)):
+            instance = handler(data)
+            provided: TransmuterProxied | None = object.__getattribute__(
+                data, "__transmuter_provided__"
+            )
+            object.__setattr__(instance, "__transmuter_provided__", provided)
+            object.__setattr__(instance, "__transmuter_revalidating__", False)
+            if provided is not None:
+                provided.transmuter_proxy = instance
+                context = validated.get()
+                context[provided] = instance
+            del data
+            return instance
 
         else:
             # Normal validation
@@ -613,6 +640,14 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
             cached = context.get(data)
 
             instance = cached or data.transmuter_proxy
+
+            # Polymorphic narrowing (provider path): the cached/proxy
+            # instance may be a parent or sibling schema when cls expects a
+            # more specific child type.  Force re-construction.
+            needs_narrowing = instance is not None and not isinstance(instance, cls)
+            if needs_narrowing:
+                instance = None  # pyright: ignore[reportAssignmentType]
+
             if instance is None or instance.__transmuter_revalidating__:
                 inputs = materia.transmuter_before_construct(cls, data)
                 inputs.update(values)
@@ -622,8 +657,33 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
                 data.transmuter_proxy = instance
                 instance = materia.transmuter_after_construct(instance)
 
-            if not cached:
+            if not cached or needs_narrowing:
                 context[data] = instance
+
+        # Polymorphic narrowing (Transmuter path): data is an already-
+        # constructed parent schema but cls expects a child schema.
+        # Re-construct as the concrete child while preserving the ORM link.
+        elif isinstance(data, Transmuter) and issubclass(cls, type(data)):
+            provided = object.__getattribute__(data, "__transmuter_provided__")
+            if provided is not None:
+                inputs = materia.transmuter_before_construct(cls, provided)
+            else:
+                inputs = data.__dict__.copy()
+            inputs.update(values)
+            instance = super().model_construct(_fields_set=_fields_set, **inputs)
+            object.__setattr__(instance, "__transmuter_provided__", provided)
+            object.__setattr__(instance, "__transmuter_revalidating__", False)
+            if provided is not None:
+                provided.transmuter_proxy = instance
+                instance = materia.transmuter_after_construct(instance)
+                context = validated.get()
+                context[provided] = instance
+            for name in (
+                cls.model_associations.keys() & instance.__pydantic_fields_set__
+            ):
+                association: Association = object.__getattribute__(instance, name)
+                association.prepare(instance, name)
+            return instance  # type: ignore[return-value]
 
         else:
             # Normal construction
