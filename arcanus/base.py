@@ -210,6 +210,7 @@ class Transmuter:
             instance = handler(data)
             object.__setattr__(instance, "__transmuter_provided__", None)
             object.__setattr__(instance, "__transmuter_revalidating__", False)
+
         else:
             provider = materia[cls]  # type: ignore[assignment]
             if provider is not None and isinstance(data, provider):
@@ -603,56 +604,58 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
             instance = super().model_construct(_fields_set=_fields_set, **inputs)
             object.__setattr__(instance, "__transmuter_provided__", None)
             object.__setattr__(instance, "__transmuter_revalidating__", False)
+        else:
+            # Handle provider with matching data type
+            provider = materia[cls]
+            if provider is not None and isinstance(data, provider):
+                context = validated.get()
+                cached = context.get(data)
 
-            return instance
+                instance = cached or data.transmuter_proxy
+                if instance is None or instance.__transmuter_revalidating__:
+                    inputs = materia.transmuter_before_construct(cls, data)
+                    inputs.update(values)
+                    instance = super().model_construct(
+                        _fields_set=_fields_set, **inputs
+                    )
+                    object.__setattr__(instance, "__transmuter_provided__", data)
+                    object.__setattr__(instance, "__transmuter_revalidating__", False)
+                    data.transmuter_proxy = instance
+                    instance = materia.transmuter_after_construct(instance)
 
-        # Handle provider with matching data type
-        provider = materia[cls]
-        if provider is not None and isinstance(data, provider):
-            context = validated.get()
-            cached = context.get(data)
+                if not cached:
+                    context[data] = instance
 
-            instance = cached or data.transmuter_proxy
-            if instance is None or instance.__transmuter_revalidating__:
-                inputs = materia.transmuter_before_construct(cls, data)
+            else:
+                # Normal construction
+                inputs = (
+                    data if isinstance(data, dict) else data.__dict__ if data else {}
+                )
                 inputs.update(values)
                 instance = super().model_construct(_fields_set=_fields_set, **inputs)
-                object.__setattr__(instance, "__transmuter_provided__", data)
-                object.__setattr__(instance, "__transmuter_revalidating__", False)
-                data.transmuter_proxy = instance
-                instance = materia.transmuter_after_construct(instance)
 
-            if not cached:
-                context[data] = instance
-
-        else:
-            # Normal construction
-            inputs = data if isinstance(data, dict) else data.__dict__ if data else {}
-            inputs.update(values)
-            instance = super().model_construct(_fields_set=_fields_set, **inputs)
-
-            if provider is not None:
-                pydantic_fields = cls.__pydantic_fields__
-                _excl = set(cls.model_associations.keys())
-                if isinstance(instance, BaseModel):
-                    included = instance.model_dump(exclude=_excl, by_alias=True)
+                if provider is not None:
+                    pydantic_fields = cls.__pydantic_fields__
+                    _excl = set(cls.model_associations.keys())
+                    if isinstance(instance, BaseModel):
+                        included = instance.model_dump(exclude=_excl, by_alias=True)
+                    else:
+                        included = get_cached_adapter(cls).dump_python(
+                            instance, exclude=_excl, by_alias=True
+                        )
+                    excluded = {
+                        pydantic_fields[name].alias or name: getattr(instance, name)
+                        for name in cls.__pydantic_fields__.keys()
+                        - cls.model_associations.keys()
+                        if pydantic_fields[name].exclude
+                    }
+                    provided = provider(**included, **excluded)
+                    provided.transmuter_proxy = instance
+                    object.__setattr__(instance, "__transmuter_provided__", provided)
+                    object.__setattr__(instance, "__transmuter_revalidating__", False)
                 else:
-                    included = get_cached_adapter(cls).dump_python(
-                        instance, exclude=_excl, by_alias=True
-                    )
-                excluded = {
-                    pydantic_fields[name].alias or name: getattr(instance, name)
-                    for name in cls.__pydantic_fields__.keys()
-                    - cls.model_associations.keys()
-                    if pydantic_fields[name].exclude
-                }
-                provided = provider(**included, **excluded)
-                provided.transmuter_proxy = instance
-                object.__setattr__(instance, "__transmuter_provided__", provided)
-                object.__setattr__(instance, "__transmuter_revalidating__", False)
-            else:
-                object.__setattr__(instance, "__transmuter_provided__", None)
-                object.__setattr__(instance, "__transmuter_revalidating__", False)
+                    object.__setattr__(instance, "__transmuter_provided__", None)
+                    object.__setattr__(instance, "__transmuter_revalidating__", False)
 
         for name in cls.model_associations.keys() & instance.__pydantic_fields_set__:
             association: Association = object.__getattribute__(instance, name)

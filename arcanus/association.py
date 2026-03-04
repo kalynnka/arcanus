@@ -240,11 +240,7 @@ class Relation(Association[Optional_T]):
             fields_set = getattr(
                 association.__instance__, "__pydantic_fields_set__", None
             )
-            if (
-                association.__instance__
-                and fields_set is not None
-                and association.field_name in fields_set
-            ):
+            if fields_set is not None and association.field_name in fields_set:
                 return serializer(association.value)
             return serializer(association.__payloads__)
 
@@ -369,11 +365,7 @@ class RelationCollection(list[T], Association[T]):
             fields_set = getattr(
                 association.__instance__, "__pydantic_fields_set__", None
             )
-            if (
-                association.__instance__
-                and fields_set is not None
-                and association.field_name in fields_set
-            ):
+            if fields_set is not None and association.field_name in fields_set:
                 return serializer(association.copy())
             return serializer(list.copy(association))
 
@@ -709,13 +701,9 @@ class RelationSet(set[T], Association[T]):
             fields_set = getattr(
                 association.__instance__, "__pydantic_fields_set__", None
             )
-            if (
-                association.__instance__
-                and fields_set is not None
-                and association.field_name in fields_set
-            ):
-                return serializer(list(association.copy()))
-            return serializer(list(set.copy(association)))
+            if fields_set is not None and association.field_name in fields_set:
+                return serializer(association.copy())
+            return serializer(set.copy(association))
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,
@@ -1074,13 +1062,9 @@ class RelationMap(dict[K, T], Association[T]):
             fields_set = getattr(
                 association.__instance__, "__pydantic_fields_set__", None
             )
-            if (
-                association.__instance__
-                and fields_set is not None
-                and association.field_name in fields_set
-            ):
+            if fields_set is not None and association.field_name in fields_set:
                 return serializer(association.copy())
-            return serializer(dict(association))
+            return serializer(dict.copy(association))
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,
@@ -1489,13 +1473,9 @@ class TypedRelationMap(dict, Association[TD]):
             fields_set = getattr(
                 association.__instance__, "__pydantic_fields_set__", None
             )
-            if (
-                association.__instance__
-                and fields_set is not None
-                and association.field_name in fields_set
-            ):
+            if fields_set is not None and association.field_name in fields_set:
                 return serializer(association.copy())
-            return serializer(dict(association))
+            return serializer(dict.copy(association))
 
         # Build a union schema from the TypedDict value types for serialization.
         # Using a plain dict schema avoids the TypedDict's totality constraint

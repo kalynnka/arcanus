@@ -299,9 +299,16 @@ class TestRelationMapSerialization:
         assert data["tags"] == {}
 
     def test_model_dump_with_items(self):
-        catalog = Catalog(id=1, title="Test")
-        catalog.tags["py"] = Tag(id=1, name="python")
-        catalog.tags["rs"] = Tag(id=2, name="rust")
+        catalog = Catalog(
+            id=1,
+            title="Test",
+            tags=RelationMap(
+                {
+                    "py": Tag(id=1, name="python"),
+                    "rs": Tag(id=2, name="rust"),
+                }
+            ),
+        )
 
         data = catalog.model_dump()
         assert isinstance(data["tags"], dict)
