@@ -94,6 +94,9 @@ class Association(Generic[A]):
         generic_type: Type[A],
         handler: GetCoreSchemaHandler,
     ) -> core_schema.SerSchema | None:
+        """
+        The default serialization schema for associations is to serialize the loaded value if the association is loaded, otherwise serialize the payloads.
+        """
         # TODO: Implement automatic circular reference detection in serialization.
         # Currently, circular references must be manually excluded using the exclude
         # parameter. Pydantic does not provide built-in cycle detection.
@@ -703,9 +706,7 @@ class RelationSet(set[T], Association[T]):
             )
             if fields_set is not None and association.field_name in fields_set:
                 return serializer(association.copy())
-            return serializer(
-                list(set.copy(association) | association.__payloads__)
-            )
+            return serializer(list(set.copy(association) | association.__payloads__))
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,
