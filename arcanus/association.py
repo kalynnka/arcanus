@@ -24,6 +24,7 @@ from typing import (
     get_args,
     get_origin,
     get_type_hints,
+    is_typeddict,
     overload,
 )
 
@@ -42,6 +43,7 @@ A = TypeVar("A")
 D = TypeVar("D")
 K = TypeVar("K")
 T = TypeVar("T", bound="Transmuter")
+TD = TypeVar("TD")  # TypedDict type parameter for TypedRelationMap
 Optional_T = TypeVar("Optional_T", bound="Transmuter | Optional[Transmuter]")
 
 P = ParamSpec("P")
@@ -1077,8 +1079,8 @@ class RelationMap(dict[K, T], Association[T]):
                 and fields_set is not None
                 and association.field_name in fields_set
             ):
-                return serializer(dict(association.copy()))
-            return serializer(dict(dict.copy(association)))
+                return serializer(association.copy())
+            return serializer(dict(association))
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,
@@ -1443,8 +1445,413 @@ class RelationMap(dict[K, T], Association[T]):
         return super().copy()
 
 
+# built-in types must be put at front to avoid pydantic convert it to built-in types
+class TypedRelationMap(dict, Association[TD]):
+    """A dict-based association whose keys and per-key value types are defined
+    by a ``TypedDict``.
+
+    Unlike :class:`RelationMap` which maps homogeneous ``dict[K, T]``, this
+    class accepts a single ``TypedDict`` generic argument so that each key can
+    have its own Transmuter type.  This is designed for polymorphic
+    relationships where different keys correspond to different subclasses.
+
+    Usage::
+
+        class DocumentFiles(TypedDict):
+            image: Image
+            video: Video
+
+        class Document(BaseTransmuter):
+            files: TypedRelationMap[DocumentFiles] = TypedRelationMaps()
+
+    All values in the TypedDict **must** be ``Transmuter`` subclasses.
+    """
+
+    # new items are held in __payloads__, loaded items are kept in the dict itself
+    __payloads__: dict[str, Any]
+    __typed_dict__: type  # the TypedDict class itself
+
+    @classmethod
+    def __get_pydantic_generic_schema__(
+        cls,
+        typed_dict_cls: type,
+        handler: GetCoreSchemaHandler,
+    ) -> core_schema.CoreSchema:
+        return handler.generate_schema(typed_dict_cls)
+
+    @classmethod
+    def __get_pydantic_serialize_schema__(
+        cls,
+        typed_dict_cls: type,
+        handler: GetCoreSchemaHandler,
+    ) -> core_schema.SerSchema | None:
+        def serialize(association: TypedRelationMap, serializer) -> Any:
+            fields_set = getattr(
+                association.__instance__, "__pydantic_fields_set__", None
+            )
+            if (
+                association.__instance__
+                and fields_set is not None
+                and association.field_name in fields_set
+            ):
+                return serializer(association.copy())
+            return serializer(dict(association))
+
+        # Build a union schema from the TypedDict value types for serialization.
+        # Using a plain dict schema avoids the TypedDict's totality constraint
+        # so partial dicts (e.g. loaded from DB) serialize correctly.
+        hints = get_type_hints(typed_dict_cls)
+        value_types = list(dict.fromkeys(hints.values()))  # unique, order-preserved
+        if len(value_types) == 1:
+            values_schema = handler.generate_schema(value_types[0])
+        else:
+            values_schema = core_schema.union_schema(
+                [handler.generate_schema(t) for t in value_types]
+            )
+
+        return core_schema.wrap_serializer_function_ser_schema(
+            serialize,
+            schema=core_schema.dict_schema(
+                keys_schema=core_schema.str_schema(),
+                values_schema=values_schema,
+            ),
+            when_used="always",
+        )
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Type[TypedRelationMap],
+        handler: GetCoreSchemaHandler,
+    ) -> core_schema.CoreSchema:
+        args = get_args(source_type)
+
+        if not args or len(args) != 1:
+            raise TypeError(
+                f"Exactly one TypedDict generic type must be provided to {source_type}."
+            )
+
+        typed_dict_cls = args[0]
+
+        if not is_typeddict(typed_dict_cls):
+            raise TypeError(
+                f"The generic argument to TypedRelationMap must be a TypedDict, "
+                f"got {typed_dict_cls!r}."
+            )
+
+        def validate(
+            value: Any,
+            handler: core_schema.ValidatorFunctionWrapHandler,
+            info: core_schema.ValidationInfo,
+        ) -> TypedRelationMap:
+            if value is DefferedAssociation:
+                instance = cls()
+            elif type(value) is cls:
+                instance = value
+                instance.__payloads__ = handler(instance.__payloads__)
+            else:
+                instance = cls(handler(value))
+
+            instance.__args__ = (typed_dict_cls,)
+            instance.__typed_dict__ = typed_dict_cls
+            instance.field_name = info.field_name  # pyright: ignore[reportAttributeAccessIssue]
+
+            return instance
+
+        return core_schema.with_default_schema(
+            core_schema.with_info_wrap_validator_function(
+                validate,
+                cls.__get_pydantic_generic_schema__(typed_dict_cls, handler),
+            ),
+            default_factory=cls,
+            serialization=cls.__get_pydantic_serialize_schema__(
+                typed_dict_cls, handler
+            ),
+        )
+
+    @cached_property
+    def __typed_hints__(self) -> dict[str, type]:
+        """Per-key type hints resolved from the TypedDict."""
+        return get_type_hints(self.__typed_dict__)
+
+    @cached_property
+    def __validator__(self) -> TypeAdapter:
+        """Whole-dict TypedDict validator."""
+        return get_cached_adapter(self.__typed_dict__)
+
+    def bless(self, value: Mapping[str, Any]) -> dict[str, Any]:
+        """Validate and coerce an entire mapping against the TypedDict schema."""
+        return self.__validator__.validate_python(value)
+
+    def bless_value(self, key: str, value: Any) -> Any:
+        """Validate a single value against the type declared for *key*."""
+        expected_type = self.__typed_hints__.get(key)
+        if expected_type is None:
+            raise KeyError(
+                f"Key {key!r} is not defined in {self.__typed_dict__.__name__}."
+            )
+        return get_cached_adapter(expected_type).validate_python(value)
+
+    def __init__(self, payloads: Mapping[str, Any] | None = None):
+        super().__init__()
+        self.__instance__ = None
+        self.__loaded__ = False
+        self.__payloads__ = dict(payloads) if payloads else {}
+
+    @property
+    def __provided__(self) -> dict | None:
+        if not self.__instance_provider__:
+            return None
+        return getattr(self.__instance_provider__, self.used_name)
+
+    def prepare(self, instance: Transmuter, field_name: str):
+        if self.__instance__ is not None:
+            return
+
+        self.field_name = field_name
+        self.field_info = type(instance).__pydantic_fields__[field_name]
+
+        self.__instance__ = instance
+
+        annotation = self.field_info.annotation
+        if isinstance(annotation, ForwardRef):
+            resolved_hints = get_type_hints(type(instance))
+            actual_type = resolved_hints[field_name]
+            args = get_args(actual_type)
+        else:
+            args = get_args(annotation)
+
+        self.__typed_dict__ = args[0]
+        self.__args__ = (args[0],)
+
+        if self.__payloads__:
+            self._load()
+            self.update(self.__payloads__)
+            self.__payloads__.clear()
+
+    @staticmethod
+    def ensure_loaded(
+        func: Callable[Concatenate[TypedRelationMap, P], R],
+    ) -> Callable[Concatenate[TypedRelationMap, P], R]:
+        @wraps(func)
+        def wrapper(self: TypedRelationMap, *args: P.args, **kwargs: P.kwargs) -> R:
+            self._load()
+            return func(self, *args, **kwargs)
+
+        return wrapper
+
+    def _load(self):
+        if not self.__instance__:
+            return self
+
+        if self.__loaded__:
+            return self
+
+        active_materia.get().load_association(self)
+
+        if not self.__provided__:
+            return self
+
+        # Remove payloads whose key is already in __provided__
+        self.__payloads__ = {
+            k: v for k, v in self.__payloads__.items() if k not in self.__provided__
+        }
+
+        if len(self.__provided__) != super().__len__():
+            super().clear()
+            # Validate per-key: DB state may be partial (not all TypedDict keys present)
+            super().update(
+                {k: self.bless_value(k, v) for k, v in self.__provided__.items()}
+            )
+        self.__loaded__ = True
+
+        return self
+
+    async def _aload(self):
+        if not self.__instance__:
+            return self
+
+        if self.__loaded__:
+            return self
+
+        if not (provided := await active_materia.get().aload_association(self)):
+            return self
+
+        self.__payloads__ = {
+            k: v for k, v in self.__payloads__.items() if k not in provided
+        }
+
+        if len(provided) != super().__len__():
+            super().clear()
+            # Validate per-key: DB state may be partial (not all TypedDict keys present)
+            super().update({k: self.bless_value(k, v) for k, v in provided.items()})
+        self.__loaded__ = True
+
+        return self
+
+    def __await__(self):
+        return self._aload().__await__()
+
+    @ensure_loaded
+    def __getitem__(self, key: str) -> Any:
+        return super().__getitem__(key)
+
+    @ensure_loaded
+    def __iter__(self):
+        return super().__iter__()
+
+    @ensure_loaded
+    def __len__(self):
+        return super().__len__()
+
+    @ensure_loaded
+    def __contains__(self, key: object) -> bool:
+        return super().__contains__(key)
+
+    @ensure_loaded
+    def __bool__(self):
+        return super().__len__() > 0
+
+    @ensure_loaded
+    def __setitem__(self, key: str, value: Any) -> None:
+        value = self.bless_value(key, value)
+        if self.__provided__ is not None:
+            self.__provided__[key] = value.__transmuter_provided__
+        super().__setitem__(key, value)
+
+    @ensure_loaded
+    def __delitem__(self, key: str) -> None:
+        if self.__provided__ is not None:
+            del self.__provided__[key]
+        super().__delitem__(key)
+
+    def __repr__(self):
+        td_name = getattr(self.__typed_dict__, "__name__", repr(self.__typed_dict__))
+        return f"TypedRelationMap[{td_name}], instance={id(self.__instance__)}, size={super().__len__()}"
+
+    @ensure_loaded
+    def __str__(self):
+        return dict.__repr__(self)
+
+    @ensure_loaded
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, dict):
+            return dict.__eq__(self, other)
+        return False
+
+    @ensure_loaded
+    def __ne__(self, other: object) -> bool:
+        if isinstance(other, dict):
+            return dict.__ne__(self, other)
+        return True
+
+    @ensure_loaded
+    def __or__(self, other: Mapping[str, Any]) -> dict[str, Any]:
+        return dict.__or__(self.copy(), dict(other))
+
+    @ensure_loaded
+    def __ior__(self, other: Mapping[str, Any]) -> Self:
+        self.update(other)
+        return self
+
+    @ensure_loaded
+    def __reversed__(self):
+        return super().__reversed__()
+
+    @ensure_loaded
+    def get(self, key: str, default: Any = None) -> Any:
+        return super().get(key, default)
+
+    @ensure_loaded
+    def keys(self):
+        return super().keys()
+
+    @ensure_loaded
+    def values(self):
+        return super().values()
+
+    @ensure_loaded
+    def items(self):
+        return super().items()
+
+    @ensure_loaded
+    def pop(self, key: str, *args: Any) -> Any:
+        """Remove specified key and return the corresponding value."""
+        item = super().pop(key, *args)
+        if self.__provided__ is not None and key in self.__provided__:
+            del self.__provided__[key]
+        return item
+
+    @ensure_loaded
+    def popitem(self) -> tuple[str, Any]:
+        """Remove and return an arbitrary (key, value) pair."""
+        key, item = super().popitem()
+        if self.__provided__ is not None:
+            del self.__provided__[key]
+        return key, item
+
+    @ensure_loaded
+    def update(
+        self,
+        *args: Mapping[str, Any] | Iterable[tuple[str, Any]],
+        **kwargs: Any,
+    ) -> None:
+        """Update the dict with key-value pairs, validating per-key."""
+        merged: dict[str, Any] = {}
+        if args:
+            if isinstance(args[0], Mapping):
+                merged.update(args[0])
+            else:
+                merged.update(dict(*args))
+        if kwargs:
+            merged.update(kwargs)
+
+        if not merged:
+            return
+
+        # Validate per-key to allow partial updates (not all TypedDict keys required)
+        blessed: dict[str, Any] = {}
+        for key, value in merged.items():
+            blessed[key] = self.bless_value(key, value)
+        if self.__provided__ is not None:
+            self.__provided__.update(
+                {key: value.__transmuter_provided__ for key, value in blessed.items()}
+            )
+        super().update(blessed)
+
+    @ensure_loaded
+    def setdefault(self, key: str, default: Any = None) -> Any:
+        """If key is not in the dict, insert key with the default value."""
+        if key not in self:
+            if default is not None:
+                self[key] = default
+        return super().get(key, default)
+
+    @ensure_loaded
+    def clear(self) -> None:
+        """Remove all items."""
+        if self.__provided__ is not None:
+            self.__provided__.clear()
+        super().clear()
+
+    @ensure_loaded
+    def copy(self) -> dict[str, Any]:
+        return super().copy()
+
+
+if TYPE_CHECKING:
+    from typing_extensions import TypeAliasType as TypeAliasType
+
+    # Make TypedRelationMap[TD] resolve to TD for the type checker.
+    # This lets Pyright/mypy apply TypedDict per-key type inference so that
+    # e.g. ``gallery.media["image"]`` returns ``ImageMedia`` instead of ``Any``.
+    TypedRelationMap = TypeAliasType(  # type: ignore[assignment]
+        "TypedRelationMap", TD, type_params=(TD,)
+    )
+
 Relationship = partial(Field, default_factory=Relation, frozen=True)
 RelationMaps = partial(Field, default_factory=RelationMap, frozen=True)
+TypedRelationMaps = partial(Field, default_factory=TypedRelationMap, frozen=True)
 
 
 @overload

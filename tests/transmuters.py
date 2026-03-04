@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Literal, Optional, TypedDict
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -12,6 +12,8 @@ from arcanus.association import (
     RelationMaps,
     Relationship,
     Relationships,
+    TypedRelationMap,
+    TypedRelationMaps,
 )
 from arcanus.base import BaseTransmuter, Identity, Transmuter
 from arcanus.dataclass import dataclass
@@ -393,3 +395,69 @@ class DCBook(Transmuter):
     author: Relation[DCAuthor] = Relationship()
     publisher: Relation[DCPublisher] = Relationship()
     tags: RelationCollection[SimpleTag] = Relationships()
+
+
+@sqlalchemy_materia.bless(models.MediaAttachment)
+class MediaItem(TestIdMixin, BaseTransmuter):
+    """Base media transmuter for polymorphic tests."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    slot: str = ""
+    name: str
+    media_type: str = "generic"
+
+
+@sqlalchemy_materia.bless(models.ImageAttachment)
+class ImageMedia(MediaItem):
+    """Image subtype."""
+
+    media_type: str = "image"
+    width: int = 0
+    height: int = 0
+
+
+@sqlalchemy_materia.bless(models.VideoAttachment)
+class VideoMedia(MediaItem):
+    """Video subtype."""
+
+    media_type: str = "video"
+    duration: float = 0.0
+
+
+class DocumentMedia(TypedDict):
+    """TypedDict defining per-key types for a document's media attachments."""
+
+    image: ImageMedia
+    video: VideoMedia
+
+
+class OptionalDocumentMedia(TypedDict, total=False):
+    """TypedDict where all keys are optional."""
+
+    image: ImageMedia
+    video: VideoMedia
+
+
+@sqlalchemy_materia.bless(models.GalleryORM)
+class Gallery(TestIdMixin, BaseTransmuter):
+    """A gallery with typed media attachments."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    name: str
+
+    media: TypedRelationMap[DocumentMedia] = TypedRelationMaps()
+
+
+class OptionalGallery(TestIdMixin, BaseTransmuter):
+    """A gallery where media keys are optional."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    name: str
+
+    media: TypedRelationMap[OptionalDocumentMedia] = TypedRelationMaps()
