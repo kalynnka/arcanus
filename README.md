@@ -543,22 +543,22 @@ async with AsyncSession(async_engine) as session:
 
 Arcanus provides several association types to model different relationship patterns. All association types work across all materia backends (NoOp, SQLAlchemy, etc.).
 
-| Association | Relationship | Container | Example |
-|---|---|---|---|
-| `Relation[T]` | One-to-one / Many-to-one | Single value | `author: Relation[Author]` |
-| `RelationCollection[T]` | One-to-many / Many-to-many | `list[T]` | `books: RelationCollection[Book]` |
-| `RelationSet[T]` | Many-to-many (unique) | `set[T]` | `tags: RelationSet[Tag]` |
-| `RelationMap[K, T]` | Keyed collection (homogeneous) | `dict[K, T]` | `settings: RelationMap[str, Setting]` |
-| `TypedRelationMap[TD]` | Keyed collection (heterogeneous) | `dict` via TypedDict | `media: TypedRelationMap[MediaFiles]` |
+| Association             | Relationship                     | Container            | Example                               |
+| ----------------------- | -------------------------------- | -------------------- | ------------------------------------- |
+| `Relation[T]`           | One-to-one / Many-to-one         | Single value         | `author: Relation[Author]`            |
+| `RelationCollection[T]` | One-to-many / Many-to-many       | `list[T]`            | `books: RelationCollection[Book]`     |
+| `RelationSet[T]`        | Many-to-many (unique)            | `set[T]`             | `tags: RelationSet[Tag]`              |
+| `RelationMap[K, T]`     | Keyed collection (homogeneous)   | `dict[K, T]`         | `settings: RelationMap[str, Setting]` |
+| `TypedRelationMap[TD]`  | Keyed collection (heterogeneous) | `dict` via TypedDict | `media: TypedRelationMap[MediaFiles]` |
 
 Default factories are provided for convenience:
 
-| Field Helper | Creates |
-|---|---|
-| `Relationship()` | `Field(default_factory=Relation, frozen=True)` |
-| `Relationships()` | `Field(default_factory=RelationCollection, frozen=True)` |
-| `RelationMaps()` | `Field(default_factory=RelationMap, frozen=True)` |
-| `TypedRelationMaps()` | `Field(default_factory=TypedRelationMap, frozen=True)` |
+| Field Helper          | Creates                                                  |
+| --------------------- | -------------------------------------------------------- |
+| `Relationship()`      | `Field(default_factory=Relation, frozen=True)`           |
+| `Relationships()`     | `Field(default_factory=RelationCollection, frozen=True)` |
+| `RelationMaps()`      | `Field(default_factory=RelationMap, frozen=True)`        |
+| `TypedRelationMaps()` | `Field(default_factory=TypedRelationMap, frozen=True)`   |
 
 ### Relation
 
