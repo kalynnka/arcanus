@@ -664,7 +664,9 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
         # constructed parent schema but cls expects a child schema.
         # Re-construct as the concrete child while preserving the ORM link.
         elif isinstance(data, Transmuter) and issubclass(cls, type(data)):
-            provided = object.__getattribute__(data, "__transmuter_provided__")
+            provided: TransmuterProxied | None = object.__getattribute__(
+                data, "__transmuter_provided__"
+            )
             if provided is not None:
                 inputs = materia.transmuter_before_construct(cls, provided)
             else:
