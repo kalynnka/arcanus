@@ -24,12 +24,12 @@ from typing import (
     get_args,
     get_origin,
     get_type_hints,
-    is_typeddict,
     overload,
 )
 
 from pydantic import Field, GetCoreSchemaHandler, TypeAdapter
 from pydantic_core import core_schema
+from typing_extensions import is_typeddict
 
 from arcanus.materia.base import active_materia
 from arcanus.utils import get_cached_adapter
