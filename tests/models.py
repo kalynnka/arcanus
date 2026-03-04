@@ -507,6 +507,64 @@ class ShelfItem(Base):
     )
 
 
+# Gallery (1-M polymorphic dict-based relationship with MediaAttachment)
+class GalleryORM(Base):
+    __tablename__ = "gallery"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    # Dict-based relationship keyed by MediaAttachment.slot
+    media: Mapped[dict[str, MediaAttachment]] = relationship(
+        "MediaAttachment",
+        collection_class=attribute_keyed_dict("slot"),
+        back_populates="gallery",
+        cascade="all, delete-orphan",
+    )
+
+
+# MediaAttachment - single-table inheritance base
+class MediaAttachment(Base):
+    __tablename__ = "media_attachment"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    slot: Mapped[str] = mapped_column(String(50), nullable=False)  # dict key
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(50), nullable=False)
+
+    # Polymorphic columns (nullable for sibling subtypes)
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration: Mapped[float | None] = mapped_column(Integer, nullable=True)
+
+    gallery_id: Mapped[int] = mapped_column(
+        ForeignKey("gallery.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    gallery: Mapped[GalleryORM] = relationship(
+        "GalleryORM",
+        back_populates="media",
+        uselist=False,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_on": "media_type",
+        "polymorphic_identity": "generic",
+    }
+
+
+class ImageAttachment(MediaAttachment):
+    __mapper_args__ = {
+        "polymorphic_identity": "image",
+    }
+
+
+class VideoAttachment(MediaAttachment):
+    __mapper_args__ = {
+        "polymorphic_identity": "video",
+    }
+
+
 __all__ = [
     "Base",
     "Publisher",
@@ -525,4 +583,8 @@ __all__ = [
     "team_employee",
     "Shelf",
     "ShelfItem",
+    "GalleryORM",
+    "MediaAttachment",
+    "ImageAttachment",
+    "VideoAttachment",
 ]

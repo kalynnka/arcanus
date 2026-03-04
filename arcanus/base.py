@@ -604,7 +604,6 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
             instance = super().model_construct(_fields_set=_fields_set, **inputs)
             object.__setattr__(instance, "__transmuter_provided__", None)
             object.__setattr__(instance, "__transmuter_revalidating__", False)
-
             return instance
 
         # Handle provider with matching data type
