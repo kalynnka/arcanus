@@ -367,7 +367,7 @@ class RelationCollection(list[T], Association[T]):
             )
             if fields_set is not None and association.field_name in fields_set:
                 return serializer(association.copy())
-            return serializer(list.copy(association))
+            return serializer(list.copy(association) + association.__payloads__)
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,
@@ -703,7 +703,9 @@ class RelationSet(set[T], Association[T]):
             )
             if fields_set is not None and association.field_name in fields_set:
                 return serializer(association.copy())
-            return serializer(set.copy(association))
+            return serializer(
+                list(set.copy(association) | association.__payloads__)
+            )
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,
@@ -1064,7 +1066,7 @@ class RelationMap(dict[K, T], Association[T]):
             )
             if fields_set is not None and association.field_name in fields_set:
                 return serializer(association.copy())
-            return serializer(dict.copy(association))
+            return serializer(dict.copy(association) | association.__payloads__)
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,
@@ -1475,7 +1477,7 @@ class TypedRelationMap(dict, Association[TD]):
             )
             if fields_set is not None and association.field_name in fields_set:
                 return serializer(association.copy())
-            return serializer(dict.copy(association))
+            return serializer(dict.copy(association) | association.__payloads__)
 
         # Build a union schema from the TypedDict value types for serialization.
         # Using a plain dict schema avoids the TypedDict's totality constraint
