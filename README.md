@@ -538,3 +538,382 @@ async with AsyncSession(async_engine) as session:
     parent_author = await book.author  # Returns Author, not Relation[Author]
     assert parent_author.id == book.author_id
 ```
+
+## Association Types
+
+Arcanus provides several association types to model different relationship patterns. All association types work across all materia backends (NoOp, SQLAlchemy, etc.).
+
+| Association | Relationship | Container | Example |
+|---|---|---|---|
+| `Relation[T]` | One-to-one / Many-to-one | Single value | `author: Relation[Author]` |
+| `RelationCollection[T]` | One-to-many / Many-to-many | `list[T]` | `books: RelationCollection[Book]` |
+| `RelationSet[T]` | Many-to-many (unique) | `set[T]` | `tags: RelationSet[Tag]` |
+| `RelationMap[K, T]` | Keyed collection (homogeneous) | `dict[K, T]` | `settings: RelationMap[str, Setting]` |
+| `TypedRelationMap[TD]` | Keyed collection (heterogeneous) | `dict` via TypedDict | `media: TypedRelationMap[MediaFiles]` |
+
+Default factories are provided for convenience:
+
+| Field Helper | Creates |
+|---|---|
+| `Relationship()` | `Field(default_factory=Relation, frozen=True)` |
+| `Relationships()` | `Field(default_factory=RelationCollection, frozen=True)` |
+| `RelationMaps()` | `Field(default_factory=RelationMap, frozen=True)` |
+| `TypedRelationMaps()` | `Field(default_factory=TypedRelationMap, frozen=True)` |
+
+### Relation
+
+`Relation[T]` wraps a single related transmuter. Use it for one-to-one or many-to-one relationships.
+
+```python
+from arcanus.base import BaseTransmuter, Identity
+from arcanus.association import Relation, Relationship
+from pydantic import Field
+from typing import Annotated, Optional
+
+class Author(BaseTransmuter):
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    name: str
+
+class Book(BaseTransmuter):
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    title: str
+    author: Relation[Author] = Relationship()
+
+# Assign at construction
+author = Author(id=1, name="Isaac Asimov")
+book = Book(id=1, title="Foundation", author=Relation(author))
+
+# Access the value
+print(book.author.value.name)  # Isaac Asimov
+
+# Update the value
+new_author = Author(id=2, name="Arthur C. Clarke")
+book.author.value = new_author
+print(book.author.value.name)  # Arthur C. Clarke
+
+# Optional relation (defaults to None)
+class Review(BaseTransmuter):
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    text: str
+    book: Relation[Optional[Book]] = Relationship()
+
+review = Review(id=1, text="Great book!")
+print(review.book.value)  # None
+```
+
+### RelationCollection
+
+`RelationCollection[T]` is a `list`-based association for one-to-many or many-to-many relationships.
+
+```python
+from arcanus.association import RelationCollection, Relationships
+
+class Author(BaseTransmuter):
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    name: str
+    books: RelationCollection[Book] = Relationships()
+
+class Book(BaseTransmuter):
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    title: str
+
+# Start empty, add items
+author = Author(id=1, name="Asimov")
+author.books.append(Book(id=1, title="Foundation"))
+author.books.append(Book(id=2, title="I, Robot"))
+
+# List operations
+print(len(author.books))       # 2
+print(author.books[0].title)   # Foundation
+
+for book in author.books:
+    print(book.title)
+
+# Extend with multiple
+author.books.extend([
+    Book(id=3, title="Caves of Steel"),
+    Book(id=4, title="The End of Eternity"),
+])
+
+# Remove, pop, clear
+author.books.remove(author.books[0])
+popped = author.books.pop()
+author.books.clear()
+
+# Initialize with values at construction
+author = Author(
+    id=1,
+    name="Asimov",
+    books=RelationCollection([
+        Book(id=1, title="Foundation"),
+        Book(id=2, title="I, Robot"),
+    ]),
+)
+```
+
+### RelationSet
+
+`RelationSet[T]` is a `set`-based association for unique collections. Ideal for many-to-many relationships where duplicates are not allowed.
+
+```python
+from arcanus.association import RelationSet, Relationships
+
+class Tag(BaseTransmuter):
+    id: Annotated[Optional[int], Identity] = Field(default=None)
+    name: str
+
+class Article(BaseTransmuter):
+    id: Annotated[Optional[int], Identity] = Field(default=None)
+    title: str
+    tags: RelationSet[Tag] = Relationships()
+
+article = Article(id=1, title="Intro to Python")
+
+# Add tags
+python_tag = Tag(id=1, name="python")
+article.tags.add(python_tag)
+article.tags.add(Tag(id=2, name="tutorial"))
+
+# Set operations
+print(len(article.tags))          # 2
+print(python_tag in article.tags)  # True
+
+# Discard (no error if absent)
+article.tags.discard(python_tag)
+
+# Update with multiple
+article.tags.update([
+    Tag(id=3, name="beginner"),
+    Tag(id=4, name="guide"),
+])
+
+# Set algebra
+other_tags = {Tag(id=3, name="beginner"), Tag(id=5, name="advanced")}
+common = article.tags & other_tags       # intersection
+combined = article.tags | other_tags     # union
+diff = article.tags - other_tags         # difference
+
+# Initialize with values
+article = Article(
+    id=1,
+    title="Intro",
+    tags=RelationSet({Tag(id=1, name="python"), Tag(id=2, name="tutorial")}),
+)
+```
+
+### RelationMap
+
+`RelationMap[K, T]` is a `dict`-based association with **homogeneous** value types — all values share the same transmuter type. Use it for keyed one-to-many relationships.
+
+```python
+from arcanus.association import RelationMap, RelationMaps
+
+class ShelfItem(BaseTransmuter):
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    label: str
+    description: str
+
+class Shelf(BaseTransmuter):
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    name: str
+    items: RelationMap[str, ShelfItem] = RelationMaps()
+
+shelf = Shelf(id=1, name="Reference")
+
+# Set items by key
+shelf.items["python"] = ShelfItem(id=1, label="python", description="Python ref")
+shelf.items["rust"] = ShelfItem(id=2, label="rust", description="Rust ref")
+
+# Dict operations
+print(shelf.items["python"].description)  # Python ref
+print(len(shelf.items))                    # 2
+print("python" in shelf.items)             # True
+
+for key, item in shelf.items.items():
+    print(f"{key}: {item.label}")
+
+# Update, pop, clear
+shelf.items.update({"go": ShelfItem(id=3, label="go", description="Go ref")})
+removed = shelf.items.pop("rust")
+shelf.items.clear()
+
+# Literal-typed keys for stricter validation
+from typing import Literal
+
+class StrictCatalog(BaseTransmuter):
+    id: Annotated[Optional[int], Identity] = Field(default=None)
+    title: str
+    tags: RelationMap[Literal["python", "rust", "go"], Tag] = RelationMaps()
+
+catalog = StrictCatalog(id=1, title="Languages")
+catalog.tags["python"] = Tag(id=1, name="Python")
+# catalog.tags["java"] = ...  # raises ValidationError — key not in Literal
+```
+
+### TypedRelationMap
+
+`TypedRelationMap[TD]` is a dict-based association where each key can have a **different Transmuter type**, defined through a `TypedDict`. This is ideal for polymorphic relationships where different keys correspond to different subclasses.
+
+#### Defining Typed Media Slots
+
+```python
+from typing import Annotated, Optional
+from typing_extensions import TypedDict
+from pydantic import Field
+from arcanus.base import BaseTransmuter, Identity
+from arcanus.association import TypedRelationMap, TypedRelationMaps
+
+# Define polymorphic transmuter types
+class MediaItem(BaseTransmuter):
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    slot: str = ""
+    name: str
+
+class ImageMedia(MediaItem):
+    width: int = 0
+    height: int = 0
+
+class VideoMedia(MediaItem):
+    duration: float = 0.0
+
+# Define per-key types with TypedDict
+class DocumentMedia(TypedDict):
+    image: ImageMedia
+    video: VideoMedia
+
+# Use in a transmuter
+class Gallery(BaseTransmuter):
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    name: str
+    media: TypedRelationMap[DocumentMedia] = TypedRelationMaps()
+```
+
+#### Basic Usage
+
+```python
+# Create with values
+img = ImageMedia(id=1, name="photo", width=1920, height=1080)
+vid = VideoMedia(id=2, name="clip", duration=120.0)
+
+gallery = Gallery(id=1, name="My Gallery")
+gallery.media["image"] = img
+gallery.media["video"] = vid
+
+# Type-safe per-key access
+photo = gallery.media["image"]   # ImageMedia
+clip = gallery.media["video"]    # VideoMedia
+
+print(photo.width)    # 1920
+print(clip.duration)  # 120.0
+```
+
+#### Construction with TypedRelationMap
+
+```python
+# Pass values at construction time
+gallery = Gallery(
+    id=1,
+    name="My Gallery",
+    media=TypedRelationMap({"image": img, "video": vid}),
+)
+
+# Or initialize from plain dicts (Pydantic validates and coerces)
+gallery = Gallery(
+    id=1,
+    name="My Gallery",
+    media=TypedRelationMap({
+        "image": {"name": "photo", "width": 1920, "height": 1080},
+        "video": {"name": "clip", "duration": 120.0},
+    }),
+)
+```
+
+#### Dict Operations
+
+`TypedRelationMap` supports standard dict operations, with per-key type validation:
+
+```python
+gallery = Gallery(id=1, name="Test")
+
+# Set items (validated against TypedDict key types)
+gallery.media["image"] = ImageMedia(id=1, name="photo", width=800, height=600)
+
+# Check membership
+"image" in gallery.media  # True
+len(gallery.media)         # 1
+
+# Iterate
+for key in gallery.media:
+    print(key, gallery.media[key])
+
+# Delete
+del gallery.media["image"]
+
+# Update with multiple items
+gallery.media.update({
+    "image": ImageMedia(id=1, name="new_photo", width=1024, height=768),
+    "video": VideoMedia(id=2, name="intro", duration=30.0),
+})
+
+# Pop
+removed = gallery.media.pop("video")
+```
+
+#### Optional Keys with `total=False`
+
+Use `total=False` in the TypedDict to make all keys optional, allowing partial population:
+
+```python
+class OptionalMedia(TypedDict, total=False):
+    image: ImageMedia
+    video: VideoMedia
+
+class FlexibleGallery(BaseTransmuter):
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    name: str
+    media: TypedRelationMap[OptionalMedia] = TypedRelationMaps()
+
+# Only some keys need to be present
+gallery = FlexibleGallery(id=1, name="Partial")
+gallery.media["image"] = ImageMedia(id=1, name="photo", width=800, height=600)
+# gallery.media["video"] is not required
+
+data = gallery.model_dump()
+# {"id": 1, "name": "Partial", "media": {"image": {...}}}
+```
+
+#### Serialization
+
+```python
+gallery = Gallery(id=1, name="Test")
+gallery.media["image"] = ImageMedia(id=1, name="photo", width=800, height=600)
+gallery.media["video"] = VideoMedia(id=2, name="clip", duration=30.0)
+
+# Serialize to dict
+data = gallery.model_dump()
+# {
+#     "id": 1, "name": "Test",
+#     "media": {
+#         "image": {"id": 1, "slot": "", "name": "photo", "media_type": "generic", "width": 800, "height": 600},
+#         "video": {"id": 2, "slot": "", "name": "clip", "media_type": "generic", "duration": 30.0},
+#     }
+# }
+
+# Round-trip: reconstruct from serialized data
+restored = Gallery.model_validate(data)
+assert isinstance(restored.media["image"], ImageMedia)
+```
+
+#### Key Validation
+
+Invalid keys or wrong value types raise errors:
+
+```python
+gallery = Gallery(id=1, name="Test")
+
+# Invalid key (not in TypedDict)
+gallery.media["audio"] = some_value  # raises KeyError
+
+# Wrong value type for key
+gallery.media["image"] = VideoMedia(...)  # raises ValidationError
+```
