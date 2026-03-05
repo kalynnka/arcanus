@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy as copy_module
 from contextvars import ContextVar
 from copy import copy as shallow_copy
 from copy import deepcopy
@@ -42,8 +43,50 @@ from arcanus.materia.base import (
 )
 from arcanus.utils import get_cached_adapter
 
-# Cache NoOpMateria singleton for fast identity check
-_noop_materia = NoOpMateria()
+
+def _strip_outermost_model_formulate(schema: dict[str, Any]) -> dict[str, Any]:
+    """Build a copy of a pydantic core schema with ``model_formulate`` removed
+    from the *outermost* model only.
+
+    Nested definitions keep their ``model_formulate`` wrap validators so that
+    their ``__transmuter_provided__`` / ``__transmuter_revalidating__`` slots
+    are stamped normally.
+
+    Returns a new schema suitable for a lightweight NoOp ``SchemaValidator``
+    that can be called from ``model_validate`` to avoid the Python-side wrap
+    overhead for the top-level model.
+    """
+    # Convert to mutable dict — pydantic-core may return a MockCoreSchema.
+    schema = copy_module.deepcopy(dict(schema))
+
+    def _unwrap(s: dict[str, Any]) -> dict[str, Any]:
+        if s.get("type") != "function-wrap":
+            return s
+        func_info = s.get("function", {})
+        func = func_info.get("function", None) if isinstance(func_info, dict) else None
+        if getattr(func, "__name__", "") == "model_formulate":
+            inner = s["schema"]
+            if "ref" in s:
+                inner["ref"] = s["ref"]
+            return inner
+        return s
+
+    if schema.get("type") == "definitions":
+        inner = schema.get("schema", {})
+        if inner.get("type") == "definition-ref":
+            # The main schema is a ref into the definitions list.
+            # Find the matching definition and strip its model_formulate.
+            target_ref = inner.get("schema_ref")
+            for i, defn in enumerate(schema.get("definitions", [])):
+                if defn.get("ref") == target_ref:
+                    schema["definitions"][i] = _unwrap(defn)
+                    break
+        else:
+            schema["schema"] = _unwrap(inner)
+    else:
+        schema = _unwrap(schema)
+
+    return schema
 
 
 T = TypeVar("T", bound="BaseTransmuter")
@@ -206,7 +249,7 @@ class Transmuter:
         materia = active_materia.get()
 
         # Handle NoOpMateria case - fast path using identity check
-        if materia is _noop_materia:
+        if isinstance(materia, NoOpMateria):
             instance = handler(data)
             object.__setattr__(instance, "__transmuter_provided__", None)
             object.__setattr__(instance, "__transmuter_revalidating__", False)
@@ -344,6 +387,7 @@ class TransmuterMetaclass(ModelMetaclass):
     __transmuter_create_model__: Optional[type[BaseModel]]
     __transmuter_update_model__: Optional[type[BaseModel]]
     __transmuter_is_dataclass__: bool
+    __pydantic_noop_validator__: Optional[SchemaValidator]
 
     if TYPE_CHECKING:
         __pydantic_fields__: dict[str, FieldInfo]
@@ -386,6 +430,7 @@ class TransmuterMetaclass(ModelMetaclass):
         self.__transmuter_create_model__ = None
         self.__transmuter_update_model__ = None
         self.__transmuter_is_dataclass__ = False
+        self.__pydantic_noop_validator__ = None
 
         # Dataclass path: skip ModelMetaclass.__init__, defer finalization
         if not issubclass(self, BaseModel):
@@ -417,6 +462,20 @@ class TransmuterMetaclass(ModelMetaclass):
                 elif isinstance(metadata, Identity):
                     self.__transmuter_identities__[name] = info
                     break
+
+        # Build the lightweight NoOp validator (without outermost
+        # model_formulate) so that ``model_validate`` can bypass the
+        # Python-side wrap callback when the NoOp materia is active.
+        core_schema = getattr(self, "__pydantic_core_schema__", None)
+        if core_schema is not None:
+            try:
+                noop_schema = _strip_outermost_model_formulate(core_schema)
+                self.__pydantic_noop_validator__ = SchemaValidator(noop_schema)
+            except Exception:
+                # Schema may not be fully resolved yet (MockCoreSchema for
+                # forward references).  Use ``False`` as a sentinel so that
+                # the lazy path in model_validate can retry.
+                self.__pydantic_noop_validator__ = False  # type: ignore[assignment]
 
         self.__transmuter_complete__ = True
 
@@ -595,6 +654,68 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
     __transmuter_provided__: Optional[TransmuterProxied] = NoInitField(init=False)
     __transmuter_revalidating__: bool = NoInitField(init=False)
 
+    @classmethod
+    def _build_noop_validator(cls) -> SchemaValidator | None:
+        """Lazily build the NoOp validator (retried when the eager attempt in
+        ``_finalize_transmuter`` failed due to forward references)."""
+        core_schema = getattr(cls, "__pydantic_core_schema__", None)
+        if core_schema is None:
+            cls.__pydantic_noop_validator__ = None
+            return None
+        try:
+            noop_schema = _strip_outermost_model_formulate(core_schema)
+            validator = SchemaValidator(noop_schema)
+            cls.__pydantic_noop_validator__ = validator
+            return validator
+        except Exception:
+            cls.__pydantic_noop_validator__ = None
+            return None
+
+    @classmethod
+    def model_validate(
+        cls,
+        obj: Any,
+        *,
+        strict: bool | None = None,
+        from_attributes: bool | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> Self:
+        """Validate *obj* and return a transmuter instance.
+
+        When the active materia is ``NoOpMateria``, uses a lightweight
+        ``SchemaValidator`` that skips the outermost ``model_formulate``
+        wrap validator, saving one Python↔Rust roundtrip per call.
+        """
+        __tracebackhide__ = True
+        noop_validator = cls.__pydantic_noop_validator__
+        # ``False`` → eager build was deferred (forward refs); retry once.
+        if noop_validator is False:
+            noop_validator = cls._build_noop_validator()
+        if noop_validator is not None and isinstance(active_materia.get(), NoOpMateria):
+            # Use the stripped validator; stamp outermost slots afterward
+            # (nested models keep their own model_formulate wraps).
+            if strict is None and from_attributes is None and context is None:
+                instance = noop_validator.validate_python(obj)
+            else:
+                instance = noop_validator.validate_python(
+                    obj,
+                    strict=strict,
+                    from_attributes=from_attributes,
+                    context=context,
+                )
+            object.__setattr__(instance, "__transmuter_provided__", None)
+            object.__setattr__(instance, "__transmuter_revalidating__", False)
+            return instance
+        # Full validator path (provider materia or fallback).
+        if strict is None and from_attributes is None and context is None:
+            return cls.__pydantic_validator__.validate_python(obj)
+        return cls.__pydantic_validator__.validate_python(
+            obj,
+            strict=strict,
+            from_attributes=from_attributes,
+            context=context,
+        )
+
     def __deepcopy__(self, memo: dict[int, Any] | None = None) -> Self:
         copied = super().__deepcopy__(memo)
         object.__setattr__(
@@ -624,7 +745,7 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
         materia = active_materia.get()
 
         # Handle NoOpMateria case
-        if materia is _noop_materia:
+        if isinstance(materia, NoOpMateria):
             inputs = data if isinstance(data, dict) else data.__dict__ if data else {}
             inputs.update(values)
 
