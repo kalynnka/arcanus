@@ -11,6 +11,10 @@ from arcanus.materia.sqlalchemy import Session as arcanusSession
 from arcanus.materia.sqlalchemy.base import SqlalchemyMateria
 from tests.models import Author as AuthorModel
 from tests.models import Base
+from tests.models import BlogAuthor as BlogAuthorModel
+from tests.models import BlogPost as BlogPostModel
+from tests.models import BlogPostTag as BlogPostTagModel
+from tests.models import BlogTag as BlogTagModel
 from tests.models import Book as BookModel
 from tests.models import Publisher as PublisherModel
 from tests.transmuters import sqlalchemy_materia
@@ -248,3 +252,99 @@ def create_nested_book_data() -> list[dict[str, Any]]:
         }
         for _ in range(50)
     ]
+
+
+@pytest.fixture(scope="session")
+def seeded_blog_posts(
+    session_factory: sessionmaker,
+) -> Generator[list[BlogPostModel], None, None]:
+    """
+    Pre-seed the database with blog posts, authors, and tags for
+    association-proxy read benchmarks.
+
+    Creates 10 authors, 20 tags, and 100 blog posts.
+    Each post gets 1-5 random tags via the M-M join table.
+    """
+    random.seed(SEED + 10)
+    session = session_factory()
+
+    tag_words = [
+        "python",
+        "rust",
+        "go",
+        "javascript",
+        "typescript",
+        "react",
+        "vue",
+        "svelte",
+        "fastapi",
+        "django",
+        "flask",
+        "sqlalchemy",
+        "pydantic",
+        "docker",
+        "kubernetes",
+        "aws",
+        "gcp",
+        "azure",
+        "linux",
+        "devops",
+    ]
+    author_names = [
+        "Alice",
+        "Bob",
+        "Charlie",
+        "Diana",
+        "Eve",
+        "Frank",
+        "Grace",
+        "Hank",
+        "Ivy",
+        "Jack",
+    ]
+    adjectives = ["Ultimate", "Practical", "Modern", "Advanced", "Essential", "Deep"]
+    nouns = ["Guide", "Tutorial", "Handbook", "Overview", "Introduction", "Patterns"]
+
+    authors = []
+    for name in author_names:
+        author = BlogAuthorModel(name=name)
+        session.add(author)
+        authors.append(author)
+    session.flush()
+
+    tags = []
+    for word in tag_words:
+        tag = BlogTagModel(label=word)
+        session.add(tag)
+        tags.append(tag)
+    session.flush()
+
+    posts = []
+    for i in range(100):
+        author = authors[i % len(authors)]
+        post = BlogPostModel(
+            title=f"The {random.choice(adjectives)} {random.choice(nouns)} to {random.choice(tag_words).title()} {random.randint(1, 99)}",
+            author_id=author.id,
+        )
+        session.add(post)
+        session.flush()
+
+        num_tags = random.randint(1, 5)
+        chosen_tags = random.sample(tags, num_tags)
+        for tag in chosen_tags:
+            session.execute(
+                BlogPostTagModel.__table__.insert().values(
+                    post_id=post.id, tag_id=tag.id
+                )
+            )
+
+        posts.append(post)
+
+    session.commit()
+
+    for post in posts:
+        session.refresh(post)
+
+    yield posts
+
+    session.close()
