@@ -85,7 +85,7 @@ class TestReadSingleBlogPostWithProxy:
                     .where(models.BlogPost.id == post_id)
                     .options(selectinload(models.BlogPost.author))
                 )
-                orm_post = session.scalars(stmt).first()
+                orm_post = session.execute(stmt).scalar_one()
                 # Build dict with proxy values resolved
                 data = {
                     "id": orm_post.id,
@@ -265,7 +265,7 @@ class TestReadBlogPostWithCollectionProxy:
                     .where(models.BlogPost.id == post_id)
                     .options(selectinload(models.BlogPost.tags))
                 )
-                orm_post = session.scalars(stmt).first()
+                orm_post = session.execute(stmt).scalar_one()
                 data = {
                     "id": orm_post.id,
                     "title": orm_post.title,
