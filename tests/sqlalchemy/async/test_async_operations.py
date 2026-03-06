@@ -185,9 +185,7 @@ class TestAsyncResultStreaming:
             stmt = select(Author).where(Author["name"].startswith("YieldPer Author"))
             # Explicitly pass yield_per via execution_options, mirroring how
             # AsyncSession.partitions() calls stream() internally.
-            result = await session.stream(
-                stmt, execution_options={"yield_per": 3}
-            )
+            result = await session.stream(stmt, execution_options={"yield_per": 3})
 
             all_results = []
             partition_count = 0
