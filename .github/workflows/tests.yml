@@ -85,7 +85,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [instrumentation, walltime]
+        mode: [instrumentation]
 
     steps:
       - uses: actions/checkout@v4

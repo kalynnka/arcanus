@@ -4,6 +4,7 @@ from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import Column, ForeignKey, Integer, String, Table, Text, Uuid
+from sqlalchemy.ext.associationproxy import AssociationProxy, association_proxy
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -587,4 +588,89 @@ __all__ = [
     "MediaAttachment",
     "ImageAttachment",
     "VideoAttachment",
+    "BlogAuthor",
+    "BlogPost",
+    "BlogTag",
+    "BlogPostTag",
 ]
+
+
+class BlogAuthor(Base):
+    """Blog author – target of a scalar association proxy on BlogPost."""
+
+    __tablename__ = "blog_author"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+
+    posts: Mapped[list[BlogPost]] = relationship(
+        "BlogPost",
+        back_populates="author",
+        uselist=True,
+        cascade="all, delete-orphan",
+    )
+
+
+# Secondary table for M-M between BlogPost and BlogTag
+class BlogPostTag(Base):
+    __tablename__ = "blog_post_tag"
+
+    post_id: Mapped[int] = mapped_column(
+        ForeignKey("blog_post.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    tag_id: Mapped[int] = mapped_column(
+        ForeignKey("blog_tag.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+
+class BlogTag(Base):
+    """Tag for blog posts – used via M-M for collection association proxy."""
+
+    __tablename__ = "blog_tag"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    label: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
+
+    posts: Mapped[list[BlogPost]] = relationship(
+        "BlogPost",
+        secondary=BlogPostTag.__table__,
+        back_populates="tags",
+        uselist=True,
+    )
+
+
+class BlogPost(Base):
+    """Blog post with association proxies for testing.
+
+    Proxies:
+    - ``author_name``  – scalar proxy through M-1 ``author`` relationship
+    - ``tag_labels``   – collection proxy through M-M ``tags`` relationship
+    """
+
+    __tablename__ = "blog_post"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    author_id: Mapped[int] = mapped_column(
+        ForeignKey("blog_author.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    author: Mapped[BlogAuthor] = relationship(
+        "BlogAuthor",
+        back_populates="posts",
+        uselist=False,
+    )
+
+    tags: Mapped[list[BlogTag]] = relationship(
+        "BlogTag",
+        secondary=BlogPostTag.__table__,
+        back_populates="posts",
+        uselist=True,
+    )
+
+    # ── Association proxies ──
+    author_name: AssociationProxy[str] = association_proxy("author", "name")
+    tag_labels: AssociationProxy[list[str]] = association_proxy("tags", "label")

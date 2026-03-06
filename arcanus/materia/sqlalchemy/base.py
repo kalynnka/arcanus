@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
 
 from pydantic import ValidationInfo
 from sqlalchemy import inspect
 from sqlalchemy.exc import InvalidRequestError, MissingGreenlet
+from sqlalchemy.ext.associationproxy import AssociationProxy
 from sqlalchemy.orm import InstanceState
 from sqlalchemy.util import greenlet_spawn
 
@@ -14,6 +16,20 @@ from arcanus.materia.base import BaseMateria, T
 
 
 class LoadedData: ...
+
+
+@lru_cache(maxsize=None)
+def extract_association_proxies(orm_class: type) -> dict[str, str]:
+    """Return ``{proxy_attr_name: target_relationship_name}`` for *orm_class*.
+
+    The result is cached per ORM class because mapper metadata is immutable.
+    """
+    proxies: dict[str, str] = {}
+    mapper = inspect(orm_class)
+    for key, descriptor in mapper.all_orm_descriptors.items():
+        if isinstance(descriptor, AssociationProxy):
+            proxies[key] = descriptor.target_collection
+    return proxies
 
 
 class SqlalchemyMateria(BaseMateria):
@@ -45,12 +61,6 @@ class SqlalchemyMateria(BaseMateria):
     def transmuter_before_validator(
         self, transmuter_type: type[Transmuter], materia: Any, info: ValidationInfo
     ):
-        # don't use a dict to hold loaded data here
-        # to avoid pydantic's handler call this formulate function again and go to the else block
-        # use an object instead to keep the behavior same with pydantic's original model_validate
-        # with from_attributes=True which will skip the instance __init__.
-        loaded = LoadedData()
-
         inspector: InstanceState = inspect(materia)
 
         # Get all loaded attributes from sqlalchemy orm instance
@@ -59,28 +69,28 @@ class SqlalchemyMateria(BaseMateria):
         # 2. avoid circular validation
         # related objects will be load and validated when they are visited
         data = {}
+        association_proxies = extract_association_proxies(type(materia))
+        loaded_data = inspector.dict
         for field_name, field_info in transmuter_type.__pydantic_fields__.items():
             used_name = field_info.alias or field_name
-            if used_name in inspector.dict:
+            if used_name in loaded_data:
                 if field_name in transmuter_type.model_associations:
                     data[used_name] = DefferedAssociation
                 else:
-                    data[used_name] = inspector.dict[used_name]
+                    data[used_name] = loaded_data[used_name]
+            else:
+                proxied = association_proxies.get(used_name)
+                if proxied and proxied in loaded_data:
+                    if field_name in transmuter_type.model_associations:
+                        data[used_name] = DefferedAssociation
+                    else:
+                        data[used_name] = getattr(materia, used_name)
 
-            # if field_name in transmuter_type.model_associations:
-            #     if loaded_value is not LoaderCallableStatus.NO_VALUE:
-            #         data[used_name] = field_info.get_default(call_default_factory=True)
-            # else:
-            #     if loaded_value is LoaderCallableStatus.NO_VALUE:
-            #         data[used_name] = field_info.get_default(call_default_factory=True)
-            #     else:
-            #         data[used_name] = loaded_value
-
-            # if loaded_value is LoaderCallableStatus.NO_VALUE:
-            #     data[used_name] = field_info.get_default(call_default_factory=True)
-            # else:
-            #     data[used_name] = loaded_value
-
+        # don't use a dict to hold loaded data here
+        # to avoid pydantic's handler call this formulate function again and go to the else block
+        # use an object instead to keep the behavior same with pydantic's original model_validate
+        # with from_attributes=True which will skip the instance __init__.
+        loaded = LoadedData()
         loaded.__dict__ = data
 
         return loaded
@@ -96,15 +106,21 @@ class SqlalchemyMateria(BaseMateria):
         # 2. avoid circular validation
         # related objects will be load and validated when they are visited
         data = {}
+        association_proxies = extract_association_proxies(type(materia))
+        inspector: InstanceState = inspect(materia)
+        loaded_data = inspector.dict
         for field_name, field_info in transmuter_type.__pydantic_fields__.items():
             if field_name in transmuter_type.model_associations:
                 continue
             used_name = field_info.alias or field_name
 
-            # TODO: support defferred columns?
-            # if used_name in inspector.attrs:
-            #     data[used_name] = inspector.attrs[used_name].loaded_value
-            data[used_name] = getattr(materia, used_name)
+            if used_name in loaded_data:
+                # TODO: support deferred columns?
+                data[used_name] = getattr(materia, used_name)
+            else:
+                proxied = association_proxies.get(used_name)
+                if proxied and proxied in loaded_data:
+                    data[used_name] = getattr(materia, used_name)
 
         return data
 

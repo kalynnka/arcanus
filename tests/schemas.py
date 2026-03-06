@@ -280,3 +280,15 @@ class Team(TestIdMixin, BaseModel):
     manager: Employee
     project: Project
     members: list[Employee] = Field(default_factory=list)
+
+
+class BlogPostFlat(BaseModel):
+    """Blog post with association-proxy fields resolved to scalars."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Optional[int] = Field(default=None)
+    title: str
+    author_id: int
+    author_name: str | None = None
+    tag_labels: list[str] = Field(default_factory=list)

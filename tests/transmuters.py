@@ -462,3 +462,40 @@ class OptionalGallery(TestIdMixin, BaseTransmuter):
     name: str
 
     media: TypedRelationMap[OptionalDocumentMedia] = TypedRelationMaps()
+
+
+@sqlalchemy_materia.bless(models.BlogAuthor)
+class BlogAuthor(TestIdMixin, BaseTransmuter):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    name: str
+
+    posts: RelationCollection[BlogPost] = Relationships()
+
+
+@sqlalchemy_materia.bless(models.BlogTag)
+class BlogTag(TestIdMixin, BaseTransmuter):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    label: str
+
+
+@sqlalchemy_materia.bless(models.BlogPost)
+class BlogPost(TestIdMixin, BaseTransmuter):
+    """Transmuter that maps association-proxy fields as regular scalars."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    title: str
+    author_id: int | None = None
+
+    # Association-proxy fields (scalar & collection)
+    author_name: str | None = None
+    tag_labels: list[str] = Field(default_factory=list)
+
+    # Normal associations
+    author: Relation[BlogAuthor] = Relationship()
+    tags: RelationCollection[BlogTag] = Relationships()
