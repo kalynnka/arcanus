@@ -267,6 +267,35 @@ class TestResultPartitions:
 
             assert count == 5
 
+    def test_partitions_yield_per_propagated(self, engine: Engine):
+        """Test that _yield_per is propagated from the real result to
+        AdaptedResult so that SQLAlchemy's _manyrow_getter (including the
+        C extension on Python 3.13+) can access it without AttributeError.
+
+        Regression test for: AdaptedResult object has no attribute '_yield_per'
+        """
+        from arcanus.materia.sqlalchemy.result import AdaptedResult
+
+        with Session(engine) as session:
+            for i in range(6):
+                session.add(Author(name=f"YieldPer Sync {i}", field="Physics"))
+            session.flush()
+
+            stmt = (
+                select(Author)
+                .where(Author["name"].like("YieldPer Sync%"))
+                .execution_options(yield_per=3)
+            )
+            result = session.execute(stmt)
+
+            # Verify _yield_per is propagated to the AdaptedResult wrapper
+            assert isinstance(result, AdaptedResult)
+            assert result._yield_per == 3
+
+            chunks = list(result.scalars().partitions(3))
+            assert len(chunks) == 2
+            assert all(len(chunk) == 3 for chunk in chunks)
+
 
 class TestResultMappings:
     """Test Result.mappings() for dict-like access."""

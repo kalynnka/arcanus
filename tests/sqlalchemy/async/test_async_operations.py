@@ -166,6 +166,38 @@ class TestAsyncResultStreaming:
             assert partition_count == 4
 
     @pytest.mark.asyncio
+    async def test_async_stream_with_yield_per_execution_option(
+        self, async_engine: AsyncEngine
+    ):
+        """Test that _yield_per is propagated to adapted result so that
+        SQLAlchemy's _manyrow_getter (including C extension on Python 3.13+)
+        can access it without raising AttributeError.
+
+        Regression test for: AdaptedResult object has no attribute '_yield_per'
+        """
+        async with AsyncSession(async_engine) as session:
+            authors = [
+                Author(name=f"YieldPer Author {i}", field="Physics") for i in range(9)
+            ]
+            session.add_all(authors)
+            await session.flush()
+
+            stmt = select(Author).where(Author["name"].startswith("YieldPer Author"))
+            # Explicitly pass yield_per via execution_options, mirroring how
+            # AsyncSession.partitions() calls stream() internally.
+            result = await session.stream(stmt, execution_options={"yield_per": 3})
+
+            all_results = []
+            partition_count = 0
+            async for partition in result.scalars().partitions(3):
+                assert len(partition) <= 3
+                all_results.extend(partition)
+                partition_count += 1
+
+            assert partition_count == 3
+            assert len(all_results) == 9
+
+    @pytest.mark.asyncio
     async def test_async_stream_unique(self, async_engine: AsyncEngine):
         """Test async streaming with unique() to deduplicate joined results."""
         async with AsyncSession(async_engine) as session:
