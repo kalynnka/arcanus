@@ -28,10 +28,6 @@ from tests.transmuters import (
     VideoMedia,
 )
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 
 def _create_gallery_with_media(session):
     """Persist a gallery with one image and one video, return their ids."""
@@ -56,15 +52,8 @@ def _create_gallery_with_media(session):
     return orm_gallery, orm_image, orm_video
 
 
-# ===================================================================
-# model_formulate (model_validate) tests
-# ===================================================================
-
-
 class TestPolymorphicNarrowingValidate:
     """Polymorphic narrowing via model_validate / model_formulate."""
-
-    # 1. Base-then-child --------------------------------------------------
 
     def test_base_then_child_via_cache(self, engine: Engine):
         """Validate as parent, then validate same ORM as child → child type."""
@@ -94,8 +83,6 @@ class TestPolymorphicNarrowingValidate:
                     assert child.__transmuter_provided__ is orm_image
                     assert orm_image.transmuter_proxy is child
 
-    # 2. Child-then-base --------------------------------------------------
-
     def test_child_then_base_cache_hit(self, engine: Engine):
         """Validate as child, then as parent → cache hit (child IS parent)."""
         with Session(engine) as session:
@@ -117,8 +104,6 @@ class TestPolymorphicNarrowingValidate:
                     # child IS-A MediaItem, so cache hit is valid
                     assert parent is child
                     assert isinstance(parent, MediaItem)
-
-    # 3. Sibling types ----------------------------------------------------
 
     def test_sibling_types_revalidated(self, engine: Engine):
         """Validate as ImageMedia, then as VideoMedia → re-validation attempted.
@@ -150,8 +135,6 @@ class TestPolymorphicNarrowingValidate:
                     with pytest.raises(pydantic.ValidationError):
                         VideoMedia.model_validate(orm_image)
 
-    # 4. Same type --------------------------------------------------------
-
     def test_same_type_cache_hit(self, engine: Engine):
         """Validate as ImageMedia twice → cache hit, same object."""
         with Session(engine) as session:
@@ -166,8 +149,6 @@ class TestPolymorphicNarrowingValidate:
                     img1 = ImageMedia.model_validate(orm_image)
                     img2 = ImageMedia.model_validate(orm_image)
                     assert img1 is img2
-
-    # 5. Cross-context ----------------------------------------------------
 
     def test_cross_context_independence(self, engine: Engine):
         """Narrowing in one context doesn't affect another."""
@@ -188,8 +169,6 @@ class TestPolymorphicNarrowingValidate:
                     child = ImageMedia.model_validate(orm_image)
                     assert type(child) is ImageMedia
                     assert child is not base
-
-    # 6. Gallery integration (end-to-end) ---------------------------------
 
     def test_gallery_base_then_typed_relation_map(self, engine: Engine):
         """Load media as base, then load gallery whose TypedRelationMap
@@ -225,15 +204,8 @@ class TestPolymorphicNarrowingValidate:
                     assert isinstance(video_item, VideoMedia)
 
 
-# ===================================================================
-# model_construct tests
-# ===================================================================
-
-
 class TestPolymorphicNarrowingConstruct:
     """Polymorphic narrowing via model_construct."""
-
-    # 1. Base-then-child --------------------------------------------------
 
     def test_base_then_child_construct(self, engine: Engine):
         """Construct as parent, then construct same ORM as child → child type."""
@@ -255,8 +227,6 @@ class TestPolymorphicNarrowingConstruct:
                     assert child.__transmuter_provided__ is orm_image
                     assert orm_image.transmuter_proxy is child
 
-    # 2. Child-then-base (construct) --------------------------------------
-
     def test_child_then_base_construct_cache_hit(self, engine: Engine):
         """Construct as child, then as parent → cache hit."""
         with Session(engine) as session:
@@ -273,8 +243,6 @@ class TestPolymorphicNarrowingConstruct:
 
                     # child IS-A MediaItem → valid cache hit
                     assert parent is child
-
-    # 3. Sibling types (construct) ----------------------------------------
 
     def test_sibling_construct_revalidated(self, engine: Engine):
         """Construct as ImageMedia, then as VideoMedia → re-constructed.
@@ -299,8 +267,6 @@ class TestPolymorphicNarrowingConstruct:
                     assert type(video) is VideoMedia
                     assert video is not image
 
-    # 4. Same type (construct) --------------------------------------------
-
     def test_same_type_construct_cache_hit(self, engine: Engine):
         """Construct as ImageMedia twice → cache hit."""
         with Session(engine) as session:
@@ -315,8 +281,6 @@ class TestPolymorphicNarrowingConstruct:
                     img1 = ImageMedia.model_construct(data=orm_image)
                     img2 = ImageMedia.model_construct(data=orm_image)
                     assert img1 is img2
-
-    # 5. Cross-context (construct) ----------------------------------------
 
     def test_cross_context_construct_independence(self, engine: Engine):
         """Each validation_context has its own cache."""
@@ -336,11 +300,6 @@ class TestPolymorphicNarrowingConstruct:
                     child = ImageMedia.model_construct(data=orm_image)
                     assert type(child) is ImageMedia
                     assert child is not base
-
-
-# ===================================================================
-# Transmuter-path narrowing (data is already a Transmuter instance)
-# ===================================================================
 
 
 class TestTransmuterPathNarrowing:
