@@ -47,6 +47,12 @@ class AdaptedCommon(FilterResult[_R]):
     _real_result: Result[Any]
     _metadata: ResultMetaData
 
+    # SQLAlchemy's C extension accesses _yield_per during _manyrow_getter
+    # property creation. FilterResult does not inherit this from Result, so
+    # we provide the same default here to prevent AttributeError on Python
+    # versions that use the C extension (e.g. Python 3.13).
+    _yield_per: Optional[int] = None
+
     def close(self) -> None:
         self._real_result.close()
 
@@ -74,6 +80,12 @@ class AdaptedResult(_WithKeys, AdaptedCommon[Row[_TP]]):
         self._post_creational_filter = None
 
         self.entities = entities
+
+        # Propagate _yield_per so that the SQLAlchemy C extension's
+        # _manyrow_getter can access it on this object instead of failing
+        # with AttributeError (FilterResult does not define _yield_per).
+        if (yp := getattr(real_result, "_yield_per", None)) is not None:
+            self._yield_per = yp
 
         # BaseCursorResult pre-generates the "_row_getter".  Use that
         # if available rather than building a second one
@@ -299,6 +311,12 @@ class AdaptedScalarResult(ScalarResult[_R]):
 
         self._entities = entities
 
+        # Propagate _yield_per so that the SQLAlchemy C extension's
+        # _manyrow_getter can access it on this object instead of failing
+        # with AttributeError (FilterResult does not define _yield_per).
+        if (yp := getattr(real_result, "_yield_per", None)) is not None:
+            self._yield_per = yp
+
     @cached_property
     def scalar_adapter(self) -> TypeAdapter:
         """Get the adapter for scalar results."""
@@ -463,6 +481,12 @@ class AdaptedMappingResult(_WithKeys, AdaptedCommon[RowMapping]):
 
         self._entities = result.entities
 
+        # Propagate _yield_per so that the SQLAlchemy C extension's
+        # _manyrow_getter can access it on this object instead of failing
+        # with AttributeError (FilterResult does not define _yield_per).
+        if (yp := getattr(result, "_yield_per", None)) is not None:
+            self._yield_per = yp
+
     @cached_property
     def adapter(self) -> TypeAdapter:
         """Get the adapter for tuple results."""
@@ -567,6 +591,12 @@ class AsyncAdaptedCommon(FilterResult[_R]):
     _real_result: Result[Any]
     _metadata: ResultMetaData
 
+    # SQLAlchemy's C extension accesses _yield_per during _manyrow_getter
+    # property creation. FilterResult does not inherit this from Result, so
+    # we provide the same default here to prevent AttributeError on Python
+    # versions that use the C extension (e.g. Python 3.13).
+    _yield_per: Optional[int] = None
+
     async def close(self) -> None:
         """Close this result."""
         await greenlet_spawn(self._real_result.close)
@@ -599,6 +629,12 @@ class AsyncAdaptedResult(_WithKeys, AsyncAdaptedCommon[Row[_TP]]):
         self._post_creational_filter = None
 
         self.entities = entities
+
+        # Propagate _yield_per so that the SQLAlchemy C extension's
+        # _manyrow_getter can access it on this object instead of failing
+        # with AttributeError (FilterResult does not define _yield_per).
+        if (yp := getattr(real_result, "_yield_per", None)) is not None:
+            self._yield_per = yp
 
         # BaseCursorResult pre-generates the "_row_getter".  Use that
         # if available rather than building a second one
@@ -798,6 +834,12 @@ class AsyncAdaptedScalarResult(AsyncAdaptedCommon[_R]):
         self._unique_filter_state = real_result._unique_filter_state
         self._entities = entities
 
+        # Propagate _yield_per so that the SQLAlchemy C extension's
+        # _manyrow_getter can access it on this object instead of failing
+        # with AttributeError (FilterResult does not define _yield_per).
+        if (yp := getattr(real_result, "_yield_per", None)) is not None:
+            self._yield_per = yp
+
     @cached_property
     def scalar_adapter(self) -> TypeAdapter:
         """Get the adapter for scalar results."""
@@ -892,6 +934,12 @@ class AsyncAdaptedMappingResult(_WithKeys, AsyncAdaptedCommon[RowMapping]):
             self._metadata = self._metadata._reduce([0])
 
         self._entities = entities
+
+        # Propagate _yield_per so that the SQLAlchemy C extension's
+        # _manyrow_getter can access it on this object instead of failing
+        # with AttributeError (FilterResult does not define _yield_per).
+        if (yp := getattr(result, "_yield_per", None)) is not None:
+            self._yield_per = yp
 
     @cached_property
     def adapter(self) -> TypeAdapter:
