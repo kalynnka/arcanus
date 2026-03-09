@@ -267,7 +267,9 @@ class Transmuter:
             instance: Self = handler(data)
             if provider is not None:
                 model_fields = cls.__pydantic_fields__
-                excludes = set(cls.model_associations.keys())
+                excludes = set(cls.model_associations.keys()) | set(
+                    getattr(cls, "__pydantic_computed_fields__", {}).keys()
+                )
                 if isinstance(instance, BaseModel):
                     included = instance.model_dump(exclude=excludes, by_alias=True)
                 else:
@@ -695,12 +697,14 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
 
             if provider is not None:
                 pydantic_fields = cls.__pydantic_fields__
-                _excl = set(cls.model_associations.keys())
+                excludes = set(cls.model_associations.keys()) | set(
+                    getattr(cls, "__pydantic_computed_fields__", {}).keys()
+                )
                 if isinstance(instance, BaseModel):
-                    included = instance.model_dump(exclude=_excl, by_alias=True)
+                    included = instance.model_dump(exclude=excludes, by_alias=True)
                 else:
                     included = get_cached_adapter(cls).dump_python(
-                        instance, exclude=_excl, by_alias=True
+                        instance, exclude=excludes, by_alias=True
                     )
                 excluded = {
                     pydantic_fields[name].alias or name: getattr(instance, name)

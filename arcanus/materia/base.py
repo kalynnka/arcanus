@@ -116,6 +116,16 @@ class BaseMateria:
                     f"{self.__class__.__name__} require materia must implement TransmuterProxied."
                 )
 
+            # Prevent blessing the same provider to multiple transmuters
+            existing = self.formulars.reverse.get(materia)
+            if existing is not None and existing is not transmuter_cls:
+                raise ValueError(
+                    f"Provider {materia.__name__} is already blessed with "
+                    f"transmuter {existing.__name__} in this materia. "
+                    f"A provider cannot be blessed to multiple transmuters "
+                    f"within a single materia."
+                )
+
             self.formulars[transmuter_cls] = materia
             return transmuter_cls
 
