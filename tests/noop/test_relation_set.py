@@ -492,6 +492,13 @@ class TestRelationSetCopy:
         assert "RelationSet" in r
         assert "Tag" in r
 
+    def test_repr_unprepared(self):
+        """repr() must not raise AttributeError when __args__ is not yet set."""
+        rs = RelationSet()
+        r = repr(rs)
+        assert "RelationSet" in r
+        assert "?" in r
+
 
 class TestRelationSetEdgeCases:
     """Test edge cases."""

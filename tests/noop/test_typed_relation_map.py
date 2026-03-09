@@ -346,6 +346,13 @@ class TestTypedRelationMapRepr:
         assert "TypedRelationMap" in r
         assert "DocumentMedia" in r
 
+    def test_repr_unprepared(self):
+        """repr() must not raise AttributeError when __typed_dict__ is not yet set."""
+        trm = TypedRelationMap()
+        r = repr(trm)
+        assert "TypedRelationMap" in r
+        assert "?" in r
+
     def test_str_with_values(self):
         img = ImageMedia(id=1, name="photo", width=800, height=600)
         vid = VideoMedia(id=2, name="clip", duration=30.0)

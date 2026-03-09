@@ -668,3 +668,17 @@ class TestAssociationEdgeCases:
         author.books.extend(books2)
 
         assert len(author.books) == 2
+
+    def test_relation_collection_repr(self):
+        """Test repr for a prepared RelationCollection."""
+        author = Author(id=1, name="Test", field="Physics")
+        r = repr(author.books)
+        assert "RelationCollection" in r
+        assert "Book" in r
+
+    def test_relation_collection_repr_unprepared(self):
+        """repr() must not raise AttributeError when __args__ is not yet set."""
+        rc = RelationCollection()
+        r = repr(rc)
+        assert "RelationCollection" in r
+        assert "?" in r

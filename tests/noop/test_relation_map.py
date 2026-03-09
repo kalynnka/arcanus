@@ -390,6 +390,13 @@ class TestRelationMapCopy:
         assert "RelationMap" in r
         assert "Tag" in r
 
+    def test_repr_unprepared(self):
+        """repr() must not raise AttributeError when __args__ is not yet set."""
+        rm = RelationMap()
+        r = repr(rm)
+        assert "RelationMap" in r
+        assert "?" in r
+
 
 class TestRelationMapEdgeCases:
     """Test edge cases."""

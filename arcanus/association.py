@@ -602,7 +602,13 @@ class RelationCollection(list[T], Association[T]):
     # @ensure_loaded
     def __repr__(self):
         # return super().__repr__()
-        return f"RelationCollection[{self.__args__[0].__name__}], instance={id(self.__instance__)}, size={super().__len__()}"
+        args = getattr(self, "__args__", None)
+        type_name = (
+            getattr(args[0], "__name__", repr(args[0]))
+            if args and len(args) > 0
+            else "?"
+        )
+        return f"RelationCollection[{type_name}], instance={id(self.__instance__)}, size={super().__len__()}"
 
     @ensure_loaded
     def __str__(self):
@@ -853,7 +859,13 @@ class RelationSet(set[T], Association[T]):
         return super().__len__() > 0
 
     def __repr__(self):
-        return f"RelationSet[{self.__args__[0].__name__}], instance={id(self.__instance__)}, size={super().__len__()}"
+        args = getattr(self, "__args__", None)
+        type_name = (
+            getattr(args[0], "__name__", repr(args[0]))
+            if args and len(args) > 0
+            else "?"
+        )
+        return f"RelationSet[{type_name}], instance={id(self.__instance__)}, size={super().__len__()}"
 
     @ensure_loaded
     def __str__(self):
@@ -1296,10 +1308,14 @@ class RelationMap(dict[K, T], Association[T]):
         super().__delitem__(key)
 
     def __repr__(self):
-        key_type = self.__args__[0]
-        value_type = self.__args__[1]
-        key_name = getattr(key_type, "__name__", repr(key_type))
-        value_name = getattr(value_type, "__name__", repr(value_type))
+        args = getattr(self, "__args__", None)
+        if args and len(args) >= 2:
+            key_type = args[0]
+            value_type = args[1]
+            key_name = getattr(key_type, "__name__", repr(key_type))
+            value_name = getattr(value_type, "__name__", repr(value_type))
+        else:
+            key_name = value_name = "?"
         return f"RelationMap[{key_name}, {value_name}], instance={id(self.__instance__)}, size={super().__len__()}"
 
     @ensure_loaded
@@ -1709,7 +1725,12 @@ class TypedRelationMap(dict, Association[TD]):
         super().__delitem__(key)
 
     def __repr__(self):
-        td_name = getattr(self.__typed_dict__, "__name__", repr(self.__typed_dict__))
+        typed_dict = getattr(self, "__typed_dict__", None)
+        td_name = (
+            getattr(typed_dict, "__name__", repr(typed_dict))
+            if typed_dict is not None
+            else "?"
+        )
         return f"TypedRelationMap[{td_name}], instance={id(self.__instance__)}, size={super().__len__()}"
 
     @ensure_loaded
