@@ -603,7 +603,11 @@ class RelationCollection(list[T], Association[T]):
     def __repr__(self):
         # return super().__repr__()
         args = getattr(self, "__args__", None)
-        type_name = getattr(args[0], "__name__", repr(args[0])) if args and len(args) > 0 else "?"
+        type_name = (
+            getattr(args[0], "__name__", repr(args[0]))
+            if args and len(args) > 0
+            else "?"
+        )
         return f"RelationCollection[{type_name}], instance={id(self.__instance__)}, size={super().__len__()}"
 
     @ensure_loaded
@@ -856,7 +860,11 @@ class RelationSet(set[T], Association[T]):
 
     def __repr__(self):
         args = getattr(self, "__args__", None)
-        type_name = getattr(args[0], "__name__", repr(args[0])) if args and len(args) > 0 else "?"
+        type_name = (
+            getattr(args[0], "__name__", repr(args[0]))
+            if args and len(args) > 0
+            else "?"
+        )
         return f"RelationSet[{type_name}], instance={id(self.__instance__)}, size={super().__len__()}"
 
     @ensure_loaded
@@ -1718,7 +1726,11 @@ class TypedRelationMap(dict, Association[TD]):
 
     def __repr__(self):
         typed_dict = getattr(self, "__typed_dict__", None)
-        td_name = getattr(typed_dict, "__name__", repr(typed_dict)) if typed_dict is not None else "?"
+        td_name = (
+            getattr(typed_dict, "__name__", repr(typed_dict))
+            if typed_dict is not None
+            else "?"
+        )
         return f"TypedRelationMap[{td_name}], instance={id(self.__instance__)}, size={super().__len__()}"
 
     @ensure_loaded
