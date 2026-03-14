@@ -15,6 +15,7 @@ from sqlalchemy.orm import (
 from sqlalchemy.orm.collections import attribute_keyed_dict
 
 from arcanus.base import TransmuterProxiedMixin
+from arcanus.materia.sqlalchemy.collections import attribute_keyed_list_dict
 
 
 class Base(DeclarativeBase, TransmuterProxiedMixin):
@@ -592,6 +593,8 @@ __all__ = [
     "BlogPost",
     "BlogTag",
     "BlogPostTag",
+    "Warehouse",
+    "WarehouseItem",
 ]
 
 
@@ -674,3 +677,44 @@ class BlogPost(Base):
     # ── Association proxies ──
     author_name: AssociationProxy[str] = association_proxy("author", "name")
     tag_labels: AssociationProxy[list[str]] = association_proxy("tags", "label")
+
+
+# ── RelationGroupMap test models ──
+
+
+class Warehouse(Base):
+    """Warehouse with items grouped by category via attribute_keyed_list_dict."""
+
+    __tablename__ = "warehouse"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    # Dict-of-lists relationship keyed by WarehouseItem.category
+    items: Mapped[dict[str, list["WarehouseItem"]]] = relationship(
+        "WarehouseItem",
+        collection_class=attribute_keyed_list_dict("category"),
+        back_populates="warehouse",
+        cascade="all, delete-orphan",
+    )
+
+
+class WarehouseItem(Base):
+    """Item in a warehouse, grouped by category."""
+
+    __tablename__ = "warehouse_item"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    category: Mapped[str] = mapped_column(String(100), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    warehouse_id: Mapped[int] = mapped_column(
+        ForeignKey("warehouse.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    warehouse: Mapped[Warehouse] = relationship(
+        "Warehouse",
+        back_populates="items",
+        uselist=False,
+    )

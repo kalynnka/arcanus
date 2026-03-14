@@ -29,7 +29,7 @@ from typing import (
 
 from pydantic import Field, GetCoreSchemaHandler, TypeAdapter
 from pydantic_core import core_schema
-from typing_extensions import is_typeddict
+from typing_extensions import deprecated, is_typeddict
 
 from arcanus.materia.base import active_materia
 from arcanus.utils import get_cached_adapter
@@ -1449,6 +1449,512 @@ class RelationMap(dict[K, T], Association[T]):
 
 
 # built-in types must be put at front to avoid pydantic convert it to built-in types
+class RelationGroupMap(dict[K, list[T]], Association[T]):
+    """A dict-based association that groups multiple values under each key.
+
+    Unlike :class:`RelationMap` which maps ``dict[K, T]`` (one value per key,
+    silently dropping duplicates), this class stores ``dict[K, list[T]]`` so
+    that multiple items sharing the same key coexist.
+
+    Backed by :class:`~arcanus.materia.sqlalchemy.collections.KeyFuncListDict`
+    on the SQLAlchemy side (via ``attribute_keyed_list_dict``).
+
+    Usage::
+
+        class Article(BaseTransmuter):
+            generated_files: RelationGroupMap[str, File] = GroupedRelationship()
+    """
+
+    # new items are held in __payloads__, loaded items are kept in the dict itself
+    # __args__[0] = key type (K), __args__[1] = value type (T)
+    __payloads__: dict[K, list[T]]
+
+    @classmethod
+    def __get_pydantic_generic_schema__(
+        cls,
+        key_type: Type[K],
+        value_type: Type[T],
+        handler: GetCoreSchemaHandler,
+    ) -> core_schema.CoreSchema:
+        return core_schema.dict_schema(
+            keys_schema=handler.generate_schema(key_type),
+            values_schema=core_schema.list_schema(handler.generate_schema(value_type)),
+        )
+
+    @classmethod
+    def __get_pydantic_serialize_schema__(
+        cls,
+        key_type: Type[K],
+        value_type: Type[T],
+        handler: GetCoreSchemaHandler,
+    ) -> core_schema.SerSchema | None:
+        def serialize(association: RelationGroupMap[K, T], serializer) -> Any:
+            fields_set = getattr(
+                association.__instance__, "__pydantic_fields_set__", None
+            )
+            if fields_set is not None and association.field_name in fields_set:
+                return serializer(association.copy())
+            return serializer(dict.copy(association) | association.__payloads__)
+
+        return core_schema.wrap_serializer_function_ser_schema(
+            serialize,
+            schema=core_schema.dict_schema(
+                keys_schema=handler.generate_schema(key_type),
+                values_schema=core_schema.list_schema(
+                    handler.generate_schema(value_type)
+                ),
+            ),
+            when_used="always",
+        )
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Type[RelationGroupMap[K, T]], handler: GetCoreSchemaHandler
+    ) -> core_schema.CoreSchema:
+        args = get_args(source_type)
+
+        if not args or len(args) < 2:
+            raise TypeError(
+                f"Two generic types (key, value) must be provided to {source_type}."
+            )
+
+        key_type = args[0]
+        value_type = args[1]
+
+        def validate(
+            value: Any,
+            handler: core_schema.ValidatorFunctionWrapHandler,
+            info: core_schema.ValidationInfo,
+        ) -> RelationGroupMap[K, T]:
+            if value is DefferedAssociation:
+                instance = cls()
+            elif type(value) is cls:
+                instance = value
+                instance.__payloads__ = handler(instance.__payloads__)
+            else:
+                instance = cls(handler(value))
+
+            instance.__args__ = (key_type, value_type)
+            instance.field_name = info.field_name  # pyright: ignore[reportAttributeAccessIssue]
+
+            return instance
+
+        return core_schema.with_default_schema(
+            core_schema.with_info_wrap_validator_function(
+                validate,
+                cls.__get_pydantic_generic_schema__(key_type, value_type, handler),
+            ),
+            default_factory=cls,
+            serialization=cls.__get_pydantic_serialize_schema__(
+                key_type, value_type, handler
+            ),
+        )
+
+    def __init__(self, payloads: Mapping[K, list[T]] | None = None):
+        super().__init__()
+        self.__instance__ = None
+        self.__loaded__ = False
+        self.__payloads__: dict[K, list[T]] = (
+            {k: list(v) for k, v in payloads.items()} if payloads else {}
+        )
+
+    @property
+    def __provided__(self) -> Any | None:
+        # The return type should be a dict-of-lists object provided by the current materia provider.
+        # For example, with SQLAlchemyMateria and collection_class=attribute_keyed_list_dict,
+        # it would be a KeyFuncListDict.
+        if not self.__instance_provider__:
+            return None
+        return getattr(self.__instance_provider__, self.used_name)
+
+    @cached_property
+    def __validator__(self) -> TypeAdapter[T]:
+        return get_cached_adapter(self.__args__[1])
+
+    @cached_property
+    def __list_validator__(self) -> TypeAdapter[list[T]]:
+        return get_cached_adapter(list[self.__args__[1]])
+
+    @cached_property
+    def __dict_validator__(self) -> TypeAdapter[dict[K, list[T]]]:
+        return get_cached_adapter(dict[self.__args__[0], list[self.__args__[1]]])
+
+    @cached_property
+    def __key_validator__(self) -> TypeAdapter[K]:
+        return get_cached_adapter(self.__args__[0])
+
+    def bless_key(self, key: Any) -> K:
+        """Validate and coerce a key into the key type."""
+        return self.__key_validator__.validate_python(key)
+
+    def bless_value(self, value: Any) -> T:
+        """Validate and coerce a single value into the value type."""
+        return self.__validator__.validate_python(value)
+
+    def bless_values(self, values: Iterable[Any]) -> list[T]:
+        """Validate and coerce a list of values into list[T]."""
+        return self.__list_validator__.validate_python(values)
+
+    def bless(self, value: Mapping[K, Any]) -> dict[K, list[T]]:
+        """Validate and coerce an entire mapping into dict[K, list[T]]."""
+        return self.__dict_validator__.validate_python(value)
+
+    def prepare(self, instance: Transmuter, field_name: str):
+        if self.__instance__ is not None:
+            return
+
+        self.field_name = field_name
+        self.field_info = type(instance).__pydantic_fields__[field_name]
+
+        self.__instance__ = instance
+
+        annotation = self.field_info.annotation
+        if isinstance(annotation, ForwardRef):
+            resolved_hints = get_type_hints(type(instance))
+            actual_type = resolved_hints[field_name]
+            args = get_args(actual_type)
+        else:
+            args = get_args(annotation)
+
+        self.__args__ = (args[0], args[1])
+
+        if self.__payloads__:
+            self._load()
+            self._merge_payloads()
+            self.__payloads__.clear()
+
+    def _merge_payloads(self) -> None:
+        """Merge __payloads__ into self (the loaded dict)."""
+        for key, values in self.__payloads__.items():
+            if key in self:
+                existing = super().__getitem__(key)
+                existing.extend(values)
+            else:
+                super().__setitem__(key, list(values))
+
+    @staticmethod
+    def ensure_loaded(
+        func: Callable[Concatenate[RelationGroupMap[K, T], P], R],
+    ) -> Callable[Concatenate[RelationGroupMap[K, T], P], R]:
+        @wraps(func)
+        def wrapper(
+            self: RelationGroupMap[K, T], *args: P.args, **kwargs: P.kwargs
+        ) -> R:
+            self._load()
+            return func(self, *args, **kwargs)
+
+        return wrapper
+
+    def _load(self):
+        # maybe during deepcopy from field default
+        if not self.__instance__:
+            return self
+
+        # or the relationship is already loaded
+        if self.__loaded__:
+            return self
+
+        active_materia.get().load_association(self)
+
+        # A: No provided, None
+        # B: provided value is empty, {}
+        if not self.__provided__:
+            return self
+
+        # Remove payloads whose key is already in __provided__
+        self.__payloads__ = {
+            k: v for k, v in self.__payloads__.items() if k not in self.__provided__
+        }
+
+        if len(self.__provided__) != super().__len__() or not super().__len__():
+            # Bless: __provided__ is a KeyFuncListDict (dict[K, list[ORM]])
+            super().clear()
+            for key, orm_list in self.__provided__.items():
+                super().__setitem__(key, self.bless_values(orm_list))
+        self.__loaded__ = True
+
+        return self
+
+    async def _aload(self):
+        # maybe during deepcopy from field default
+        if not self.__instance__:
+            return self
+
+        # or the relationship is already loaded
+        if self.__loaded__:
+            return self
+
+        # A: No provided, None
+        # B: provided value is empty, {}
+        if not (provided := await active_materia.get().aload_association(self)):
+            return self
+
+        # Remove payloads whose key is already in provided
+        self.__payloads__ = {
+            k: v for k, v in self.__payloads__.items() if k not in provided
+        }
+
+        if len(provided) != super().__len__() or not super().__len__():
+            super().clear()
+            for key, orm_list in provided.items():
+                super().__setitem__(key, self.bless_values(orm_list))
+        self.__loaded__ = True
+
+        return self
+
+    def __await__(self):
+        return self._aload().__await__()
+
+    @ensure_loaded
+    def __getitem__(self, key: K) -> list[T]:
+        key = self.bless_key(key)
+        return super().__getitem__(key)
+
+    @ensure_loaded
+    def __iter__(self):
+        return super().__iter__()
+
+    @ensure_loaded
+    def __len__(self):
+        return super().__len__()
+
+    @ensure_loaded
+    def __contains__(self, key: object) -> bool:
+        key = self.bless_key(key)
+        return super().__contains__(key)
+
+    @ensure_loaded
+    def __bool__(self):
+        return super().__len__() > 0
+
+    @ensure_loaded
+    def __setitem__(self, key: K, value: list[T]) -> None:
+        key = self.bless_key(key)
+        value = self.bless_values(value)
+        if self.__provided__ is not None:
+            # Remove old items from provider, then add new ones
+            if key in self.__provided__:
+                old_items = list(dict.__getitem__(self.__provided__, key))
+                for item in old_items:
+                    self.__provided__.remove(item)
+            for item in value:
+                self.__provided__.set(item.__transmuter_provided__)
+        super().__setitem__(key, value)
+
+    @ensure_loaded
+    def __delitem__(self, key: K) -> None:
+        key = self.bless_key(key)
+        if self.__provided__ is not None and key in self.__provided__:
+            old_items = list(dict.__getitem__(self.__provided__, key))
+            for item in old_items:
+                self.__provided__.remove(item)
+        super().__delitem__(key)
+
+    def __repr__(self):
+        args = getattr(self, "__args__", None)
+        if args and len(args) >= 2:
+            key_type = args[0]
+            value_type = args[1]
+            key_name = getattr(key_type, "__name__", repr(key_type))
+            value_name = getattr(value_type, "__name__", repr(value_type))
+        else:
+            key_name = value_name = "?"
+        return f"RelationGroupMap[{key_name}, {value_name}], instance={id(self.__instance__)}, size={super().__len__()}"
+
+    @ensure_loaded
+    def __str__(self):
+        return super().__str__()
+
+    @ensure_loaded
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, dict):
+            return dict.__eq__(self, other)
+        return False
+
+    @ensure_loaded
+    def __ne__(self, other: object) -> bool:
+        if isinstance(other, dict):
+            return dict.__ne__(self, other)
+        return True
+
+    @ensure_loaded
+    def __or__(self, other: Mapping[K, list[T]]) -> dict[K, list[T]]:
+        return dict.__or__(self.copy(), dict(other))
+
+    @ensure_loaded
+    def __ior__(self, other: Mapping[K, list[T]]) -> Self:
+        self.update(other)
+        return self
+
+    @ensure_loaded
+    def __reversed__(self):
+        return super().__reversed__()
+
+    @ensure_loaded
+    def get(self, key: K, default: list[T] | None = None) -> list[T] | None:
+        return super().get(self.bless_key(key), default)
+
+    @ensure_loaded
+    def keys(self):
+        return super().keys()
+
+    @ensure_loaded
+    def values(self):
+        return super().values()
+
+    @ensure_loaded
+    def items(self):
+        return super().items()
+
+    @overload
+    def pop(self, key: K) -> list[T]: ...
+
+    @overload
+    def pop(self, key: K, default: list[T]) -> list[T]: ...
+
+    @overload
+    def pop(self, key: K, default: D) -> list[T] | D: ...
+
+    @ensure_loaded
+    def pop(self, key: K, *args: Any) -> Any:
+        """Remove specified key and return the corresponding list."""
+        key = self.bless_key(key)
+        item = super().pop(key, *args)
+        if self.__provided__ is not None and key in self.__provided__:
+            old_items = list(dict.__getitem__(self.__provided__, key))
+            for old in old_items:
+                self.__provided__.remove(old)
+        return item
+
+    @ensure_loaded
+    def popitem(self) -> tuple[K, list[T]]:
+        """Remove and return an arbitrary (key, list) pair."""
+        key, items = super().popitem()
+        if self.__provided__ is not None and key in self.__provided__:
+            old_items = list(dict.__getitem__(self.__provided__, key))
+            for old in old_items:
+                self.__provided__.remove(old)
+        return key, items
+
+    @overload
+    def update(self, m: Mapping[K, list[T]], /, **kwargs: list[T]) -> None: ...
+    @overload
+    def update(self, m: Iterable[tuple[K, list[T]]], /, **kwargs: list[T]) -> None: ...
+    @overload
+    def update(self, **kwargs: list[T]) -> None: ...
+
+    @ensure_loaded
+    def update(
+        self,
+        *args: Mapping[K, list[T]] | Iterable[tuple[K, list[T]]],
+        **kwargs: list[T],
+    ) -> None:
+        """Update the dict with key-list pairs."""
+        merged: dict[K, list[T]] = {}
+        if args:
+            if isinstance(args[0], Mapping):
+                merged.update(args[0])
+            else:
+                merged.update(dict(*args))
+        if kwargs:
+            merged.update(kwargs)  # type: ignore[arg-type]
+
+        if not merged:
+            return
+
+        blessed = self.bless(merged)
+        if self.__provided__ is not None:
+            for key, items in blessed.items():
+                # Remove old items at this key from provider
+                if key in self.__provided__:
+                    old_items = list(dict.__getitem__(self.__provided__, key))
+                    for old in old_items:
+                        self.__provided__.remove(old)
+                # Add new items
+                for item in items:
+                    self.__provided__.set(item.__transmuter_provided__)
+        super().update(blessed)
+
+    @overload
+    def setdefault(self, key: K) -> list[T]: ...
+    @overload
+    def setdefault(self, key: K, default: list[T]) -> list[T]: ...
+
+    @ensure_loaded
+    def setdefault(self, key: K, default: list[T] | None = None) -> list[T]:
+        """If key is not in the dict, insert key with the default list."""
+        key = self.bless_key(key)
+        if key not in self:
+            if default is not None:
+                self[key] = default
+            else:
+                self[key] = []
+        return super().__getitem__(key)
+
+    @ensure_loaded
+    def clear(self) -> None:
+        """Remove all items."""
+        if self.__provided__ is not None:
+            # Remove each item individually so SQLAlchemy fires proper remove events
+            for key in list(dict.keys(self.__provided__)):
+                items = list(dict.__getitem__(self.__provided__, key))
+                for item in items:
+                    self.__provided__.remove(item)
+        super().clear()
+
+    @ensure_loaded
+    def copy(self) -> dict[K, list[T]]:
+        return {k: list(v) for k, v in super().items()}
+
+    # ── Convenience methods unique to grouped maps ──
+
+    @ensure_loaded
+    def append(self, key: K, value: T) -> None:
+        """Append a single item to the group at *key*, creating the group if needed."""
+        key = self.bless_key(key)
+        value = self.bless_value(value)
+        if key not in self:
+            super().__setitem__(key, [])
+        super().__getitem__(key).append(value)
+        if self.__provided__ is not None:
+            self.__provided__.set(value.__transmuter_provided__)
+
+    @ensure_loaded
+    def extend(self, key: K, values: Iterable[T]) -> None:
+        """Append multiple items to the group at *key*."""
+        key = self.bless_key(key)
+        values = self.bless_values(values)
+        if key not in self:
+            super().__setitem__(key, [])
+        super().__getitem__(key).extend(values)
+        if self.__provided__ is not None:
+            for item in values:
+                self.__provided__.set(item.__transmuter_provided__)
+
+    @ensure_loaded
+    def discard(self, key: K, value: T) -> None:
+        """Remove a single item from the group at *key*.
+
+        Removes the key entirely if its list becomes empty.
+        """
+        key = self.bless_key(key)
+        lst = super().__getitem__(key)
+        lst.remove(value)
+        if self.__provided__ is not None:
+            self.__provided__.remove(value.__transmuter_provided__)
+        if not lst:
+            super().__delitem__(key)
+
+    @ensure_loaded
+    def flatten(self) -> list[T]:
+        """Return all values across all keys as a flat list."""
+        result: list[T] = []
+        for lst in super().values():
+            result.extend(lst)
+        return result
+
+
+# built-in types must be put at front to avoid pydantic convert it to built-in types
 class TypedRelationMap(dict, Association[TD]):
     """A dict-based association whose keys and per-key value types are defined
     by a ``TypedDict``.
@@ -1465,7 +1971,7 @@ class TypedRelationMap(dict, Association[TD]):
             video: Video
 
         class Document(BaseTransmuter):
-            files: TypedRelationMap[DocumentFiles] = TypedRelationMaps()
+            files: TypedRelationMap[DocumentFiles] = TypedRelationship()
 
     All values in the TypedDict **must** be ``Transmuter`` subclasses.
     """
@@ -1854,8 +2360,25 @@ if TYPE_CHECKING:
     )
 
 Relationship = partial(Field, default_factory=Relation, frozen=True)
-RelationMaps = partial(Field, default_factory=RelationMap, frozen=True)
-TypedRelationMaps = partial(Field, default_factory=TypedRelationMap, frozen=True)
+MappedRelationship = partial(Field, default_factory=RelationMap, frozen=True)
+GroupedRelationship = partial(Field, default_factory=RelationGroupMap, frozen=True)
+TypedRelationship = partial(Field, default_factory=TypedRelationMap, frozen=True)
+
+
+# Backward-compatible aliases (deprecated)
+@deprecated("Use MappedRelationship instead.")
+def RelationMaps(**kwargs: Any) -> Any:
+    return MappedRelationship(**kwargs)
+
+
+@deprecated("Use GroupedRelationship instead.")
+def RelationGroupMaps(**kwargs: Any) -> Any:
+    return GroupedRelationship(**kwargs)
+
+
+@deprecated("Use TypedRelationship instead.")
+def TypedRelationMaps(**kwargs: Any) -> Any:
+    return TypedRelationship(**kwargs)
 
 
 @overload
