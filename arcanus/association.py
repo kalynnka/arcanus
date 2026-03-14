@@ -1932,7 +1932,7 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
                 self.__provided__.set(item.__transmuter_provided__)
 
     @ensure_loaded
-    def remove_item(self, key: K, value: T) -> None:
+    def discard(self, key: K, value: T) -> None:
         """Remove a single item from the group at *key*.
 
         Removes the key entirely if its list becomes empty.
@@ -1946,7 +1946,7 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
             super().__delitem__(key)
 
     @ensure_loaded
-    def flat_values(self) -> list[T]:
+    def flatten(self) -> list[T]:
         """Return all values across all keys as a flat list."""
         result: list[T] = []
         for lst in super().values():

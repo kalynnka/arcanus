@@ -77,7 +77,7 @@ class TestRelationGroupMapBasics:
 
 
 class TestRelationGroupMapAppendExtendRemove:
-    """Test the convenience methods: append, extend, remove_item, flat_values."""
+    """Test the convenience methods: append, extend, discard, flatten."""
 
     def test_append_creates_group(self):
         catalog = GroupedCatalog(id=1, title="Test")
@@ -111,38 +111,38 @@ class TestRelationGroupMapAppendExtendRemove:
         catalog.tags.extend("lang", [t2, t3])
         assert len(catalog.tags["lang"]) == 3
 
-    def test_remove_item(self):
+    def test_discard(self):
         catalog = GroupedCatalog(id=1, title="Test")
         t1 = GroupedTag(id=1, name="python")
         t2 = GroupedTag(id=2, name="rust")
         catalog.tags["lang"] = [t1, t2]
-        catalog.tags.remove_item("lang", t1)
+        catalog.tags.discard("lang", t1)
         assert len(catalog.tags["lang"]) == 1
         assert catalog.tags["lang"][0] is t2
 
-    def test_remove_item_deletes_empty_group(self):
+    def test_discard_deletes_empty_group(self):
         catalog = GroupedCatalog(id=1, title="Test")
         t = GroupedTag(id=1, name="python")
         catalog.tags["lang"] = [t]
-        catalog.tags.remove_item("lang", t)
+        catalog.tags.discard("lang", t)
         assert "lang" not in catalog.tags
         assert len(catalog.tags) == 0
 
-    def test_flat_values(self):
+    def test_flatten(self):
         catalog = GroupedCatalog(id=1, title="Test")
         t1 = GroupedTag(id=1, name="python")
         t2 = GroupedTag(id=2, name="rust")
         t3 = GroupedTag(id=3, name="go")
         catalog.tags["lang"] = [t1, t2]
         catalog.tags["other"] = [t3]
-        flat = catalog.tags.flat_values()
+        flat = catalog.tags.flatten()
         assert len(flat) == 3
         names = {t.name for t in flat}
         assert names == {"python", "rust", "go"}
 
-    def test_flat_values_empty(self):
+    def test_flatten_empty(self):
         catalog = GroupedCatalog(id=1, title="Test")
-        assert catalog.tags.flat_values() == []
+        assert catalog.tags.flatten() == []
 
 
 class TestRelationGroupMapDictOperations:

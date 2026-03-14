@@ -5,7 +5,7 @@ Tests:
 - Lazy and eager loading of grouped dict relationships
 - Serialization after ORM load
 - Dict mutation operations persisted through SQLAlchemy
-- Convenience methods: append, extend, remove_item, flat_values
+- Convenience methods: append, extend, discard, flatten
 """
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ class TestRelationGroupMapCRUD:
 
             assert len(wh.items["tools"]) == 3
 
-    def test_remove_item_from_group(self, engine: Engine):
+    def test_discard_from_group(self, engine: Engine):
         """Test removing a single item from a group."""
         with Session(engine) as session:
             wh = Warehouse(name="Remove Test")
@@ -103,7 +103,7 @@ class TestRelationGroupMapCRUD:
             session.flush()
 
             assert len(wh.items["tools"]) == 2
-            wh.items.remove_item("tools", item1)
+            wh.items.discard("tools", item1)
             session.flush()
 
             assert len(wh.items["tools"]) == 1
@@ -118,7 +118,7 @@ class TestRelationGroupMapCRUD:
             session.add(wh)
             session.flush()
 
-            wh.items.remove_item("tools", item)
+            wh.items.discard("tools", item)
             session.flush()
 
             assert "tools" not in wh.items
@@ -365,8 +365,8 @@ class TestRelationGroupMapDictOperations:
             assert "tools" in wh.items
             assert "gone" not in wh.items
 
-    def test_flat_values(self, engine: Engine):
-        """Test flat_values() returns all items across all groups."""
+    def test_flatten(self, engine: Engine):
+        """Test flatten() returns all items across all groups."""
         with Session(engine) as session:
             wh = Warehouse(name="Flat Warehouse")
             wh.items["tools"] = [
@@ -379,7 +379,7 @@ class TestRelationGroupMapDictOperations:
             session.add(wh)
             session.flush()
 
-            flat = wh.items.flat_values()
+            flat = wh.items.flatten()
             assert len(flat) == 3
             names = {item.name for item in flat}
             assert names == {"Hammer", "Wrench", "Bolt"}
