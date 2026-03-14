@@ -1,6 +1,10 @@
 from arcanus.association import (
+    GroupedRelationship,
+    MappedRelationship,
     Relation,
     RelationCollection,
+    RelationGroupMap,
+    RelationGroupMaps,
     RelationMap,
     RelationMaps,
     RelationSet,
@@ -8,6 +12,7 @@ from arcanus.association import (
     Relationships,
     TypedRelationMap,
     TypedRelationMaps,
+    TypedRelationship,
 )
 from arcanus.base import (
     BaseTransmuter,
@@ -19,11 +24,16 @@ __all__ = [
     "Transmuter",
     "Relation",
     "RelationCollection",
+    "RelationGroupMap",
+    "GroupedRelationship",
+    "RelationGroupMaps",
     "RelationMap",
+    "MappedRelationship",
     "RelationMaps",
     "RelationSet",
     "Relationship",
     "Relationships",
     "TypedRelationMap",
+    "TypedRelationship",
     "TypedRelationMaps",
 ]

@@ -553,12 +553,13 @@ Arcanus provides several association types to model different relationship patte
 
 Default factories are provided for convenience:
 
-| Field Helper          | Creates                                                  |
-| --------------------- | -------------------------------------------------------- |
-| `Relationship()`      | `Field(default_factory=Relation, frozen=True)`           |
-| `Relationships()`     | `Field(default_factory=RelationCollection, frozen=True)` |
-| `RelationMaps()`      | `Field(default_factory=RelationMap, frozen=True)`        |
-| `TypedRelationMaps()` | `Field(default_factory=TypedRelationMap, frozen=True)`   |
+| Field Helper            | Creates                                                  |
+| ----------------------- | -------------------------------------------------------- |
+| `Relationship()`        | `Field(default_factory=Relation, frozen=True)`           |
+| `Relationships()`       | `Field(default_factory=RelationCollection, frozen=True)` |
+| `MappedRelationship()`  | `Field(default_factory=RelationMap, frozen=True)`        |
+| `GroupedRelationship()` | `Field(default_factory=RelationGroupMap, frozen=True)`   |
+| `TypedRelationship()`   | `Field(default_factory=TypedRelationMap, frozen=True)`   |
 
 ### Relation
 
@@ -706,7 +707,7 @@ article = Article(
 `RelationMap[K, T]` is a `dict`-based association with **homogeneous** value types — all values share the same transmuter type. Use it for keyed one-to-many relationships.
 
 ```python
-from arcanus.association import RelationMap, RelationMaps
+from arcanus.association import RelationMap, MappedRelationship
 
 class ShelfItem(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
@@ -716,7 +717,7 @@ class ShelfItem(BaseTransmuter):
 class Shelf(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
-    items: RelationMap[str, ShelfItem] = RelationMaps()
+    items: RelationMap[str, ShelfItem] = MappedRelationship()
 
 shelf = Shelf(id=1, name="Reference")
 
@@ -743,7 +744,7 @@ from typing import Literal
 class StrictCatalog(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None)
     title: str
-    tags: RelationMap[Literal["python", "rust", "go"], Tag] = RelationMaps()
+    tags: RelationMap[Literal["python", "rust", "go"], Tag] = MappedRelationship()
 
 catalog = StrictCatalog(id=1, title="Languages")
 catalog.tags["python"] = Tag(id=1, name="Python")
@@ -761,7 +762,7 @@ from typing import Annotated, Optional
 from typing_extensions import TypedDict
 from pydantic import Field
 from arcanus.base import BaseTransmuter, Identity
-from arcanus.association import TypedRelationMap, TypedRelationMaps
+from arcanus.association import TypedRelationMap, TypedRelationship
 
 # Define polymorphic transmuter types
 class MediaItem(BaseTransmuter):
@@ -785,7 +786,7 @@ class DocumentMedia(TypedDict):
 class Gallery(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
-    media: TypedRelationMap[DocumentMedia] = TypedRelationMaps()
+    media: TypedRelationMap[DocumentMedia] = TypedRelationship()
 ```
 
 #### Basic Usage
@@ -871,7 +872,7 @@ class OptionalMedia(TypedDict, total=False):
 class FlexibleGallery(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
-    media: TypedRelationMap[OptionalMedia] = TypedRelationMaps()
+    media: TypedRelationMap[OptionalMedia] = TypedRelationship()
 
 # Only some keys need to be present
 gallery = FlexibleGallery(id=1, name="Partial")

@@ -7,14 +7,16 @@ from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import TypedDict
 
 from arcanus.association import (
+    GroupedRelationship,
+    MappedRelationship,
     Relation,
     RelationCollection,
+    RelationGroupMap,
     RelationMap,
-    RelationMaps,
     Relationship,
     Relationships,
     TypedRelationMap,
-    TypedRelationMaps,
+    TypedRelationship,
 )
 from arcanus.base import BaseTransmuter, Identity, Transmuter
 from arcanus.dataclass import dataclass
@@ -254,7 +256,7 @@ class Shelf(TestIdMixin, BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
 
-    items: RelationMap[str, ShelfItem] = RelationMaps()
+    items: RelationMap[str, ShelfItem] = MappedRelationship()
 
 
 # Unblessed transmuters for noop RelationMap tests
@@ -275,7 +277,7 @@ class Catalog(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None)
     title: str
 
-    tags: RelationMap[str, Tag] = RelationMaps()
+    tags: RelationMap[str, Tag] = MappedRelationship()
 
 
 class LabeledCatalog(BaseTransmuter):
@@ -286,7 +288,7 @@ class LabeledCatalog(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None)
     title: str
 
-    tags: RelationMap[Literal["python", "rust", "go"], Tag] = RelationMaps()
+    tags: RelationMap[Literal["python", "rust", "go"], Tag] = MappedRelationship()
 
 
 class AuthorFlat(BaseTransmuter):
@@ -450,7 +452,7 @@ class Gallery(TestIdMixin, BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
 
-    media: TypedRelationMap[DocumentMedia] = TypedRelationMaps()
+    media: TypedRelationMap[DocumentMedia] = TypedRelationship()
 
 
 class OptionalGallery(TestIdMixin, BaseTransmuter):
@@ -461,7 +463,7 @@ class OptionalGallery(TestIdMixin, BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
 
-    media: TypedRelationMap[OptionalDocumentMedia] = TypedRelationMaps()
+    media: TypedRelationMap[OptionalDocumentMedia] = TypedRelationship()
 
 
 @sqlalchemy_materia.bless(models.BlogAuthor)
@@ -499,3 +501,51 @@ class BlogPost(TestIdMixin, BaseTransmuter):
     # Normal associations
     author: Relation[BlogAuthor] = Relationship()
     tags: RelationCollection[BlogTag] = Relationships()
+
+
+# ── RelationGroupMap test transmuters ──
+
+
+# SQLAlchemy-blessed transmuters
+@sqlalchemy_materia.bless(models.WarehouseItem)
+class WarehouseItem(TestIdMixin, BaseTransmuter):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    category: str
+    name: str
+    quantity: int = 0
+    warehouse_id: int | None = None
+
+    warehouse: Relation[Warehouse] = Relationship()
+
+
+@sqlalchemy_materia.bless(models.Warehouse)
+class Warehouse(TestIdMixin, BaseTransmuter):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    name: str
+
+    items: RelationGroupMap[str, WarehouseItem] = GroupedRelationship()
+
+
+# Unblessed transmuters for noop RelationGroupMap tests
+class GroupedTag(BaseTransmuter):
+    """Tag model used as value in grouped dict."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None)
+    name: str
+
+
+class GroupedCatalog(BaseTransmuter):
+    """Catalog with grouped dict-based tag mapping."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None)
+    title: str
+
+    tags: RelationGroupMap[str, GroupedTag] = GroupedRelationship()
