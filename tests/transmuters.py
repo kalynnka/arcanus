@@ -507,6 +507,16 @@ class BlogPost(TestIdMixin, BaseTransmuter):
 
 
 # SQLAlchemy-blessed transmuters
+@sqlalchemy_materia.bless(models.WarehouseManager)
+class WarehouseManager(TestIdMixin, BaseTransmuter):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    name: str
+
+    warehouses: RelationCollection[Warehouse] = Relationships()
+
+
 @sqlalchemy_materia.bless(models.WarehouseItem)
 class WarehouseItem(TestIdMixin, BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
@@ -526,8 +536,48 @@ class Warehouse(TestIdMixin, BaseTransmuter):
 
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
+    manager_id: int | None = None
 
+    # Association proxy field
+    manager_name: str | None = None
+
+    # Normal associations
+    manager: Relation[WarehouseManager] = Relationship()
     items: RelationGroupMap[str, WarehouseItem] = GroupedRelationship()
+
+
+# ── Association proxy over attribute_keyed_list_dict transmuters ──
+
+
+@sqlalchemy_materia.bless(models.GeneratedFile)
+class GeneratedFile(TestIdMixin, BaseTransmuter):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    filename: str
+    size: int = 0
+
+
+@sqlalchemy_materia.bless(models.ArticleGeneratedFile)
+class ArticleGeneratedFile(TestIdMixin, BaseTransmuter):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    role: str
+    article_id: int | None = None
+    file_id: int | None = None
+
+    file: Relation[GeneratedFile] = Relationship()
+
+
+@sqlalchemy_materia.bless(models.Article)
+class Article(TestIdMixin, BaseTransmuter):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    title: str
+
+    generated_files: RelationGroupMap[str, GeneratedFile] = GroupedRelationship()
 
 
 # Unblessed transmuters for noop RelationGroupMap tests

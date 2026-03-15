@@ -7,10 +7,10 @@ from pydantic import ValidationInfo
 from sqlalchemy import inspect
 from sqlalchemy.exc import InvalidRequestError, MissingGreenlet
 from sqlalchemy.ext.associationproxy import AssociationProxy
-from sqlalchemy.orm import InstanceState
+from sqlalchemy.orm import InstanceState, Mapper
 from sqlalchemy.util import greenlet_spawn
 
-from arcanus.association import Association, DefferedAssociation
+from arcanus.association import Association, DefferedAssociation, RelationGroupMap
 from arcanus.base import Transmuter, TransmuterMetaclass
 from arcanus.materia.base import BaseMateria, T
 
@@ -130,9 +130,34 @@ class SqlalchemyMateria(BaseMateria):
                 f"The relation '{association.field_name}' is not yet prepared with an owner instance."
             )
         try:
-            return getattr(
-                association.__instance__.__transmuter_provided__, association.used_name
-            )
+            orm_instance = association.__instance__.__transmuter_provided__
+            used_name = association.used_name
+
+            # When a RelationGroupMap field maps to an association_proxy
+            # (e.g. proxy over a attribute_keyed_list_dict relationship),
+            # SQLAlchemy's _AssociationDict cannot iterate dict-of-lists
+            # values correctly.  Bypass the proxy and resolve manually:
+            # return a plain dict[K, list[target_ORM]] that the association
+            # can consume directly.
+            if isinstance(association, RelationGroupMap):
+                orm_class = type(orm_instance)
+                proxies = extract_association_proxies(orm_class)
+                if used_name in proxies:
+                    target_rel = proxies[used_name]
+                    association.__backing_attr__ = target_rel
+
+                    mapper: Mapper = inspect(orm_class)  # type: ignore
+                    proxy_descriptor: AssociationProxy
+                    proxy_descriptor = mapper.all_orm_descriptors[used_name]  # type: ignore
+                    value_attr = proxy_descriptor.value_attr
+
+                    underlying = getattr(orm_instance, target_rel)
+                    return {
+                        key: [getattr(item, value_attr) for item in items]
+                        for key, items in underlying.items()
+                    }
+
+            return getattr(orm_instance, used_name)
         except MissingGreenlet as missing_greenlet_error:
             association.__loaded__ = False
             raise MissingGreenlet(
