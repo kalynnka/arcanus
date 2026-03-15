@@ -147,7 +147,8 @@ class SqlalchemyMateria(BaseMateria):
                     association.__backing_attr__ = target_rel
 
                     mapper: Mapper = inspect(orm_class)  # type: ignore
-                    proxy_descriptor: AssociationProxy = mapper.all_orm_descriptors[used_name]  # type: ignore
+                    proxy_descriptor: AssociationProxy
+                    proxy_descriptor = mapper.all_orm_descriptors[used_name]  # type: ignore
                     value_attr = proxy_descriptor.value_attr
 
                     underlying = getattr(orm_instance, target_rel)
