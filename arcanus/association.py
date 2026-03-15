@@ -1554,9 +1554,15 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         super().__init__()
         self.__instance__ = None
         self.__loaded__ = False
+        self.__backing_attr__ = None
         self.__payloads__: dict[K, list[T]] = (
             {k: list(v) for k, v in payloads.items()} if payloads else {}
         )
+
+    # When the transmuter field maps to an association proxy (not the underlying
+    # relationship directly), the materia can set this to the underlying
+    # collection name so mutations go through the real collection class.
+    __backing_attr__: str | None
 
     @property
     def __provided__(self) -> Any | None:
@@ -1565,7 +1571,8 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         # it would be a KeyFuncListDict.
         if not self.__instance_provider__:
             return None
-        return getattr(self.__instance_provider__, self.used_name)
+        attr = self.__backing_attr__ or self.used_name
+        return getattr(self.__instance_provider__, attr)
 
     @cached_property
     def __validator__(self) -> TypeAdapter[T]:
@@ -1654,22 +1661,22 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         if self.__loaded__:
             return self
 
-        active_materia.get().load_association(self)
+        provided = active_materia.get().load_association(self)
 
         # A: No provided, None
         # B: provided value is empty, {}
-        if not self.__provided__:
+        if not provided:
             return self
 
-        # Remove payloads whose key is already in __provided__
+        # Remove payloads whose key is already in provided
         self.__payloads__ = {
-            k: v for k, v in self.__payloads__.items() if k not in self.__provided__
+            k: v for k, v in self.__payloads__.items() if k not in provided
         }
 
-        if len(self.__provided__) != super().__len__() or not super().__len__():
-            # Bless: __provided__ is a KeyFuncListDict (dict[K, list[ORM]])
+        if len(provided) != super().__len__() or not super().__len__():
+            # Bless: provided is a dict[K, list[ORM]] (e.g. KeyFuncListDict)
             super().clear()
-            for key, orm_list in self.__provided__.items():
+            for key, orm_list in provided.items():
                 super().__setitem__(key, self.bless_values(orm_list))
         self.__loaded__ = True
 

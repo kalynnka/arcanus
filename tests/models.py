@@ -682,13 +682,45 @@ class BlogPost(Base):
 # ── RelationGroupMap test models ──
 
 
+class WarehouseManager(Base):
+    """Manager of a warehouse – used for association proxy testing."""
+
+    __tablename__ = "warehouse_manager"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    warehouses: Mapped[list["Warehouse"]] = relationship(
+        "Warehouse",
+        back_populates="manager",
+        uselist=True,
+    )
+
+
 class Warehouse(Base):
-    """Warehouse with items grouped by category via attribute_keyed_list_dict."""
+    """Warehouse with items grouped by category via attribute_keyed_list_dict.
+
+    Also has a manager relationship with an association proxy for ``manager_name``
+    to test the combination of RelationGroupMap + association proxy.
+    """
 
     __tablename__ = "warehouse"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    manager_id: Mapped[int | None] = mapped_column(
+        ForeignKey("warehouse_manager.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    manager: Mapped[WarehouseManager | None] = relationship(
+        "WarehouseManager",
+        back_populates="warehouses",
+        uselist=False,
+    )
+
+    # ── Association proxy ──
+    manager_name: AssociationProxy[str | None] = association_proxy("manager", "name")
 
     # Dict-of-lists relationship keyed by WarehouseItem.category
     items: Mapped[dict[str, list["WarehouseItem"]]] = relationship(
@@ -716,5 +748,77 @@ class WarehouseItem(Base):
     warehouse: Mapped[Warehouse] = relationship(
         "Warehouse",
         back_populates="items",
+        uselist=False,
+    )
+
+
+# ── Association proxy over attribute_keyed_list_dict test models ──
+
+
+class Article(Base):
+    """Article with generated files grouped by role via proxy over attribute_keyed_list_dict.
+
+    This models the pattern where an intermediate association table (ArticleGeneratedFile)
+    links Article to GeneratedFile via a role key, and an association_proxy provides
+    direct access to the files grouped by role.
+    """
+
+    __tablename__ = "article"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    generated_file_associations: Mapped[dict[str, list["ArticleGeneratedFile"]]] = (
+        relationship(
+            "ArticleGeneratedFile",
+            collection_class=attribute_keyed_list_dict("role"),
+            cascade="all, delete-orphan",
+            back_populates="article",
+        )
+    )
+
+    generated_files: AssociationProxy[dict[str, list["GeneratedFile"]]] = (
+        association_proxy(
+            "generated_file_associations",
+            "file",
+            creator=lambda role, f: ArticleGeneratedFile(role=role, file=f),
+        )
+    )
+
+
+class GeneratedFile(Base):
+    """A generated file that can be associated with an article through a role."""
+
+    __tablename__ = "generated_file"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    filename: Mapped[str] = mapped_column(String(200), nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class ArticleGeneratedFile(Base):
+    """Association between Article and GeneratedFile, keyed by role."""
+
+    __tablename__ = "article_generated_file"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    role: Mapped[str] = mapped_column(String(100), nullable=False)
+
+    article_id: Mapped[int] = mapped_column(
+        ForeignKey("article.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    article: Mapped[Article] = relationship(
+        "Article",
+        back_populates="generated_file_associations",
+        uselist=False,
+    )
+
+    file_id: Mapped[int] = mapped_column(
+        ForeignKey("generated_file.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    file: Mapped[GeneratedFile] = relationship(
+        "GeneratedFile",
         uselist=False,
     )
