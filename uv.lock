@@ -25,9 +25,7 @@ name = "arcanus"
 version = "0.0.16"
 source = { editable = "." }
 dependencies = [
-    { name = "greenlet" },
     { name = "pydantic" },
-    { name = "sqlalchemy" },
 ]
 
 [package.optional-dependencies]
@@ -40,6 +38,10 @@ dev = [
 ]
 redis = [
     { name = "redis" },
+]
+sqlalchemy = [
+    { name = "greenlet" },
+    { name = "sqlalchemy" },
 ]
 
 [package.dev-dependencies]
@@ -56,22 +58,21 @@ dev = [
     { name = "pytest-codspeed" },
     { name = "pytest-cov" },
     { name = "pytest-xdist" },
-    { name = "redis" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "asyncpg", marker = "extra == 'dev'", specifier = ">=0.28.0" },
-    { name = "greenlet", specifier = ">=3.2.4" },
+    { name = "greenlet", marker = "extra == 'sqlalchemy'", specifier = ">=3.2.4" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0.0" },
     { name = "pydantic", specifier = ">=2.11.7" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
     { name = "redis", marker = "extra == 'redis'", specifier = ">=5.0.0" },
-    { name = "sqlalchemy", specifier = ">=2.0.0" },
+    { name = "sqlalchemy", marker = "extra == 'sqlalchemy'", specifier = ">=2.0.0" },
 ]
-provides-extras = ["dev", "redis"]
+provides-extras = ["dev", "sqlalchemy", "redis"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -87,7 +88,6 @@ dev = [
     { name = "pytest-codspeed", specifier = ">=4.2.0" },
     { name = "pytest-cov", specifier = ">=4.1.0" },
     { name = "pytest-xdist", specifier = ">=3.5.0" },
-    { name = "redis", specifier = ">=5.0.0" },
 ]
 
 [[package]]

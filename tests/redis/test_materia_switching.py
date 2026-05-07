@@ -301,9 +301,7 @@ class TestMultipleRedisMateriaInstances:
         # And the registries are physically separate dicts.
         assert m1.key_prefixes is not m2.key_prefixes
 
-    def test_swapping_between_two_redis_materias(
-        self, fake_client: FakeClient
-    ):
+    def test_swapping_between_two_redis_materias(self, fake_client: FakeClient):
         """The active RedisMateria determines which key prefix Client uses."""
         m1 = RedisMateria()
         m2 = RedisMateria()

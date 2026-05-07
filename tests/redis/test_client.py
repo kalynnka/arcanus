@@ -95,9 +95,7 @@ class TestCRUD:
         assert results[0] is not None and results[0].name == "a"
         assert results[1] is not None and results[1].name == "b"
 
-    def test_mget_mixed_hits_and_misses(
-        self, client: FakeClient, materia_active
-    ):
+    def test_mget_mixed_hits_and_misses(self, client: FakeClient, materia_active):
         client.tset(Author(id=1, name="a"))
         client.tset(Author(id=3, name="c"))
         results = client.tmget(Author, 1, 2, 3)
@@ -115,7 +113,13 @@ class TestCRUD:
         for i in range(5):
             client.tset(Author(id=i, name=f"a{i}"))
         results = client.tmget(Author, 4, 0, 2, 1, 3)
-        assert [r.name for r in results if r is not None] == ["a4", "a0", "a2", "a1", "a3"]
+        assert [r.name for r in results if r is not None] == [
+            "a4",
+            "a0",
+            "a2",
+            "a1",
+            "a3",
+        ]
 
 
 class TestNativeRedisPassthrough:
