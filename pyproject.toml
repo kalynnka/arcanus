@@ -25,9 +25,7 @@ classifiers = [
 ]
 keywords = ["pydantic", "database", "schema", "orm", "datasource", "sqlmodel", "sqlalchemy"]
 dependencies = [
-    "sqlalchemy>=2.0.0",
     "pydantic>=2.11.7",
-    "greenlet>=3.2.4",
 ]
 
 [project.optional-dependencies]
@@ -37,6 +35,13 @@ dev = [
     "mypy>=1.0.0",
     "pre-commit>=3.0.0",
     "asyncpg>=0.28.0",
+]
+sqlalchemy = [
+    "sqlalchemy>=2.0.0",
+    "greenlet>=3.2.4",
+]
+redis = [
+    "redis>=5.0.0",
 ]
 
 [project.urls]
@@ -51,12 +56,15 @@ dev = [
     "pytest-cov>=4.1.0",
     "pytest-codspeed>=4.2.0",
     "pytest-xdist>=3.5.0",
+    "pytest-benchmark>=5.2.3",
     "mypy>=1.0.0",
     "pre-commit>=3.0.0",
+    # SQL drivers needed only for SqlalchemyMateria tests
     "aiosqlite>=0.19.0",
-    "pytest-benchmark>=5.2.3",
     "psycopg2-binary>=2.9.11",
     "asyncpg>=0.30.0",
+    # Redis test double — not a runtime dep
+    "fakeredis>=2.0.0",
 ]
 
 [tool.ruff]
