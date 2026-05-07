@@ -38,6 +38,9 @@ dev = [
     "pre-commit>=3.0.0",
     "asyncpg>=0.28.0",
 ]
+redis = [
+    "redis>=5.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/kalynnka/arcanus"
@@ -57,6 +60,8 @@ dev = [
     "pytest-benchmark>=5.2.3",
     "psycopg2-binary>=2.9.11",
     "asyncpg>=0.30.0",
+    "redis>=5.0.0",
+    "fakeredis>=2.0.0",
 ]
 
 [tool.ruff]
