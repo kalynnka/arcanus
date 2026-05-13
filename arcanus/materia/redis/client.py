@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import (
     TYPE_CHECKING,
+    Any,
     Optional,
+    Self,
     TypeVar,
     Union,
     cast,
@@ -50,7 +52,7 @@ def _instance_key(instance: Transmuter) -> str:
     return _make_key(type(instance), ident)
 
 
-class Client(redis.Redis):
+class Redis(redis.Redis):
     """Subclass of :class:`redis.Redis` that adds transmuter-aware helpers.
 
     The native ``get``/``set``/``delete``/``mget`` methods are untouched and
@@ -61,6 +63,11 @@ class Client(redis.Redis):
     is responsible for activating it (``with redis_materia:``) before invoking
     any ``t*`` helper.
     """
+
+    if TYPE_CHECKING:
+
+        @classmethod
+        def from_url(cls, url: str, **kwargs: Any) -> Self: ...
 
     def tget(self, entity: type[T], ident: IdentT) -> Optional[T]:
         key = _make_key(entity, ident)
@@ -112,8 +119,19 @@ class Client(redis.Redis):
         return [adapter.validate_json(v) if v is not None else None for v in raw]
 
 
-class AsyncClient(redis.asyncio.Redis):
-    """Async counterpart of :class:`Client`. See :class:`Client` for details."""
+class AsyncRedis(redis.asyncio.Redis):
+    """Async counterpart of :class:`Redis`. See :class:`Redis` for details."""
+
+    if TYPE_CHECKING:
+
+        @classmethod
+        def from_url(
+            cls,
+            url: str,
+            single_connection_client: bool = False,
+            auto_close_connection_pool: bool | None = None,
+            **kwargs: Any,
+        ) -> Self: ...
 
     async def tget(self, entity: type[T], ident: IdentT) -> Optional[T]:
         key = _make_key(entity, ident)

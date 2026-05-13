@@ -1,4 +1,4 @@
-"""Tests for the async Redis :class:`AsyncClient` (mirrors test_client.py)."""
+"""Tests for the async Redis :class:`AsyncRedis` (mirrors test_client.py)."""
 
 from __future__ import annotations
 

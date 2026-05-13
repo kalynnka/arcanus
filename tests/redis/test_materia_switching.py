@@ -14,7 +14,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from arcanus.base import BaseTransmuter, Identity, TransmuterProxiedMixin, validated
 from arcanus.materia.base import NoOpMateria, active_materia
-from arcanus.materia.redis import Client, RedisMateria
+from arcanus.materia.redis import Redis, RedisMateria
 from arcanus.materia.sqlalchemy import Session, SqlalchemyMateria
 
 
@@ -40,8 +40,8 @@ class City(BaseTransmuter):
     name: str
 
 
-class FakeClient(Client, fakeredis.FakeRedis):
-    """Sync Client backed by an in-memory fakeredis server."""
+class FakeClient(Redis, fakeredis.FakeRedis):
+    """Sync Redis backed by an in-memory fakeredis server."""
 
 
 @pytest.fixture(scope="module")
@@ -302,7 +302,7 @@ class TestMultipleRedisMateriaInstances:
         assert m1.key_prefixes is not m2.key_prefixes
 
     def test_swapping_between_two_redis_materias(self, fake_client: FakeClient):
-        """The active RedisMateria determines which key prefix Client uses."""
+        """The active RedisMateria determines which key prefix Redis uses."""
         m1 = RedisMateria()
         m2 = RedisMateria()
 

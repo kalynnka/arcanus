@@ -17,7 +17,7 @@ from arcanus.association import (
     Relationships,
 )
 from arcanus.base import BaseTransmuter, Identity
-from arcanus.materia.redis import AsyncClient, Client, RedisMateria
+from arcanus.materia.redis import AsyncRedis, Redis, RedisMateria
 
 redis_materia = RedisMateria()
 
@@ -70,12 +70,12 @@ class NoIdentity(BaseTransmuter):
     name: str
 
 
-class FakeClient(Client, fakeredis.FakeRedis):
-    """Sync Client backed by an in-memory fakeredis server."""
+class FakeClient(Redis, fakeredis.FakeRedis):
+    """Sync Redis backed by an in-memory fakeredis server."""
 
 
-class FakeAsyncClient(AsyncClient, fakeredis.aioredis.FakeRedis):
-    """Async Client backed by an in-memory fakeredis server."""
+class FakeAsyncClient(AsyncRedis, fakeredis.aioredis.FakeRedis):
+    """AsyncRedis backed by an in-memory fakeredis server."""
 
 
 @pytest.fixture

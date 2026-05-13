@@ -1,4 +1,4 @@
-"""Tests for the sync Redis :class:`Client`."""
+"""Tests for the sync Redis :class:`Redis`."""
 
 from __future__ import annotations
 

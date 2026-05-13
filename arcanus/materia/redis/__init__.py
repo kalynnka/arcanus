@@ -6,10 +6,10 @@ except ImportError as e:
     ) from e
 
 from arcanus.materia.redis.base import RedisMateria
-from arcanus.materia.redis.client import AsyncClient, Client
+from arcanus.materia.redis.client import AsyncRedis, Redis
 
 __all__ = [
     "RedisMateria",
-    "Client",
-    "AsyncClient",
+    "Redis",
+    "AsyncRedis",
 ]

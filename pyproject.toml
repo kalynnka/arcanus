@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "arcanus"
-version = "0.0.17"
+version = "0.0.18"
 description = "Sticker to bind pydantic schemas with various datasources"
 authors = [
-    {name = "arcanus", email = "arcanus@example.com"},
+    {name = "arcanus", email = "luhui19970305@hotmail.com"},
 ]
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -59,6 +59,10 @@ dev = [
     "pytest-benchmark>=5.2.3",
     "mypy>=1.0.0",
     "pre-commit>=3.0.0",
+    # Keep local development synced with every optional runtime feature.
+    "sqlalchemy>=2.0.0",
+    "greenlet>=3.2.4",
+    "redis>=5.0.0",
     # SQL drivers needed only for SqlalchemyMateria tests
     "aiosqlite>=0.19.0",
     "psycopg2-binary>=2.9.11",
