@@ -12,6 +12,7 @@ reuses sync code via greenlet, so comprehensive testing is done in sync tests.
 
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 from uuid import UUID
 
@@ -21,8 +22,16 @@ from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.orm import raiseload, selectinload
 
+from arcanus import Cursor, Page, PagedCriteria
 from arcanus.materia.sqlalchemy import AsyncSession
-from tests.transmuters import Author, Book, BookCategory, Category, Publisher
+from tests.transmuters import (
+    Author,
+    Book,
+    BookCategory,
+    Category,
+    Publisher,
+    sqlalchemy_materia,
+)
 
 
 class TestAsyncSessionContextManagement:
@@ -660,6 +669,121 @@ class TestAsyncSessionHelpers:
             assert count_biology >= 1
 
     @pytest.mark.asyncio
+    async def test_async_sqlalchemy_expression_compiler_translates_operator_tree(
+        self, async_engine: AsyncEngine
+    ):
+        """Test the material compiler translates arcanus expression trees."""
+        async with AsyncSession(async_engine) as session:
+            session.add_all(
+                [
+                    Author(name="Async Compiler Tree A", field="Physics"),
+                    Author(name="Async Compiler Tree B", field="Chemistry"),
+                    Author(name="Async Compiler Tree Outside", field="Physics"),
+                    Author(name="Async Compiler Tree Biology", field="Biology"),
+                ]
+            )
+            await session.flush()
+
+            expression = (
+                Author["name"].contains("Async Compiler Tree")
+                & Author["field"].in_(("Physics", "Chemistry"))
+                & Author["field"].not_in(("Biology",))
+                & ~Author["name"].ends_with("Outside")
+            )
+            compiled_expression = expression(sqlalchemy_materia.expression_compiler)
+            compiled_order = Author["name"].asc()(
+                sqlalchemy_materia.expression_compiler
+            )
+
+            result = await session.execute(
+                select(Author).where(compiled_expression).order_by(compiled_order)
+            )
+
+            assert [author.name for author in result.scalars().all()] == [
+                "Async Compiler Tree A",
+                "Async Compiler Tree B",
+            ]
+
+    @pytest.mark.asyncio
+    async def test_async_column_expression_and_order_interop_with_native_sqlalchemy(
+        self, async_engine: AsyncEngine
+    ):
+        """Test arcanus columns and expressions work in raw SQLAlchemy statements."""
+        async with AsyncSession(async_engine) as session:
+            session.add_all(
+                [
+                    Author(name="Async Native Interop B", field="Robotics"),
+                    Author(name="Async Native Interop A", field="Robotics"),
+                    Author(name="Async Native Interop Outside", field="Physics"),
+                ]
+            )
+            await session.flush()
+
+            result = await session.execute(
+                select(Author["name"])
+                .where(Author["name"].starts_with("Async Native Interop"))
+                .where(Author["field"] == "Robotics")
+                .order_by(Author["name"].asc())
+            )
+
+            assert result.scalars().all() == [
+                "Async Native Interop A",
+                "Async Native Interop B",
+            ]
+
+    @pytest.mark.asyncio
+    async def test_async_mixed_native_and_arcanus_expressions_are_accepted(
+        self, async_engine: AsyncEngine
+    ):
+        """Test native SQLAlchemy expressions can be mixed with arcanus expressions."""
+        async with AsyncSession(async_engine) as session:
+            session.add_all(
+                [
+                    Author(name="Async Mixed Expression A", field="Physics"),
+                    Author(name="Async Mixed Expression B", field="Biology"),
+                    Author(name="Async Mixed Expression Outside", field="Physics"),
+                ]
+            )
+            await session.flush()
+
+            results = await session.list(
+                Author,
+                order_bys=[Author["name"].desc()],
+                expressions=[
+                    Author["name"].native.like("Async Mixed Expression%"),
+                    Author["name"].native != "Async Mixed Expression Outside",
+                    Author["field"] != "Biology",
+                ],
+            )
+
+            assert [author.name for author in results] == ["Async Mixed Expression A"]
+
+    @pytest.mark.asyncio
+    async def test_async_count_accepts_arcanus_boolean_logic_expressions(
+        self, async_engine: AsyncEngine
+    ):
+        """Test count accepts arcanus expressions with boolean composition."""
+        async with AsyncSession(async_engine) as session:
+            session.add_all(
+                [
+                    Author(name="Async Count Logic A", field="Physics"),
+                    Author(name="Async Count Logic B", field="Biology"),
+                    Author(name="Async Count Logic C", field="Chemistry"),
+                    Author(name="Async Count Logic Outside", field="History"),
+                ]
+            )
+            await session.flush()
+
+            expression = Author["name"].starts_with("Async Count Logic") & (
+                (Author["field"] == "Physics")
+                | (Author["field"] == "Biology")
+                | (Author["field"] == "Chemistry")
+            )
+            count = await session.count(Author, expressions=[expression])
+
+            assert count == 3
+
+    @pytest.mark.asyncio
     async def test_async_list_basic(self, async_engine: AsyncEngine):
         """Test list returns multiple entities."""
         async with AsyncSession(async_engine) as session:
@@ -706,6 +830,104 @@ class TestAsyncSessionHelpers:
                 < names.index("M Async List")
                 < names.index("Z Async List")
             )
+
+    @pytest.mark.asyncio
+    async def test_async_list_compiles_arcanus_expressions_and_orders(
+        self, async_engine: AsyncEngine
+    ):
+        """Test list accepts arcanus expression inputs."""
+        async with AsyncSession(async_engine) as session:
+            session.add_all(
+                [
+                    Author(name="Async Expression Order C", field="Robotics"),
+                    Author(name="Async Expression Order A", field="Robotics"),
+                    Author(name="Async Expression Order B", field="Robotics"),
+                ]
+            )
+            await session.flush()
+
+            results = await session.list(
+                Author,
+                order_bys=[Author["name"].desc()],
+                expressions=[Author["name"].like("Async Expression Order%")],
+                field="Robotics",
+            )
+
+            assert [author.name for author in results] == [
+                "Async Expression Order C",
+                "Async Expression Order B",
+                "Async Expression Order A",
+            ]
+
+    @pytest.mark.asyncio
+    async def test_async_list_with_json_criteria_expression_and_compiler_chain(
+        self, async_engine: AsyncEngine
+    ):
+        """Test JSON criteria values can drive arcanus and SQLAlchemy expressions."""
+        criteria_model = PagedCriteria[Author]
+        payload = {
+            "name": {"starts_with": "Async Criteria Chain"},
+            "field": {"eq": "Xenobiology"},
+            "order_by": ["-name"],
+            "limit": 2,
+        }
+
+        async with AsyncSession(async_engine) as session:
+            session.add_all(
+                [
+                    Author(name="Async Criteria Chain C", field="Xenobiology"),
+                    Author(name="Async Criteria Chain A", field="Xenobiology"),
+                    Author(name="Async Criteria Chain B", field="Xenobiology"),
+                    Author(name="Async Criteria Chain Outside", field="Robotics"),
+                ]
+            )
+            await session.flush()
+
+            criteria = criteria_model.model_validate_json(json.dumps(payload))
+            restored = criteria_model.model_validate_json(
+                criteria.model_dump_json(by_alias=True, exclude_none=True)
+            )
+            assert restored.model_dump(
+                mode="json", by_alias=True, exclude_none=True
+            ) == criteria.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+            name_criteria = getattr(criteria, "name")
+            field_criteria = getattr(criteria, "field")
+            assert name_criteria is not None
+            assert field_criteria is not None
+            assert name_criteria.starts_with is not None
+            assert field_criteria.eq is not None
+            expression = Author["name"].starts_with(name_criteria.starts_with) & (
+                Author["field"] == field_criteria.eq
+            )
+            order_bys = criteria.order_expressions()
+            compiled_expression = expression(sqlalchemy_materia.expression_compiler)
+            compiled_order_bys = tuple(
+                order_by(sqlalchemy_materia.expression_compiler)
+                for order_by in order_bys
+            )
+
+            manual_result = await session.execute(
+                select(Author)
+                .where(compiled_expression)
+                .order_by(*compiled_order_bys)
+                .limit(criteria.limit)
+            )
+            list_results = await session.list(
+                Author,
+                expressions=[expression],
+                order_bys=order_bys,
+                limit=criteria.limit,
+            )
+
+            assert [author.name for author in manual_result.scalars().all()] == [
+                "Async Criteria Chain C",
+                "Async Criteria Chain B",
+            ]
+            assert [author.name for author in list_results] == [
+                "Async Criteria Chain C",
+                "Async Criteria Chain B",
+            ]
 
     @pytest.mark.asyncio
     async def test_async_partitions_basic(self, async_engine: AsyncEngine):
@@ -875,6 +1097,169 @@ class TestAsyncSessionHelpers:
                 all_results.extend(partition)
 
             assert len(all_results) == 10
+
+    @pytest.mark.asyncio
+    async def test_async_partitions_compile_arcanus_expressions_and_orders(
+        self, async_engine: AsyncEngine
+    ):
+        """Test partitions accepts arcanus expression and order inputs."""
+        async with AsyncSession(async_engine) as session:
+            session.add_all(
+                [
+                    Author(name="Async Part Expression C", field="Cybernetics"),
+                    Author(name="Async Part Expression A", field="Cybernetics"),
+                    Author(name="Async Part Expression B", field="Cybernetics"),
+                ]
+            )
+            await session.flush()
+
+            all_results = []
+            async for partition in session.partitions(
+                Author,
+                size=2,
+                order_bys=[Author["name"].asc()],
+                expressions=[Author["name"].like("Async Part Expression%")],
+                field="Cybernetics",
+            ):
+                all_results.extend(partition)
+
+            assert [author.name for author in all_results] == [
+                "Async Part Expression A",
+                "Async Part Expression B",
+                "Async Part Expression C",
+            ]
+
+    @pytest.mark.asyncio
+    async def test_async_partitions_with_json_criteria_expression_and_orders(
+        self, async_engine: AsyncEngine
+    ):
+        """Test partitions accepts criteria-derived arcanus expressions and orders."""
+        criteria_model = PagedCriteria[Author]
+        payload = {
+            "name": {"starts_with": "Async Criteria Partition"},
+            "field": {"eq": "Astrophysics"},
+            "order_by": ["+name"],
+            "limit": 3,
+        }
+
+        async with AsyncSession(async_engine) as session:
+            session.add_all(
+                [
+                    Author(name="Async Criteria Partition C", field="Astrophysics"),
+                    Author(name="Async Criteria Partition A", field="Astrophysics"),
+                    Author(name="Async Criteria Partition D", field="Astrophysics"),
+                    Author(name="Async Criteria Partition B", field="Astrophysics"),
+                    Author(name="Async Criteria Partition Outside", field="Astronomy"),
+                ]
+            )
+            await session.flush()
+
+            criteria = criteria_model.model_validate_json(json.dumps(payload))
+            name_criteria = getattr(criteria, "name")
+            field_criteria = getattr(criteria, "field")
+            assert name_criteria is not None
+            assert field_criteria is not None
+            assert name_criteria.starts_with is not None
+            assert field_criteria.eq is not None
+            expression = Author["name"].starts_with(name_criteria.starts_with) & (
+                Author["field"] == field_criteria.eq
+            )
+
+            all_results = []
+            async for partition in session.partitions(
+                Author,
+                size=2,
+                limit=criteria.limit,
+                order_bys=criteria.order_expressions(),
+                expressions=[expression],
+            ):
+                all_results.extend(partition)
+
+            assert [author.name for author in all_results] == [
+                "Async Criteria Partition A",
+                "Async Criteria Partition B",
+                "Async Criteria Partition C",
+            ]
+
+    @pytest.mark.asyncio
+    async def test_async_cursor_pagination_with_expressions_orders_and_count(
+        self, async_engine: AsyncEngine
+    ):
+        """Test cursor payloads can drive expression pagination outside Session."""
+        criteria_model = PagedCriteria[Author]
+        criteria = criteria_model.model_validate(
+            {
+                "name": {"starts_with": "Async Cursor Page"},
+                "field": {"eq": "Science Fiction"},
+                "order_by": ["+id"],
+                "limit": 2,
+            }
+        )
+
+        async with AsyncSession(async_engine) as session:
+            authors = [
+                Author(name="Async Cursor Page A", field="Science Fiction"),
+                Author(name="Async Cursor Page B", field="Science Fiction"),
+                Author(name="Async Cursor Page C", field="Science Fiction"),
+                Author(name="Async Cursor Page D", field="Science Fiction"),
+                Author(name="Async Cursor Page Outside", field="History"),
+            ]
+            session.add_all(authors)
+            await session.flush()
+            for author in authors:
+                author.revalidate()
+
+            name_criteria = getattr(criteria, "name")
+            field_criteria = getattr(criteria, "field")
+            assert name_criteria.starts_with is not None
+            assert field_criteria.eq is not None
+            base_expression = Author["name"].starts_with(name_criteria.starts_with) & (
+                Author["field"] == field_criteria.eq
+            )
+            order_bys = criteria.order_expressions()
+            total = await session.count(Author, expressions=[base_expression])
+            first_items = await session.list(
+                Author,
+                limit=criteria.limit,
+                order_bys=order_bys,
+                expressions=[base_expression],
+            )
+            first_cursor = Cursor[Author].from_criteria(
+                criteria=criteria,
+                position=(first_items[-1].id,),
+            )
+            first_page = Page(
+                items=tuple(first_items),
+                next_cursor=first_cursor.root,
+                has_more=total > len(first_items),
+            )
+
+            assert first_page.next_cursor is not None
+            decoded = Cursor[Author](first_page.next_cursor)
+            cursor_expression = base_expression & (Author["id"] > decoded.position[0])
+            second_items = await session.list(
+                Author,
+                limit=criteria.limit,
+                order_bys=decoded.criteria.order_expressions(),
+                expressions=[cursor_expression],
+            )
+            second_page = Page(
+                items=tuple(second_items),
+                next_cursor=None,
+                has_more=total > len(first_page) + len(second_items),
+            )
+
+            assert total == 4
+            assert [author.name for author in first_page] == [
+                "Async Cursor Page A",
+                "Async Cursor Page B",
+            ]
+            assert first_page.has_more is True
+            assert [author.name for author in second_page] == [
+                "Async Cursor Page C",
+                "Async Cursor Page D",
+            ]
+            assert second_page.has_more is False
 
     @pytest.mark.asyncio
     async def test_async_partitions_empty_result(self, async_engine: AsyncEngine):
