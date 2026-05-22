@@ -257,6 +257,7 @@ class Criteria(BaseModel, Generic[P]):
                 )
         return fields
 
+
 class PagedCriteria(Criteria[P], Generic[P]):
     limit: int | None = Field(default=100, ge=1)
     offset: int | None = Field(default=None, ge=0)
@@ -292,6 +293,7 @@ class PagedCriteria(Criteria[P], Generic[P]):
             )
             expressions.append(column.desc() if order[0] == "-" else column.asc())
         return tuple(expressions)
+
 
 class CursorPayload(BaseModel, Generic[P]):
     model_config = ConfigDict(

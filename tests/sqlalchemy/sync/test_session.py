@@ -476,11 +476,17 @@ class TestSessionHelpers:
                 & ~Author["name"].ends_with("Outside")
             )
             compiled_expression = expression(sqlalchemy_materia.expression_compiler)
-            compiled_order = Author["name"].asc()(sqlalchemy_materia.expression_compiler)
+            compiled_order = Author["name"].asc()(
+                sqlalchemy_materia.expression_compiler
+            )
 
-            results = session.execute(
-                select(Author).where(compiled_expression).order_by(compiled_order)
-            ).scalars().all()
+            results = (
+                session.execute(
+                    select(Author).where(compiled_expression).order_by(compiled_order)
+                )
+                .scalars()
+                .all()
+            )
 
             assert [author.name for author in results] == [
                 "Compiler Tree A",
@@ -712,15 +718,20 @@ class TestSessionHelpers:
             order_bys = criteria.order_expressions()
             compiled_expression = expression(sqlalchemy_materia.expression_compiler)
             compiled_order_bys = tuple(
-                order_by(sqlalchemy_materia.expression_compiler) for order_by in order_bys
+                order_by(sqlalchemy_materia.expression_compiler)
+                for order_by in order_bys
             )
 
-            manual_results = session.execute(
-                select(Author)
-                .where(compiled_expression)
-                .order_by(*compiled_order_bys)
-                .limit(criteria.limit)
-            ).scalars().all()
+            manual_results = (
+                session.execute(
+                    select(Author)
+                    .where(compiled_expression)
+                    .order_by(*compiled_order_bys)
+                    .limit(criteria.limit)
+                )
+                .scalars()
+                .all()
+            )
             list_results = session.list(
                 Author,
                 expressions=[expression],
@@ -818,9 +829,7 @@ class TestSessionHelpers:
                 "Part Expression C",
             ]
 
-    def test_partitions_with_json_criteria_expression_and_orders(
-        self, engine: Engine
-    ):
+    def test_partitions_with_json_criteria_expression_and_orders(self, engine: Engine):
         """Test partitions accepts criteria-derived arcanus expressions and orders."""
         criteria_model = PagedCriteria[Author]
         payload = {

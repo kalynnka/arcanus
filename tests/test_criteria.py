@@ -142,7 +142,9 @@ def test_cursor_from_criteria_round_trips_payload_and_token():
     assert constructed.entity == "Author"
     assert decoded.position == (42, "Ada")
     assert constructed.position == (42, "Ada")
-    assert decoded.criteria.model_dump(mode="json", by_alias=True, exclude_none=True) == {
+    assert decoded.criteria.model_dump(
+        mode="json", by_alias=True, exclude_none=True
+    ) == {
         "name": {"starts_with": "Ada"},
         "limit": 20,
         "offset": 10,

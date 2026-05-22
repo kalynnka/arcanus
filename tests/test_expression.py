@@ -39,9 +39,7 @@ def test_expression_logical_operators_and_text_helpers():
     with sqlalchemy_materia:
         expression = (
             Author["name"].starts_with("A") | Author["field"].in_(("Physics",))
-        ) & ~(
-            Author["name"].not_like("%z")
-        )
+        ) & ~(Author["name"].not_like("%z"))
 
     assert expression.dump() == {
         "and": [

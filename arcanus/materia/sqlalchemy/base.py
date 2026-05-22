@@ -45,7 +45,9 @@ class SqlalchemyExpressionCompiler(
         self, column: Column[Any], operator: str, value: object
     ) -> SQLCoreOperations[bool]:
         native = cast(SQLCoreOperations[CriteriaValue], column.native)
-        operation = None if operator == "contains" else getattr(operators, operator, None)
+        operation = (
+            None if operator == "contains" else getattr(operators, operator, None)
+        )
         if operation is not None:
             return cast(SQLCoreOperations[bool], operation(native, unwrap(value)))
 
