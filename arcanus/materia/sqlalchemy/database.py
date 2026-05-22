@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import (
     Any,
+    AsyncIterator,
     Iterable,
+    Iterator,
     Literal,
     Optional,
     Self,
@@ -59,6 +61,8 @@ from arcanus.base import (
     ValidationContextT,
     validation_context,
 )
+from arcanus.criteria import CriteriaValue
+from arcanus.expression import Column, Expression, Order
 from arcanus.materia.base import active_materia
 from arcanus.materia.sqlalchemy.result import (
     _T,
@@ -154,7 +158,7 @@ class Session(SqlalchemySession):
             self._validation_context_manager.__exit__(exc_type, exc_value, traceback)
         return super().__exit__(exc_type, exc_value, traceback)
 
-    def __iter__(self) -> Iterable[BaseTransmuter]:
+    def __iter__(self) -> Iterator[object]:
         if not self._validation_context:
             raise RuntimeError(
                 "Active validation context is requried, please use a context manager 'with Session() as session' to create a session context."
@@ -653,7 +657,8 @@ class Session(SqlalchemySession):
     def count(
         self,
         entity: type[_T],
-        expressions: Iterable[_ColumnExpressionArgument[bool]] | None = None,
+        expressions: Iterable[_ColumnExpressionArgument[bool] | Expression[bool]]
+        | None = None,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
         **filters,
     ):
@@ -673,13 +678,18 @@ class Session(SqlalchemySession):
         entity: type[_T],
         limit: int | None = 100,
         offset: int | None = None,
-        # cursor: UUID | None = None, # TODO: re-enable cursor pagination when identity solution is clarified
-        order_bys: Iterable[_ColumnExpressionOrStrLabelArgument[Any]] | None = None,
+        order_bys: Iterable[
+            _ColumnExpressionOrStrLabelArgument[Any]
+            | Column[CriteriaValue]
+            | Order[CriteriaValue]
+        ]
+        | None = None,
         options: Iterable[ExecutableOption] | None = None,
-        expressions: Iterable[_ColumnExpressionArgument[bool]] | None = None,
+        expressions: Iterable[_ColumnExpressionArgument[bool] | Expression[bool]]
+        | None = None,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
         **filters,
-    ):
+    ) -> Sequence[_T]:
         statement = select(entity)
 
         if limit:
@@ -704,14 +714,19 @@ class Session(SqlalchemySession):
         entity: type[_T],
         limit: int | None = 100,
         offset: int | None = None,
-        # cursor: UUID | None = None, # TODO: re-enable cursor pagination when identity solution is clarified
         size: int | None = 10,
-        order_bys: Iterable[_ColumnExpressionOrStrLabelArgument[Any]] | None = None,
+        order_bys: Iterable[
+            _ColumnExpressionOrStrLabelArgument[Any]
+            | Column[CriteriaValue]
+            | Order[CriteriaValue]
+        ]
+        | None = None,
         options: Iterable[ExecutableOption] | None = None,
-        expressions: Iterable[_ColumnExpressionArgument[bool]] | None = None,
+        expressions: Iterable[_ColumnExpressionArgument[bool] | Expression[bool]]
+        | None = None,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
         **filters,
-    ):
+    ) -> Iterable[Sequence[_T]]:
         statement = select(entity).execution_options(yield_per=size)
 
         if limit:
@@ -893,7 +908,8 @@ class AsyncSession(SqlalchemyAsyncSession):
     async def count(
         self,
         entity: type[_T],
-        expressions: Iterable[_ColumnExpressionArgument[bool]] | None = None,
+        expressions: Iterable[_ColumnExpressionArgument[bool] | Expression[bool]]
+        | None = None,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
         **filters,
     ) -> int:
@@ -910,9 +926,15 @@ class AsyncSession(SqlalchemyAsyncSession):
         entity: type[_T],
         limit: int | None = 100,
         offset: int | None = None,
-        order_bys: Iterable[_ColumnExpressionOrStrLabelArgument[Any]] | None = None,
+        order_bys: Iterable[
+            _ColumnExpressionOrStrLabelArgument[Any]
+            | Column[CriteriaValue]
+            | Order[CriteriaValue]
+        ]
+        | None = None,
         options: Iterable[ExecutableOption] | None = None,
-        expressions: Iterable[_ColumnExpressionArgument[bool]] | None = None,
+        expressions: Iterable[_ColumnExpressionArgument[bool] | Expression[bool]]
+        | None = None,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
         **filters,
     ) -> Sequence[_T]:
@@ -934,12 +956,18 @@ class AsyncSession(SqlalchemyAsyncSession):
         limit: int | None = 100,
         offset: int | None = None,
         size: int | None = 10,
-        order_bys: Iterable[_ColumnExpressionOrStrLabelArgument[Any]] | None = None,
+        order_bys: Iterable[
+            _ColumnExpressionOrStrLabelArgument[Any]
+            | Column[CriteriaValue]
+            | Order[CriteriaValue]
+        ]
+        | None = None,
         options: Iterable[ExecutableOption] | None = None,
-        expressions: Iterable[_ColumnExpressionArgument[bool]] | None = None,
+        expressions: Iterable[_ColumnExpressionArgument[bool] | Expression[bool]]
+        | None = None,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
         **filters,
-    ):
+    ) -> AsyncIterator[Sequence[_T]]:
         statement = select(entity)
 
         if limit:

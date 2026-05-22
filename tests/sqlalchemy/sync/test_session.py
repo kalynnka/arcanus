@@ -14,15 +14,24 @@ Tests:
 
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
 from sqlalchemy import Engine, select, update
 from sqlalchemy.exc import NoResultFound
 
+from arcanus import Cursor, Page, PagedCriteria
 from arcanus.base import BaseTransmuter, Transmuter
 from arcanus.materia.sqlalchemy import Session
-from tests.transmuters import Author, Book, BookCategory, Category, Publisher
+from tests.transmuters import (
+    Author,
+    Book,
+    BookCategory,
+    Category,
+    Publisher,
+    sqlalchemy_materia,
+)
 
 
 class TestSessionContextManagement:
@@ -445,6 +454,112 @@ class TestSessionHelpers:
             )
             assert count >= 2
 
+    def test_sqlalchemy_expression_compiler_translates_operator_tree(
+        self, engine: Engine
+    ):
+        """Test the material compiler translates arcanus expression trees."""
+        with Session(engine) as session:
+            session.add_all(
+                [
+                    Author(name="Compiler Tree A", field="Physics"),
+                    Author(name="Compiler Tree B", field="Chemistry"),
+                    Author(name="Compiler Tree Outside", field="Physics"),
+                    Author(name="Compiler Tree Biology", field="Biology"),
+                ]
+            )
+            session.flush()
+
+            expression = (
+                Author["name"].contains("Compiler Tree")
+                & Author["field"].in_(("Physics", "Chemistry"))
+                & Author["field"].not_in(("Biology",))
+                & ~Author["name"].ends_with("Outside")
+            )
+            compiled_expression = expression(sqlalchemy_materia.expression_compiler)
+            compiled_order = Author["name"].asc()(sqlalchemy_materia.expression_compiler)
+
+            results = session.execute(
+                select(Author).where(compiled_expression).order_by(compiled_order)
+            ).scalars().all()
+
+            assert [author.name for author in results] == [
+                "Compiler Tree A",
+                "Compiler Tree B",
+            ]
+
+    def test_column_expression_and_order_interop_with_native_sqlalchemy(
+        self, engine: Engine
+    ):
+        """Test arcanus columns and expressions work in raw SQLAlchemy statements."""
+        with Session(engine) as session:
+            session.add_all(
+                [
+                    Author(name="Native Interop B", field="Robotics"),
+                    Author(name="Native Interop A", field="Robotics"),
+                    Author(name="Native Interop Outside", field="Physics"),
+                ]
+            )
+            session.flush()
+
+            names = (
+                session.execute(
+                    select(Author["name"])
+                    .where(Author["name"].starts_with("Native Interop"))
+                    .where(Author["field"] == "Robotics")
+                    .order_by(Author["name"].asc())
+                )
+                .scalars()
+                .all()
+            )
+
+            assert names == ["Native Interop A", "Native Interop B"]
+
+    def test_mixed_native_and_arcanus_expressions_are_accepted(self, engine: Engine):
+        """Test native SQLAlchemy expressions can be mixed with arcanus expressions."""
+        with Session(engine) as session:
+            session.add_all(
+                [
+                    Author(name="Mixed Expression A", field="Physics"),
+                    Author(name="Mixed Expression B", field="Biology"),
+                    Author(name="Mixed Expression Outside", field="Physics"),
+                ]
+            )
+            session.flush()
+
+            results = session.list(
+                Author,
+                order_bys=[Author["name"].desc()],
+                expressions=[
+                    Author["name"].native.like("Mixed Expression%"),
+                    Author["name"].native != "Mixed Expression Outside",
+                    Author["field"] != "Biology",
+                ],
+            )
+
+            assert [author.name for author in results] == ["Mixed Expression A"]
+
+    def test_count_accepts_arcanus_boolean_logic_expressions(self, engine: Engine):
+        """Test count accepts arcanus expressions with boolean composition."""
+        with Session(engine) as session:
+            session.add_all(
+                [
+                    Author(name="Count Logic A", field="Physics"),
+                    Author(name="Count Logic B", field="Biology"),
+                    Author(name="Count Logic C", field="Chemistry"),
+                    Author(name="Count Logic Outside", field="History"),
+                ]
+            )
+            session.flush()
+
+            expression = Author["name"].starts_with("Count Logic") & (
+                (Author["field"] == "Physics")
+                | (Author["field"] == "Biology")
+                | (Author["field"] == "Chemistry")
+            )
+            count = session.count(Author, expressions=[expression])
+
+            assert count == 3
+
     def test_list_basic(self, engine: Engine):
         """Test list returns multiple entities."""
         with Session(engine) as session:
@@ -531,6 +646,96 @@ class TestSessionHelpers:
             assert len(results) >= 2
             assert all(r.field == "Physics" for r in results)
 
+    def test_list_compiles_arcanus_expressions_and_orders(self, engine: Engine):
+        """Test list accepts arcanus expression inputs."""
+        with Session(engine) as session:
+            authors = [
+                Author(name="Expression Order C", field="Robotics"),
+                Author(name="Expression Order A", field="Robotics"),
+                Author(name="Expression Order B", field="Robotics"),
+            ]
+            session.add_all(authors)
+            session.flush()
+            results = session.list(
+                Author,
+                order_bys=[Author["name"].desc()],
+                expressions=[Author["name"].like("Expression Order%")],
+                field="Robotics",
+            )
+
+            assert [author.name for author in results] == [
+                "Expression Order C",
+                "Expression Order B",
+                "Expression Order A",
+            ]
+
+    def test_list_with_json_criteria_expression_and_compiler_chain(
+        self, engine: Engine
+    ):
+        """Test JSON criteria values can drive arcanus and SQLAlchemy expressions."""
+        criteria_model = PagedCriteria[Author]
+        payload = {
+            "name": {"starts_with": "Criteria Chain"},
+            "field": {"eq": "Xenobiology"},
+            "order_by": ["-name"],
+            "limit": 2,
+        }
+
+        with Session(engine) as session:
+            session.add_all(
+                [
+                    Author(name="Criteria Chain C", field="Xenobiology"),
+                    Author(name="Criteria Chain A", field="Xenobiology"),
+                    Author(name="Criteria Chain B", field="Xenobiology"),
+                    Author(name="Criteria Chain Outside", field="Robotics"),
+                ]
+            )
+            session.flush()
+
+            criteria = criteria_model.model_validate_json(json.dumps(payload))
+            restored = criteria_model.model_validate_json(
+                criteria.model_dump_json(by_alias=True, exclude_none=True)
+            )
+            assert restored.model_dump(
+                mode="json", by_alias=True, exclude_none=True
+            ) == criteria.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+            name_criteria = getattr(criteria, "name")
+            field_criteria = getattr(criteria, "field")
+            assert name_criteria is not None
+            assert field_criteria is not None
+            assert name_criteria.starts_with is not None
+            assert field_criteria.eq is not None
+            expression = Author["name"].starts_with(name_criteria.starts_with) & (
+                Author["field"] == field_criteria.eq
+            )
+            order_bys = criteria.order_expressions()
+            compiled_expression = expression(sqlalchemy_materia.expression_compiler)
+            compiled_order_bys = tuple(
+                order_by(sqlalchemy_materia.expression_compiler) for order_by in order_bys
+            )
+
+            manual_results = session.execute(
+                select(Author)
+                .where(compiled_expression)
+                .order_by(*compiled_order_bys)
+                .limit(criteria.limit)
+            ).scalars().all()
+            list_results = session.list(
+                Author,
+                expressions=[expression],
+                order_bys=order_bys,
+                limit=criteria.limit,
+            )
+
+            assert [author.name for author in manual_results] == [
+                "Criteria Chain C",
+                "Criteria Chain B",
+            ]
+            assert [author.name for author in list_results] == [
+                author.name for author in manual_results
+            ]
+
     def test_partitions_yields_chunks(self, engine: Engine):
         """Test partitions yields results in chunks."""
         with Session(engine) as session:
@@ -585,6 +790,161 @@ class TestSessionHelpers:
             names = [r.name for r in all_results]
             # Should be in ascending order
             assert names == sorted(names)
+
+    def test_partitions_compiles_arcanus_expressions_and_orders(self, engine: Engine):
+        """Test partitions accepts arcanus expression inputs."""
+        with Session(engine) as session:
+            authors = [
+                Author(name="Part Expression C", field="Cybernetics"),
+                Author(name="Part Expression A", field="Cybernetics"),
+                Author(name="Part Expression B", field="Cybernetics"),
+            ]
+            session.add_all(authors)
+            session.flush()
+
+            all_results = []
+            for partition in session.partitions(
+                Author,
+                size=2,
+                order_bys=[Author["name"].asc()],
+                expressions=[Author["name"].like("Part Expression%")],
+                field="Cybernetics",
+            ):
+                all_results.extend(partition)
+
+            assert [author.name for author in all_results] == [
+                "Part Expression A",
+                "Part Expression B",
+                "Part Expression C",
+            ]
+
+    def test_partitions_with_json_criteria_expression_and_orders(
+        self, engine: Engine
+    ):
+        """Test partitions accepts criteria-derived arcanus expressions and orders."""
+        criteria_model = PagedCriteria[Author]
+        payload = {
+            "name": {"starts_with": "Criteria Partition"},
+            "field": {"eq": "Astrophysics"},
+            "order_by": ["+name"],
+            "limit": 3,
+        }
+
+        with Session(engine) as session:
+            session.add_all(
+                [
+                    Author(name="Criteria Partition C", field="Astrophysics"),
+                    Author(name="Criteria Partition A", field="Astrophysics"),
+                    Author(name="Criteria Partition D", field="Astrophysics"),
+                    Author(name="Criteria Partition B", field="Astrophysics"),
+                    Author(name="Criteria Partition Outside", field="Astronomy"),
+                ]
+            )
+            session.flush()
+
+            criteria = criteria_model.model_validate_json(json.dumps(payload))
+            name_criteria = getattr(criteria, "name")
+            field_criteria = getattr(criteria, "field")
+            assert name_criteria is not None
+            assert field_criteria is not None
+            assert name_criteria.starts_with is not None
+            assert field_criteria.eq is not None
+            expression = Author["name"].starts_with(name_criteria.starts_with) & (
+                Author["field"] == field_criteria.eq
+            )
+
+            all_results = []
+            for partition in session.partitions(
+                Author,
+                size=2,
+                limit=criteria.limit,
+                order_bys=criteria.order_expressions(),
+                expressions=[expression],
+            ):
+                all_results.extend(partition)
+
+            assert [author.name for author in all_results] == [
+                "Criteria Partition A",
+                "Criteria Partition B",
+                "Criteria Partition C",
+            ]
+
+    def test_cursor_pagination_with_expressions_orders_and_count(self, engine: Engine):
+        """Test cursor payloads can drive expression pagination outside Session."""
+        criteria_model = PagedCriteria[Author]
+        criteria = criteria_model.model_validate(
+            {
+                "name": {"starts_with": "Cursor Page"},
+                "field": {"eq": "Science Fiction"},
+                "order_by": ["+id"],
+                "limit": 2,
+            }
+        )
+
+        with Session(engine) as session:
+            authors = [
+                Author(name="Cursor Page A", field="Science Fiction"),
+                Author(name="Cursor Page B", field="Science Fiction"),
+                Author(name="Cursor Page C", field="Science Fiction"),
+                Author(name="Cursor Page D", field="Science Fiction"),
+                Author(name="Cursor Page Outside", field="History"),
+            ]
+            session.add_all(authors)
+            session.flush()
+            for author in authors:
+                author.revalidate()
+
+            name_criteria = getattr(criteria, "name")
+            field_criteria = getattr(criteria, "field")
+            assert name_criteria.starts_with is not None
+            assert field_criteria.eq is not None
+            base_expression = Author["name"].starts_with(name_criteria.starts_with) & (
+                Author["field"] == field_criteria.eq
+            )
+            order_bys = criteria.order_expressions()
+            total = session.count(Author, expressions=[base_expression])
+            first_items = session.list(
+                Author,
+                limit=criteria.limit,
+                order_bys=order_bys,
+                expressions=[base_expression],
+            )
+            first_cursor = Cursor[Author].from_criteria(
+                criteria=criteria,
+                position=(first_items[-1].id,),
+            )
+            first_page = Page(
+                items=tuple(first_items),
+                next_cursor=first_cursor.root,
+                has_more=total > len(first_items),
+            )
+
+            assert first_page.next_cursor is not None
+            decoded = Cursor[Author](first_page.next_cursor)
+            cursor_expression = base_expression & (Author["id"] > decoded.position[0])
+            second_items = session.list(
+                Author,
+                limit=criteria.limit,
+                order_bys=decoded.criteria.order_expressions(),
+                expressions=[cursor_expression],
+            )
+            second_page = Page(
+                items=tuple(second_items),
+                next_cursor=None,
+                has_more=total > len(first_page) + len(second_items),
+            )
+
+            assert total == 4
+            assert [author.name for author in first_page] == [
+                "Cursor Page A",
+                "Cursor Page B",
+            ]
+            assert first_page.has_more is True
+            assert [author.name for author in second_page] == [
+                "Cursor Page C",
+                "Cursor Page D",
+            ]
+            assert second_page.has_more is False
 
     def test_partitions_with_filters(self, engine: Engine):
         """Test partitions with filters."""

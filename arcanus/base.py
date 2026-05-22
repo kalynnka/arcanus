@@ -16,6 +16,7 @@ from typing import (
     dataclass_transform,
     get_origin,
     get_type_hints,
+    overload,
     runtime_checkable,
 )
 from weakref import WeakKeyDictionary, ref
@@ -34,6 +35,7 @@ from pydantic.fields import Field, FieldInfo, PrivateAttr
 from pydantic_core import SchemaValidator
 
 from arcanus.association import Association
+from arcanus.expression import Column
 from arcanus.materia.base import (
     BaseMateria,
     BidirectonDict,
@@ -126,6 +128,37 @@ class Transmuter:
         model_identities: ClassVar[dict[str, FieldInfo]]
         Create: ClassVar[type[BaseModel]]
         Update: ClassVar[type[BaseModel]]
+
+        @classmethod
+        def model_validate(
+            cls: type[Self],
+            obj: Any,
+            *,
+            strict: bool | None = None,
+            extra: Any | None = None,
+            from_attributes: bool | None = None,
+            context: Any | None = None,
+            by_alias: bool | None = None,
+            by_name: bool | None = None,
+        ) -> Self: ...
+
+    @overload
+    @classmethod
+    def __class_getitem__(cls, name: str) -> Column[Any]: ...
+
+    @overload
+    @classmethod
+    def __class_getitem__(cls, name: object) -> Any: ...
+
+    @classmethod
+    def __class_getitem__(cls, name: object) -> Any:
+        if (
+            isinstance(name, str)
+            and isinstance(cls, TransmuterMetaclass)
+            and name in cls.__pydantic_fields__
+        ):
+            return cls._column(name)
+        return BaseModel.__class_getitem__.__func__(cls, name)
 
     def __hash__(self) -> int:
         return id(self)
@@ -459,34 +492,32 @@ class TransmuterMetaclass(ModelMetaclass):
             fields = object.__getattribute__(self, "__pydantic_fields__")
 
             transmuter_name = object.__getattribute__(self, "__name__")
-            if info := fields.get(name):
-                if provider := object.__getattribute__(self, "__transmuter_provider__"):
-                    try:
-                        return object.__getattribute__(provider, info.alias or name)
-                    except AttributeError as inner:
-                        raise AttributeError(
-                            f"Attribute '{name}' (alias: '{info.alias or name}') is not defined in the materia provider for {transmuter_name}. "
-                            f"The provider {provider.__name__} does not have this attribute. "
-                            f"Ensure the provider class includes this attribute definition."
-                        ) from inner
-                else:
-                    materia = object.__getattribute__(self, "__transmuter_materia__")
-                    raise AttributeError(
-                        f"Transmuter {transmuter_name} has not been blessed by the active materia ({materia.__class__.__name__}). "
-                        f"Cannot access attribute '{name}' without a provider. "
-                        f"Use materia.bless() to register this transmuter with a provider."
-                    ) from e
+            if fields.get(name):
+                try:
+                    return self._column(name)
+                except KeyError as inner:
+                    raise AttributeError(str(inner)) from e
             raise AttributeError(
                 f"Attribute '{name}' is not defined in transmuter {transmuter_name}. "
                 f"Available fields: {', '.join(fields.keys())}"
             ) from e
 
-    # TODO: Have no idea to give proper type hint to proxied provider column here
-    def __getitem__(self, name: str) -> Any:
+    def _column(self, name: str) -> Column[Any]:
         if info := self.__pydantic_fields__.get(name):
             if provider := self.__transmuter_provider__:
                 try:
-                    return getattr(provider, info.alias or name)
+                    used_name = info.alias or name
+                    native = getattr(provider, used_name)
+                    if name in self.model_associations:
+                        return native
+                    return Column(
+                        owner=self,
+                        field_name=name,
+                        used_name=used_name,
+                        info=info,
+                        annotation=info.annotation,
+                        native=native,
+                    )
                 except AttributeError as inner:
                     raise KeyError(
                         f"Column '{name}' (alias: '{info.alias or name}') is not defined in the materia provider for {self.__name__}. "
@@ -504,6 +535,17 @@ class TransmuterMetaclass(ModelMetaclass):
             f"Field '{name}' is not defined in transmuter {self.__name__}. "
             f"Available fields: {', '.join(self.__pydantic_fields__.keys())}"
         )
+
+    @overload
+    def __getitem__(self, name: str) -> Column[Any]: ...
+
+    @overload
+    def __getitem__(self, name: object) -> Any: ...
+
+    def __getitem__(self, name: object) -> Column[Any] | Any:
+        if isinstance(name, str) and name in self.__pydantic_fields__:
+            return self._column(name)
+        return self.__class_getitem__(name)
 
     @property
     def __transmuter_materia__(self) -> BaseMateria:
@@ -596,6 +638,18 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
 
     __transmuter_provided__: Optional[TransmuterProxied] = NoInitField(init=False)
     __transmuter_revalidating__: bool = NoInitField(init=False)
+
+    @overload
+    @classmethod
+    def __class_getitem__(cls, name: str) -> Column[Any]: ...
+
+    @overload
+    @classmethod
+    def __class_getitem__(cls, name: object) -> Any: ...
+
+    @classmethod
+    def __class_getitem__(cls, name: object) -> Any:
+        return Transmuter.__class_getitem__.__func__(cls, name)
 
     def __deepcopy__(self, memo: dict[int, Any] | None = None) -> Self:
         copied = super().__deepcopy__(memo)

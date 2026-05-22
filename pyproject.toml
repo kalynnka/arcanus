@@ -69,6 +69,7 @@ dev = [
     "asyncpg>=0.30.0",
     # Redis test double — not a runtime dep
     "fakeredis>=2.0.0",
+    "pyright>=1.1.409",
 ]
 
 [tool.ruff]

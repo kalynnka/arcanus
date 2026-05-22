@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+import operator as operators
+from collections.abc import Hashable
 from functools import lru_cache
-from typing import Any
+from typing import Any, cast
 
 from pydantic import ValidationInfo
-from sqlalchemy import inspect
+from sqlalchemy import and_, inspect, or_
 from sqlalchemy.exc import InvalidRequestError, MissingGreenlet
 from sqlalchemy.ext.associationproxy import AssociationProxy
+from sqlalchemy.inspection import Inspectable
 from sqlalchemy.orm import InstanceState, Mapper
+from sqlalchemy.sql.elements import SQLCoreOperations
 from sqlalchemy.util import greenlet_spawn
 
 from arcanus.association import Association, DefferedAssociation, RelationGroupMap
-from arcanus.base import Transmuter, TransmuterMetaclass
+from arcanus.base import Transmuter
+from arcanus.criteria import CriteriaValue
+from arcanus.expression import Column, ExpressionCompiler, Order, unwrap
 from arcanus.materia.base import BaseMateria, T
 
 
@@ -19,20 +25,62 @@ class LoadedData: ...
 
 
 @lru_cache(maxsize=None)
-def extract_association_proxies(orm_class: type) -> dict[str, str]:
+def extract_association_proxies(orm_class: Hashable) -> dict[str, str]:
     """Return ``{proxy_attr_name: target_relationship_name}`` for *orm_class*.
 
     The result is cached per ORM class because mapper metadata is immutable.
     """
     proxies: dict[str, str] = {}
-    mapper = inspect(orm_class)
+    mapper = inspect(cast(Inspectable[Mapper[Any]], orm_class))
     for key, descriptor in mapper.all_orm_descriptors.items():
         if isinstance(descriptor, AssociationProxy):
             proxies[key] = descriptor.target_collection
     return proxies
 
 
+class SqlalchemyExpressionCompiler(
+    ExpressionCompiler[SQLCoreOperations[bool], SQLCoreOperations[CriteriaValue]]
+):
+    def apply(
+        self, column: Column[Any], operator: str, value: object
+    ) -> SQLCoreOperations[bool]:
+        native = cast(SQLCoreOperations[CriteriaValue], column.native)
+        operation = None if operator == "contains" else getattr(operators, operator, None)
+        if operation is not None:
+            return cast(SQLCoreOperations[bool], operation(native, unwrap(value)))
+
+        if operator == "not_contains":
+            return operators.invert(native.contains(unwrap(value)))
+
+        method_name = operator.replace("_with", "with")
+        native_method = getattr(native, method_name, None)
+        if native_method is None:
+            raise ValueError(f"Unsupported expression operator: {operator}")
+        return cast(SQLCoreOperations[bool], native_method(unwrap(value)))
+
+    def and_(
+        self, expressions: tuple[SQLCoreOperations[bool], ...]
+    ) -> SQLCoreOperations[bool]:
+        return cast(SQLCoreOperations[bool], and_(*expressions))
+
+    def or_(
+        self, expressions: tuple[SQLCoreOperations[bool], ...]
+    ) -> SQLCoreOperations[bool]:
+        return cast(SQLCoreOperations[bool], or_(*expressions))
+
+    def not_(self, expression: SQLCoreOperations[bool]) -> SQLCoreOperations[bool]:
+        return cast(SQLCoreOperations[bool], operators.invert(expression))
+
+    def order(self, order: Order[Any]) -> SQLCoreOperations[CriteriaValue]:
+        native = cast(SQLCoreOperations[CriteriaValue], order.column.native)
+        return native.desc() if order.descending else native.asc()
+
+
 class SqlalchemyMateria(BaseMateria):
+    def __init__(self) -> None:
+        super().__init__()
+        self.expression_compiler = SqlalchemyExpressionCompiler()
+
     def bless(self, materia: type[Any]):
         def decorator(transmuter_cls: type[T]) -> type[T]:
             if transmuter_cls in self.formulars:
@@ -48,20 +96,24 @@ class SqlalchemyMateria(BaseMateria):
             self.formulars[transmuter_cls] = materia
 
             # Inject __clause_element__ methods to make transmuter_cls compatible with SQLAlchemy SQL constructions
-            @classmethod
             def __clause_element__(cls: type[Transmuter]):
                 return inspect(cls.__transmuter_provider__)
 
-            transmuter_cls.__clause_element__ = __clause_element__
+            setattr(
+                transmuter_cls,
+                "__clause_element__",
+                classmethod(__clause_element__),
+            )
 
             return transmuter_cls
 
         return decorator
 
+    @staticmethod
     def transmuter_before_validator(
-        self, transmuter_type: type[Transmuter], materia: Any, info: ValidationInfo
-    ):
-        inspector: InstanceState = inspect(materia)
+        transmuter_type: type[T], materia: object, info: ValidationInfo
+    ) -> Any:
+        inspector = inspect(cast(Inspectable[InstanceState[Any]], materia))
 
         # Get all loaded attributes from sqlalchemy orm instance
         # relationships/associations are excluded here to:
@@ -69,7 +121,7 @@ class SqlalchemyMateria(BaseMateria):
         # 2. avoid circular validation
         # related objects will be load and validated when they are visited
         data = {}
-        association_proxies = extract_association_proxies(type(materia))
+        association_proxies = extract_association_proxies(cast(Hashable, type(materia)))
         loaded_data = inspector.dict
         for field_name, field_info in transmuter_type.__pydantic_fields__.items():
             used_name = field_info.alias or field_name
@@ -95,9 +147,8 @@ class SqlalchemyMateria(BaseMateria):
 
         return loaded
 
-    def transmuter_before_construct(
-        self, transmuter_type: TransmuterMetaclass, materia: Any
-    ):
+    @staticmethod
+    def transmuter_before_construct(transmuter_type: type[T], materia: object) -> dict:
         # inspector: InstanceState = inspect(materia)
 
         # Get all loaded attributes from sqlalchemy orm instance
@@ -106,8 +157,8 @@ class SqlalchemyMateria(BaseMateria):
         # 2. avoid circular validation
         # related objects will be load and validated when they are visited
         data = {}
-        association_proxies = extract_association_proxies(type(materia))
-        inspector: InstanceState = inspect(materia)
+        association_proxies = extract_association_proxies(cast(Hashable, type(materia)))
+        inspector = inspect(cast(Inspectable[InstanceState[Any]], materia))
         loaded_data = inspector.dict
         for field_name, field_info in transmuter_type.__pydantic_fields__.items():
             if field_name in transmuter_type.model_associations:
@@ -141,12 +192,12 @@ class SqlalchemyMateria(BaseMateria):
             # can consume directly.
             if isinstance(association, RelationGroupMap):
                 orm_class = type(orm_instance)
-                proxies = extract_association_proxies(orm_class)
+                proxies = extract_association_proxies(cast(Hashable, orm_class))
                 if used_name in proxies:
                     target_rel = proxies[used_name]
                     association.__backing_attr__ = target_rel
 
-                    mapper: Mapper = inspect(orm_class)  # type: ignore
+                    mapper = inspect(cast(Inspectable[Mapper[Any]], orm_class))
                     proxy_descriptor: AssociationProxy
                     proxy_descriptor = mapper.all_orm_descriptors[used_name]  # type: ignore
                     value_attr = proxy_descriptor.value_attr

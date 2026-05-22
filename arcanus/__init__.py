@@ -18,10 +18,33 @@ from arcanus.base import (
     BaseTransmuter,
     Transmuter,
 )
+from arcanus.criteria import (
+    BaseCriteria,
+    CriteriaValue,
+    Criteria,
+    Cursor,
+    NumericCriteria,
+    Page,
+    PagedCriteria,
+    TextCriteria,
+)
+from arcanus.expression import Column, Expression, ExpressionCompiler, Order
 
 __all__ = [
     "BaseTransmuter",
     "Transmuter",
+    "BaseCriteria",
+    "CriteriaValue",
+    "TextCriteria",
+    "NumericCriteria",
+    "Criteria",
+    "PagedCriteria",
+    "Cursor",
+    "Page",
+    "Column",
+    "Expression",
+    "Order",
+    "ExpressionCompiler",
     "Relation",
     "RelationCollection",
     "RelationGroupMap",
