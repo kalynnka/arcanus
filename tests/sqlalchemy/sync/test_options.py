@@ -147,12 +147,16 @@ def test_contains_eager_wrapper_works_with_joined_relationship(engine: Engine):
         session.add(book)
         session.flush()
 
-        result = session.execute(
-            select(Book)
-            .join(Book["categories"])
-            .options(contains_eager(Book["categories"]))
-            .where(Category["name"] == "Options Contains Category")
-        ).unique().scalar_one()
+        result = (
+            session.execute(
+                select(Book)
+                .join(Book["categories"])
+                .options(contains_eager(Book["categories"]))
+                .where(Category["name"] == "Options Contains Category")
+            )
+            .unique()
+            .scalar_one()
+        )
 
         assert result.title == "Options Contains Book"
         assert [loaded.name for loaded in result.categories] == [
