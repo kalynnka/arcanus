@@ -13,9 +13,8 @@ from __future__ import annotations
 import json
 
 from sqlalchemy import Engine, select
-from sqlalchemy.orm import selectinload
 
-from arcanus.materia.sqlalchemy import Session
+from arcanus.materia.sqlalchemy import Session, selectinload
 from tests.transmuters import (
     Author,
     Book,

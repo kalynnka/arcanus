@@ -20,14 +20,14 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncEngine
-from sqlalchemy.orm import raiseload, selectinload
 
 from arcanus import Cursor, Page, PagedCriteria
-from arcanus.materia.sqlalchemy import AsyncSession
+from arcanus.materia.sqlalchemy import AsyncSession, raiseload, selectinload
 from tests.transmuters import (
     Author,
     Book,
     BookCategory,
+    BookDetail,
     Category,
     Publisher,
     sqlalchemy_materia,
@@ -857,6 +857,106 @@ class TestAsyncSessionHelpers:
                 "Async Expression Order C",
                 "Async Expression Order B",
                 "Async Expression Order A",
+            ]
+
+    @pytest.mark.asyncio
+    async def test_async_list_count_and_partitions_with_relationship_expressions(
+        self, async_engine: AsyncEngine
+    ):
+        """Test relationship columns can filter through native SQLAlchemy helpers."""
+        async with AsyncSession(async_engine) as session:
+            publisher = Publisher(name="Async Relationship Filter Pub", country="USA")
+            matching_author = Author(
+                name="Async Relationship Filter Author", field="Astrophysics"
+            )
+            other_author = Author(
+                name="Async Relationship Filter Other", field="History"
+            )
+            category = Category(
+                name="Async Relationship Filter Category", description="Deep space"
+            )
+            other_category = Category(
+                name="Async Relationship Filter Other Category",
+                description="Near ground",
+            )
+            matching_book = Book(title="Async Relationship Filter Match", year=2024)
+            matching_book.author.value = matching_author
+            matching_book.publisher.value = publisher
+            matching_book.detail.value = BookDetail(
+                isbn="978-8888810001",
+                pages=420,
+                abstract="Relationship expression match",
+            )
+            matching_book.categories.append(category)
+
+            wrong_author_book = Book(
+                title="Async Relationship Filter Wrong Author", year=2024
+            )
+            wrong_author_book.author.value = other_author
+            wrong_author_book.publisher.value = publisher
+            wrong_author_book.detail.value = BookDetail(
+                isbn="978-8888810002",
+                pages=520,
+                abstract="Wrong author",
+            )
+            wrong_author_book.categories.append(category)
+
+            wrong_category_book = Book(
+                title="Async Relationship Filter Wrong Category", year=2024
+            )
+            wrong_category_book.author.value = matching_author
+            wrong_category_book.publisher.value = publisher
+            wrong_category_book.detail.value = BookDetail(
+                isbn="978-8888810003",
+                pages=620,
+                abstract="Wrong category",
+            )
+            wrong_category_book.categories.append(other_category)
+
+            short_book = Book(title="Async Relationship Filter Short", year=2024)
+            short_book.author.value = matching_author
+            short_book.publisher.value = publisher
+            short_book.detail.value = BookDetail(
+                isbn="978-8888810004",
+                pages=120,
+                abstract="Too short",
+            )
+            short_book.categories.append(category)
+
+            session.add_all(
+                [matching_book, wrong_author_book, wrong_category_book, short_book]
+            )
+            await session.flush()
+
+            expression = (
+                Book["author"].has(Author["field"] == "Astrophysics")
+                & Book["categories"].any(
+                    Category["name"] == "Async Relationship Filter Category"
+                )
+                & Book["detail"].has(BookDetail["pages"] >= 300)
+            )
+            results = await session.list(
+                Book,
+                expressions=[expression],
+                order_bys=[Book["title"]],
+            )
+            count = await session.count(Book, expressions=[expression])
+            partitions = [
+                partition
+                async for partition in session.partitions(
+                    Book,
+                    size=1,
+                    expressions=[expression],
+                    order_bys=[Book["title"]],
+                )
+            ]
+
+            assert [book.title for book in results] == [
+                "Async Relationship Filter Match"
+            ]
+            assert count == 1
+            assert [[book.title for book in partition] for partition in partitions] == [
+                ["Async Relationship Filter Match"]
             ]
 
     @pytest.mark.asyncio

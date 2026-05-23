@@ -9,9 +9,10 @@ from pydantic import ValidationInfo
 from sqlalchemy import and_, inspect, or_
 from sqlalchemy.exc import InvalidRequestError, MissingGreenlet
 from sqlalchemy.ext.associationproxy import AssociationProxy
-from sqlalchemy.inspection import Inspectable
+from sqlalchemy.inspection import Inspectable, _inspects
 from sqlalchemy.orm import InstanceState, Mapper
 from sqlalchemy.sql.elements import SQLCoreOperations
+from sqlalchemy.sql.roles import JoinTargetRole
 from sqlalchemy.util import greenlet_spawn
 
 from arcanus.association import Association, DefferedAssociation, RelationGroupMap
@@ -22,6 +23,15 @@ from arcanus.materia.base import BaseMateria, T
 
 
 class LoadedData: ...
+
+
+class SqlalchemyColumn(Column[Any], JoinTargetRole): ...
+
+
+@_inspects(Column)
+def inspect_column(column: Column[Any]) -> Any:
+    # Loader options inspect ORM attributes directly, so hand SQLAlchemy the native.
+    return inspect(column.native)
 
 
 @lru_cache(maxsize=None)
@@ -81,6 +91,7 @@ class SqlalchemyExpressionCompiler(
 class SqlalchemyMateria(BaseMateria):
     def __init__(self) -> None:
         super().__init__()
+        self.column_type = SqlalchemyColumn
         self.expression_compiler = SqlalchemyExpressionCompiler()
 
     def bless(self, materia: type[Any]):

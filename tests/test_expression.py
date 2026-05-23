@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from arcanus import Column, Expression, Order
-from tests.transmuters import Author, sqlalchemy_materia
+from tests.transmuters import Author, Book, sqlalchemy_materia
 
 
 def test_column_creation_from_transmuter_field():
@@ -15,6 +15,17 @@ def test_column_creation_from_transmuter_field():
     assert column.field_name == "name"
     assert column.used_name == "name"
     assert column.annotation is str
+
+
+def test_relationship_field_returns_column_wrapper():
+    with sqlalchemy_materia:
+        column = Book["detail"]
+
+    assert isinstance(column, Column)
+    assert column.owner is Book
+    assert column.field_name == "detail"
+    assert column.used_name == "detail"
+    assert column.is_association is True
 
 
 def test_expression_operators_and_dump_are_immutable():

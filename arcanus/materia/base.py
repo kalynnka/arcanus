@@ -23,7 +23,7 @@ if TYPE_CHECKING:
         TransmuterMetaclass,
         TransmuterProxied,
     )
-    from arcanus.expression import ExpressionCompiler
+    from arcanus.expression import Column, ExpressionCompiler
 
 M = TypeVar("M")
 A = TypeVar("A", bound="Association")
@@ -60,14 +60,16 @@ class BidirectonDict(dict, Generic[K, V]):
 class BaseMateria:
     formulars: BidirectonDict[type[Transmuter], type[TransmuterProxied]]
     token: Optional[Token[BaseMateria]]
+    column_type: type[Column[Any]]
     expression_compiler: ExpressionCompiler[Any, Any]
 
     def __init__(self) -> None:
         # Local import avoids a startup cycle with expression's active materia lookup.
-        from arcanus.expression import NativeExpressionCompiler
+        from arcanus.expression import Column, NativeExpressionCompiler
 
         self.formulars = BidirectonDict()
         self.token = None
+        self.column_type = Column
         self.expression_compiler = NativeExpressionCompiler()
 
     @contextmanager
@@ -196,7 +198,7 @@ class NoOpMateria(BaseMateria):
     async def aload_association(self, association: Association) -> Any:
         return
 
-    def bless(self):
+    def bless(self, materia: Any = None):
         def decorator(transmuter_cls: type[T]) -> type[T]:
             return transmuter_cls
 

@@ -286,11 +286,8 @@ class Order(Generic[T]):
         return compiler.order(self)
 
     def dump(self) -> str:
-        return (
-            f"-{self.column.used_name}"
-            if self.descending
-            else f"+{self.column.used_name}"
-        )
+        column = cast(Column[T], self.column)
+        return f"-{column.used_name}" if self.descending else f"+{column.used_name}"
 
     def reverse(self) -> Self:
         return type(self)(column=self.column, descending=not self.descending)

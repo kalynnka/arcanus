@@ -16,10 +16,12 @@ from __future__ import annotations
 
 import json
 import uuid
+from typing import Any, cast
 
 import pytest
 from sqlalchemy import Engine, select, update
 from sqlalchemy.exc import NoResultFound
+from sqlalchemy.orm import selectinload as sqlalchemy_selectinload
 
 from arcanus import Cursor, Page, PagedCriteria
 from arcanus.base import BaseTransmuter, Transmuter
@@ -28,6 +30,7 @@ from tests.transmuters import (
     Author,
     Book,
     BookCategory,
+    BookDetail,
     Category,
     Publisher,
     sqlalchemy_materia,
@@ -674,6 +677,121 @@ class TestSessionHelpers:
                 "Expression Order B",
                 "Expression Order A",
             ]
+
+    def test_list_count_and_partitions_with_relationship_expressions(
+        self, engine: Engine
+    ):
+        """Test relationship columns can filter through native SQLAlchemy helpers."""
+        with Session(engine) as session:
+            publisher = Publisher(name="Relationship Filter Pub", country="USA")
+            matching_author = Author(
+                name="Relationship Filter Author", field="Astrophysics"
+            )
+            other_author = Author(name="Relationship Filter Other", field="History")
+            category = Category(
+                name="Relationship Filter Category", description="Deep space"
+            )
+            other_category = Category(
+                name="Relationship Filter Other Category",
+                description="Near ground",
+            )
+            matching_book = Book(title="Relationship Filter Match", year=2024)
+            matching_book.author.value = matching_author
+            matching_book.publisher.value = publisher
+            matching_book.detail.value = BookDetail(
+                isbn="978-8888800001",
+                pages=420,
+                abstract="Relationship expression match",
+            )
+            matching_book.categories.append(category)
+
+            wrong_author_book = Book(
+                title="Relationship Filter Wrong Author", year=2024
+            )
+            wrong_author_book.author.value = other_author
+            wrong_author_book.publisher.value = publisher
+            wrong_author_book.detail.value = BookDetail(
+                isbn="978-8888800002",
+                pages=520,
+                abstract="Wrong author",
+            )
+            wrong_author_book.categories.append(category)
+
+            wrong_category_book = Book(
+                title="Relationship Filter Wrong Category", year=2024
+            )
+            wrong_category_book.author.value = matching_author
+            wrong_category_book.publisher.value = publisher
+            wrong_category_book.detail.value = BookDetail(
+                isbn="978-8888800003",
+                pages=620,
+                abstract="Wrong category",
+            )
+            wrong_category_book.categories.append(other_category)
+
+            short_book = Book(title="Relationship Filter Short", year=2024)
+            short_book.author.value = matching_author
+            short_book.publisher.value = publisher
+            short_book.detail.value = BookDetail(
+                isbn="978-8888800004",
+                pages=120,
+                abstract="Too short",
+            )
+            short_book.categories.append(category)
+
+            session.add_all(
+                [matching_book, wrong_author_book, wrong_category_book, short_book]
+            )
+            session.flush()
+
+            expression = (
+                Book["author"].has(Author["field"] == "Astrophysics")
+                & Book["categories"].any(
+                    Category["name"] == "Relationship Filter Category"
+                )
+                & Book["detail"].has(BookDetail["pages"] >= 300)
+            )
+            results = session.list(
+                Book,
+                expressions=[expression],
+                order_bys=[Book["title"]],
+            )
+            count = session.count(Book, expressions=[expression])
+            partitions = list(
+                session.partitions(
+                    Book,
+                    size=1,
+                    expressions=[expression],
+                    order_bys=[Book["title"]],
+                )
+            )
+
+            assert [book.title for book in results] == ["Relationship Filter Match"]
+            assert count == 1
+            assert [[book.title for book in partition] for partition in partitions] == [
+                ["Relationship Filter Match"]
+            ]
+
+    def test_original_sqlalchemy_loader_options_accept_columns_at_runtime(
+        self, engine: Engine
+    ):
+        """Test SQLAlchemy's own loader functions inspect arcanus columns."""
+        with Session(engine) as session:
+            author = Author(name="Native Loader Author", field="History")
+            publisher = Publisher(name="Native Loader Publisher", country="USA")
+            book = Book(title="Native Loader Book", year=2024)
+            book.author.value = author
+            book.publisher.value = publisher
+            session.add(book)
+            session.flush()
+
+            result = session.execute(
+                select(Book)
+                .options(sqlalchemy_selectinload(cast(Any, Book["author"])))
+                .where(Book["title"] == "Native Loader Book")
+            ).scalar_one()
+
+            assert result.author.value.name == "Native Loader Author"
 
     def test_list_with_json_criteria_expression_and_compiler_chain(
         self, engine: Engine

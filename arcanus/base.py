@@ -13,6 +13,7 @@ from typing import (
     Protocol,
     Self,
     TypeVar,
+    cast,
     dataclass_transform,
     get_origin,
     get_type_hints,
@@ -94,11 +95,23 @@ class TransmuterProxiedMixin:
         self._transmuter_proxy = ref(value)
 
 
+class TransmuterTypingMetaclass(type):
+    # Dataclass transmuters need class subscription typing before Pydantic finalizes them.
+    @overload
+    def __getitem__(self, name: str) -> Column[Any]: ...
+
+    @overload
+    def __getitem__(self, name: object) -> Any: ...
+
+    def __getitem__(self, name: object) -> Any:
+        return cast(Any, self).__class_getitem__(name)
+
+
 class Identity:
     """Marker class for identity fields that could not be set in creation and immutable."""
 
 
-class Transmuter:
+class Transmuter(metaclass=TransmuterTypingMetaclass):
     """
     A mixin base providing common transmuter instance methods.
     All the subclasses should use TransmuterMetaclass as their metaclass.
@@ -371,7 +384,7 @@ class Transmuter:
     kw_only_default=True,
     field_specifiers=(Field, PrivateAttr, NoInitField),
 )
-class TransmuterMetaclass(ModelMetaclass):
+class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
     __transmuter_complete__: bool
     __transmuter_associations__: dict[str, FieldInfo]
     __transmuter_associations_completed__: bool
@@ -508,9 +521,7 @@ class TransmuterMetaclass(ModelMetaclass):
                 try:
                     used_name = info.alias or name
                     native = getattr(provider, used_name)
-                    if name in self.model_associations:
-                        return native
-                    return Column(
+                    return self.__transmuter_materia__.column_type(
                         owner=self,
                         field_name=name,
                         used_name=used_name,
@@ -745,7 +756,9 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
 
         else:
             # Normal construction
-            inputs = data if isinstance(data, dict) else data.__dict__ if data else {}
+            inputs = dict(
+                data if isinstance(data, dict) else data.__dict__ if data else {}
+            )
             inputs.update(values)
             instance = super().model_construct(_fields_set=_fields_set, **inputs)
 

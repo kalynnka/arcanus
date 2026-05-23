@@ -15,6 +15,19 @@ from arcanus.materia.sqlalchemy.database import (
     AsyncSession,
     Session,
 )
+from arcanus.materia.sqlalchemy.options import (
+    contains_eager,
+    defaultload,
+    defer,
+    joinedload,
+    lazyload,
+    load_only,
+    noload,
+    raiseload,
+    selectinload,
+    subqueryload,
+    undefer,
+)
 
 __all__ = [
     "SqlalchemyMateria",
@@ -22,4 +35,15 @@ __all__ = [
     "AsyncSession",
     "SqlalchemyExpressionCompiler",
     "attribute_keyed_list_dict",
+    "contains_eager",
+    "defaultload",
+    "defer",
+    "joinedload",
+    "lazyload",
+    "load_only",
+    "noload",
+    "raiseload",
+    "selectinload",
+    "subqueryload",
+    "undefer",
 ]

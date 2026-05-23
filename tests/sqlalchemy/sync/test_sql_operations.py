@@ -13,9 +13,8 @@ Tests:
 from __future__ import annotations
 
 from sqlalchemy import Engine, and_, delete, func, insert, or_, select, update
-from sqlalchemy.orm import joinedload, selectinload
 
-from arcanus.materia.sqlalchemy import Session
+from arcanus.materia.sqlalchemy import Session, joinedload, selectinload
 from tests.transmuters import Author, Book, BookDetail, Category, Publisher
 
 

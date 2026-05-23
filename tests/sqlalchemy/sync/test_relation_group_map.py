@@ -11,10 +11,9 @@ Tests:
 from __future__ import annotations
 
 from sqlalchemy import Engine, select
-from sqlalchemy.orm import selectinload
 
 from arcanus.association import RelationGroupMap
-from arcanus.materia.sqlalchemy import Session
+from arcanus.materia.sqlalchemy import Session, selectinload
 from tests.transmuters import Warehouse, WarehouseItem
 
 
