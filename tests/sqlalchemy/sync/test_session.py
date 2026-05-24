@@ -23,7 +23,7 @@ from sqlalchemy import Engine, select, update
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import selectinload as sqlalchemy_selectinload
 
-from arcanus import Cursor, Page, PagedCriteria
+from arcanus import PagedCriteria
 from arcanus.base import BaseTransmuter, Transmuter
 from arcanus.materia.sqlalchemy import Session
 from tests.transmuters import (
@@ -824,20 +824,14 @@ class TestSessionHelpers:
                 mode="json", by_alias=True, exclude_none=True
             ) == criteria.model_dump(mode="json", by_alias=True, exclude_none=True)
 
-            name_criteria = getattr(criteria, "name")
-            field_criteria = getattr(criteria, "field")
-            assert name_criteria is not None
-            assert field_criteria is not None
-            assert name_criteria.starts_with is not None
-            assert field_criteria.eq is not None
-            expression = Author["name"].starts_with(name_criteria.starts_with) & (
-                Author["field"] == field_criteria.eq
+            assert criteria.expression is not None
+            criteria_expression = criteria.expression
+            compiled_expression = criteria_expression(
+                sqlalchemy_materia.expression_compiler
             )
-            order_bys = criteria.order_expressions()
-            compiled_expression = expression(sqlalchemy_materia.expression_compiler)
             compiled_order_bys = tuple(
                 order_by(sqlalchemy_materia.expression_compiler)
-                for order_by in order_bys
+                for order_by in criteria.orders
             )
 
             manual_results = (
@@ -852,8 +846,8 @@ class TestSessionHelpers:
             )
             list_results = session.list(
                 Author,
-                expressions=[expression],
-                order_bys=order_bys,
+                expressions=[criteria_expression],
+                order_bys=criteria.orders,
                 limit=criteria.limit,
             )
 
@@ -970,23 +964,15 @@ class TestSessionHelpers:
             session.flush()
 
             criteria = criteria_model.model_validate_json(json.dumps(payload))
-            name_criteria = getattr(criteria, "name")
-            field_criteria = getattr(criteria, "field")
-            assert name_criteria is not None
-            assert field_criteria is not None
-            assert name_criteria.starts_with is not None
-            assert field_criteria.eq is not None
-            expression = Author["name"].starts_with(name_criteria.starts_with) & (
-                Author["field"] == field_criteria.eq
-            )
+            assert criteria.expression is not None
 
             all_results = []
             for partition in session.partitions(
                 Author,
                 size=2,
                 limit=criteria.limit,
-                order_bys=criteria.order_expressions(),
-                expressions=[expression],
+                order_bys=criteria.orders,
+                expressions=[criteria.expression],
             ):
                 all_results.extend(partition)
 
@@ -995,83 +981,6 @@ class TestSessionHelpers:
                 "Criteria Partition B",
                 "Criteria Partition C",
             ]
-
-    def test_cursor_pagination_with_expressions_orders_and_count(self, engine: Engine):
-        """Test cursor payloads can drive expression pagination outside Session."""
-        criteria_model = PagedCriteria[Author]
-        criteria = criteria_model.model_validate(
-            {
-                "name": {"starts_with": "Cursor Page"},
-                "field": {"eq": "Science Fiction"},
-                "order_by": ["+id"],
-                "limit": 2,
-            }
-        )
-
-        with Session(engine) as session:
-            authors = [
-                Author(name="Cursor Page A", field="Science Fiction"),
-                Author(name="Cursor Page B", field="Science Fiction"),
-                Author(name="Cursor Page C", field="Science Fiction"),
-                Author(name="Cursor Page D", field="Science Fiction"),
-                Author(name="Cursor Page Outside", field="History"),
-            ]
-            session.add_all(authors)
-            session.flush()
-            for author in authors:
-                author.revalidate()
-
-            name_criteria = getattr(criteria, "name")
-            field_criteria = getattr(criteria, "field")
-            assert name_criteria.starts_with is not None
-            assert field_criteria.eq is not None
-            base_expression = Author["name"].starts_with(name_criteria.starts_with) & (
-                Author["field"] == field_criteria.eq
-            )
-            order_bys = criteria.order_expressions()
-            total = session.count(Author, expressions=[base_expression])
-            first_items = session.list(
-                Author,
-                limit=criteria.limit,
-                order_bys=order_bys,
-                expressions=[base_expression],
-            )
-            first_cursor = Cursor[Author].from_criteria(
-                criteria=criteria,
-                position=(first_items[-1].id,),
-            )
-            first_page = Page(
-                items=tuple(first_items),
-                next_cursor=first_cursor.root,
-                has_more=total > len(first_items),
-            )
-
-            assert first_page.next_cursor is not None
-            decoded = Cursor[Author](first_page.next_cursor)
-            cursor_expression = base_expression & (Author["id"] > decoded.position[0])
-            second_items = session.list(
-                Author,
-                limit=criteria.limit,
-                order_bys=decoded.criteria.order_expressions(),
-                expressions=[cursor_expression],
-            )
-            second_page = Page(
-                items=tuple(second_items),
-                next_cursor=None,
-                has_more=total > len(first_page) + len(second_items),
-            )
-
-            assert total == 4
-            assert [author.name for author in first_page] == [
-                "Cursor Page A",
-                "Cursor Page B",
-            ]
-            assert first_page.has_more is True
-            assert [author.name for author in second_page] == [
-                "Cursor Page C",
-                "Cursor Page D",
-            ]
-            assert second_page.has_more is False
 
     def test_partitions_with_filters(self, engine: Engine):
         """Test partitions with filters."""

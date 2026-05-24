@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import sys
 from datetime import datetime
+from functools import cached_property
 from types import UnionType, prepare_class
 from typing import (
     Any,
@@ -33,7 +34,7 @@ from pydantic.errors import PydanticUndefinedAnnotation, PydanticUserError
 from pydantic_core import PydanticCustomError
 
 from arcanus.association import is_association
-from arcanus.expression import Column, Order
+from arcanus.expression import Column, Expression, Order
 
 P = TypeVar("P")
 T = TypeVar("T")
@@ -57,6 +58,13 @@ class BaseCriteria(BaseModel, Generic[T]):
     in_: tuple[T, ...] | None = Field(default=None, alias="in")
     not_in: tuple[T, ...] | None = None
 
+    criteria_operators: ClassVar[tuple[tuple[str, str], ...]] = (
+        ("eq", "eq"),
+        ("ne", "ne"),
+        ("in_", "in_"),
+        ("not_in", "not_in"),
+    )
+
 
 class TextCriteria(BaseCriteria[S]):
     contains: S | None = None
@@ -67,12 +75,31 @@ class TextCriteria(BaseCriteria[S]):
     ilike: S | None = None
     not_like: S | None = None
 
+    criteria_operators: ClassVar[tuple[tuple[str, str], ...]] = (
+        *BaseCriteria.criteria_operators,
+        ("contains", "contains"),
+        ("not_contains", "not_contains"),
+        ("starts_with", "starts_with"),
+        ("ends_with", "ends_with"),
+        ("like", "like"),
+        ("ilike", "ilike"),
+        ("not_like", "not_like"),
+    )
+
 
 class NumericCriteria(BaseCriteria[N]):
     lt: N | None = None
     le: N | None = None
     gt: N | None = None
     ge: N | None = None
+
+    criteria_operators: ClassVar[tuple[tuple[str, str], ...]] = (
+        *BaseCriteria.criteria_operators,
+        ("lt", "lt"),
+        ("le", "le"),
+        ("gt", "gt"),
+        ("ge", "ge"),
+    )
 
 
 class Criteria(BaseModel, Generic[P]):
@@ -257,11 +284,71 @@ class Criteria(BaseModel, Generic[P]):
                 )
         return fields
 
+    @cached_property
+    def expression(self) -> Expression[bool] | None:
+        expressions: list[Expression[bool]] = []
+        generic_model = type(self).generic_model
+        reserved = {"and_", "or_", "not_", "bookmark", "limit", "offset", "order_by"}
+
+        for name, value in self:
+            if value is None or name in reserved:
+                continue
+            if isinstance(value, BaseCriteria):
+                column = cast(
+                    Column[CriteriaValue],
+                    generic_model[name],  # pyright: ignore[reportIndexIssue]
+                )
+                column_expressions = [
+                    column.operate(operator, operator_value)
+                    for attribute, operator in value.criteria_operators
+                    if (operator_value := getattr(value, attribute)) is not None
+                ]
+                if not column_expressions:
+                    continue
+                expressions.append(
+                    column_expressions[0]
+                    if len(column_expressions) == 1
+                    else Expression(kind="and", expressions=tuple(column_expressions))
+                )
+
+        if self.and_:
+            for criteria in self.and_:
+                expression = criteria.expression
+                if expression is not None:
+                    expressions.append(expression)
+
+        if self.or_:
+            or_expressions: list[Expression[bool]] = []
+            for criteria in self.or_:
+                expression = criteria.expression
+                if expression is not None:
+                    or_expressions.append(expression)
+            if or_expressions:
+                expressions.append(
+                    or_expressions[0]
+                    if len(or_expressions) == 1
+                    else Expression(kind="or", expressions=tuple(or_expressions))
+                )
+
+        if self.not_:
+            expression = self.not_.expression
+            if expression is not None:
+                expressions.append(~expression)
+
+        if not expressions:
+            return None
+        return (
+            expressions[0]
+            if len(expressions) == 1
+            else Expression(kind="and", expressions=tuple(expressions))
+        )
+
 
 class PagedCriteria(Criteria[P], Generic[P]):
     limit: int | None = Field(default=100, ge=1)
     offset: int | None = Field(default=None, ge=0)
     order_by: tuple[str, ...] | None = None
+    bookmark: Criteria[P] | None = None
 
     @classmethod
     def __get_generic_model_field_definitions__(
@@ -280,9 +367,28 @@ class PagedCriteria(Criteria[P], Generic[P]):
             )
         return fields
 
-    def order_expressions(self) -> tuple[Order[CriteriaValue], ...]:
+    @cached_property
+    def expression(self) -> Expression[bool] | None:
+        expressions: list[Expression[bool]] = []
+        expression = super().expression
+        if expression is not None:
+            expressions.append(expression)
+        if self.bookmark:
+            bookmark_expression = self.bookmark.expression
+            if bookmark_expression is not None:
+                expressions.append(bookmark_expression)
+        if not expressions:
+            return None
+        return (
+            expressions[0]
+            if len(expressions) == 1
+            else Expression(kind="and", expressions=tuple(expressions))
+        )
+
+    @cached_property
+    def orders(self) -> tuple[Order[CriteriaValue], ...]:
         # Parse compact '+field'/'-field' values into compiler order expressions.
-        expressions: list[Order[CriteriaValue]] = []
+        order_bys: list[Order[CriteriaValue]] = []
         generic_model = type(self).generic_model
         for order in self.order_by or ():
             if not order or order[0] not in "+-":
@@ -291,8 +397,8 @@ class PagedCriteria(Criteria[P], Generic[P]):
                 Column[CriteriaValue],
                 generic_model[order[1:]],  # pyright: ignore[reportIndexIssue]
             )
-            expressions.append(column.desc() if order[0] == "-" else column.asc())
-        return tuple(expressions)
+            order_bys.append(column.desc() if order[0] == "-" else column.asc())
+        return tuple(order_bys)
 
 
 class CursorPayload(BaseModel, Generic[P]):
@@ -305,7 +411,6 @@ class CursorPayload(BaseModel, Generic[P]):
     version: Literal[1] = 1
     entity: str
     criteria: PagedCriteria[P]
-    position: tuple[object, ...]
 
     @model_validator(mode="after")
     def validate_entity(self) -> Self:
@@ -327,6 +432,9 @@ class Cursor(RootModel[str], Generic[P]):
 
     _payload: CursorPayload[P] = PrivateAttr()
 
+    def __str__(self) -> str:
+        return self.model_dump()
+
     @model_validator(mode="after")
     def validate_payload(self) -> Self:
         generics = type(self).__pydantic_generic_metadata__["args"]
@@ -343,7 +451,8 @@ class Cursor(RootModel[str], Generic[P]):
         )
         try:
             # Decode and validate user tokens before accepting the root string.
-            padded = self.root + "=" * (-len(self.root) % 4)
+            token = str(self)
+            padded = token + "=" * (-len(token) % 4)
             decoded = base64.urlsafe_b64decode(padded.encode()).decode()
             payload = payload_model.model_validate_json(decoded)
         except Exception as error:
@@ -361,7 +470,6 @@ class Cursor(RootModel[str], Generic[P]):
         cls,
         *,
         criteria: PagedCriteria[P],
-        position: tuple[object, ...],
     ) -> Self:
         generics = cls.__pydantic_generic_metadata__["args"]
         generic_model = generics[0] if generics else None
@@ -372,13 +480,13 @@ class Cursor(RootModel[str], Generic[P]):
 
         # Mypy cannot express runtime Pydantic generic indexing here.
         payload_model = cast(
-            type[CursorPayload[Any]], cast(Any, CursorPayload)[generic_model]
+            type[CursorPayload[Any]],
+            cast(Any, CursorPayload)[generic_model],
         )
         payload = payload_model.model_validate(
             {
                 "entity": generic_model.__name__,
                 "criteria": criteria,
-                "position": position,
             }
         )
 
@@ -388,6 +496,40 @@ class Cursor(RootModel[str], Generic[P]):
         cursor = cls.model_construct(root=token)
         cursor._payload = payload
         return cursor
+
+    @classmethod
+    def from_expression(
+        cls,
+        *,
+        expression: Expression[bool] | None = None,
+        bookmark: Expression[bool] | None = None,
+        order_bys: tuple[Order[CriteriaValue], ...] = (),
+        limit: int | None = 100,
+        offset: int | None = None,
+    ) -> Self:
+        generics = cls.__pydantic_generic_metadata__["args"]
+        generic_model = generics[0] if generics else None
+        if not isinstance(generic_model, type):
+            raise PydanticCustomError(
+                "invalid_cursor", "Cursor generic model is not specified"
+            )
+
+        data: dict[str, object] = {"limit": limit}
+        if expression is not None:
+            data.update(expression.dump())
+        if bookmark is not None:
+            data["bookmark"] = bookmark.dump()
+        if order_bys:
+            data["order_by"] = [order_by.dump() for order_by in order_bys]
+        if offset is not None:
+            data["offset"] = offset
+
+        # Mypy cannot express runtime Pydantic generic indexing here.
+        criteria_model = cast(
+            type[PagedCriteria[P]],
+            cast(Any, PagedCriteria)[generic_model],
+        )
+        return cls.from_criteria(criteria=criteria_model.model_validate(data))
 
     @property
     def payload(self) -> CursorPayload[P]:
@@ -404,10 +546,6 @@ class Cursor(RootModel[str], Generic[P]):
     @property
     def criteria(self) -> PagedCriteria[P]:
         return self.payload.criteria
-
-    @property
-    def position(self) -> tuple[object, ...]:
-        return self.payload.position
 
     @property
     def paged_criteria(self) -> PagedCriteria[P]:

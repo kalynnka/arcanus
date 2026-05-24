@@ -160,7 +160,7 @@ def test_expression_compiler_rejects_malformed_not_expression():
         expression()
 
 
-def test_order_expressions_from_columns():
+def test_order_objects_from_columns():
     with sqlalchemy_materia:
         ascending = Author["name"].asc()
         descending = Author["id"].desc()

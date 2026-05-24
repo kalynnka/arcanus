@@ -6,7 +6,14 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from arcanus import Criteria, Cursor, Expression, Page, PagedCriteria
+from arcanus import (
+    Criteria,
+    Cursor,
+    Expression,
+    Page,
+    PagedCriteria,
+    TextCriteria,
+)
 from tests.transmuters import Author, sqlalchemy_materia
 
 
@@ -50,9 +57,13 @@ def test_criteria_validation_accepts_nested_logical_fields():
     )
 
     assert criteria.or_ is not None
-    name_criteria = getattr(criteria, "name")
-    first_or_field_criteria = getattr(criteria.or_[0], "field")
+    name_criteria: TextCriteria[str] | None = getattr(criteria, "name")
+    first_or_field_criteria: TextCriteria[str] | None = getattr(
+        criteria.or_[0], "field"
+    )
 
+    assert name_criteria is not None
+    assert first_or_field_criteria is not None
     assert name_criteria.like == "Ada%"
     assert first_or_field_criteria.eq == "Physics"
 
@@ -73,6 +84,30 @@ def test_expression_dump_round_trips_through_criteria_json():
 
     assert dumped == payload
     assert restored.model_dump(mode="json", by_alias=True, exclude_none=True) == payload
+
+
+def test_criteria_expression_property_returns_arcanus_expression():
+    criteria_model = Criteria[Author]
+    criteria = criteria_model.model_validate(
+        {
+            "name": {"contains": "Ada"},
+            "field": {"eq": "Physics"},
+            "not": {"id": {"in": [1, 2]}},
+        }
+    )
+
+    with sqlalchemy_materia:
+        expression = criteria.expression
+
+    assert expression is not None
+    assert expression is criteria.expression
+    assert expression.dump() == {
+        "and": [
+            {"name": {"contains": "Ada"}},
+            {"field": {"eq": "Physics"}},
+            {"not": {"id": {"in": [1, 2]}}},
+        ]
+    }
 
 
 def test_paged_criteria_order_by_is_model_specific_and_scalar_only():
@@ -100,8 +135,11 @@ def test_paged_criteria_validation_rejects_bad_pagination_values():
     with pytest.raises(ValidationError):
         criteria_model.model_validate({"order_by": ["+not_a_field"]})
 
+    with pytest.raises(ValidationError):
+        criteria_model.model_validate({"bookmark": {"books": {"eq": 1}}})
 
-def test_paged_criteria_order_expressions_return_arcanus_orders():
+
+def test_paged_criteria_properties_return_arcanus_expression_and_orders():
     criteria_model = PagedCriteria[Author]
 
     with sqlalchemy_materia:
@@ -113,12 +151,69 @@ def test_paged_criteria_order_expressions_return_arcanus_orders():
                 "offset": 5,
             }
         )
-        order_bys = criteria.order_expressions()
+        expression = criteria.expression
+        orders = criteria.orders
 
     assert criteria.limit == 25
     assert criteria.offset == 5
-    assert len(order_bys) == 1
-    assert order_bys[0].dump() == "+name"
+    assert expression is not None
+    assert expression.dump() == {"name": {"like": "Ada%"}}
+    assert len(orders) == 1
+    assert orders[0].dump() == "+name"
+    assert criteria.orders is orders
+
+
+def test_paged_criteria_properties_compile_with_material_compiler():
+    criteria = PagedCriteria[Author].model_validate(
+        {
+            "name": {"starts_with": "Ada"},
+            "field": {"eq": "Physics"},
+            "order_by": ["-name"],
+            "limit": 10,
+        }
+    )
+
+    with sqlalchemy_materia:
+        assert criteria.expression is not None
+        material_expression = criteria.expression()
+        material_order_bys = tuple(order_by() for order_by in criteria.orders)
+
+    assert material_expression is not None
+    assert len(material_order_bys) == 1
+
+
+def test_paged_criteria_expression_includes_bookmark_criteria():
+    criteria = PagedCriteria[Author].model_validate(
+        {
+            "name": {"starts_with": "Ada"},
+            "bookmark": {"id": {"gt": 123}},
+            "order_by": ["+id"],
+        }
+    )
+
+    with sqlalchemy_materia:
+        expression = criteria.expression
+
+    assert criteria.bookmark is not None
+    assert expression is not None
+    assert expression.dump() == {
+        "and": [
+            {"name": {"starts_with": "Ada"}},
+            {"id": {"gt": 123}},
+        ]
+    }
+
+
+def test_upper_criteria_handles_scalar_field_expression_translation():
+    criteria = Criteria[Author].model_validate({"name": {"contains": "Ada"}})
+
+    name_criteria: TextCriteria[str] | None = getattr(criteria, "name")
+
+    assert name_criteria is not None
+    assert name_criteria.contains == "Ada"
+    with sqlalchemy_materia:
+        assert criteria.expression is not None
+        assert criteria.expression.dump() == {"name": {"contains": "Ada"}}
 
 
 def test_cursor_from_criteria_round_trips_payload_and_token():
@@ -129,19 +224,19 @@ def test_cursor_from_criteria_round_trips_payload_and_token():
             "limit": 20,
             "offset": 10,
             "order_by": ["+name", "-id"],
+            "bookmark": {"id": {"gt": 42}},
         }
     )
 
-    cursor = Cursor[Author].from_criteria(criteria=criteria, position=(42, "Ada"))
-    decoded = Cursor[Author].model_validate(cursor.root)
-    constructed = Cursor[Author](cursor.root)
+    cursor = Cursor[Author].from_criteria(criteria=criteria)
+    token = str(cursor)
+    decoded = Cursor[Author].model_validate(token)
+    constructed = Cursor[Author](token)
 
-    assert decoded.root == cursor.root
-    assert constructed.root == cursor.root
+    assert str(decoded) == token
+    assert str(constructed) == token
     assert decoded.entity == "Author"
     assert constructed.entity == "Author"
-    assert decoded.position == (42, "Ada")
-    assert constructed.position == (42, "Ada")
     assert decoded.criteria.model_dump(
         mode="json", by_alias=True, exclude_none=True
     ) == {
@@ -149,12 +244,43 @@ def test_cursor_from_criteria_round_trips_payload_and_token():
         "limit": 20,
         "offset": 10,
         "order_by": ["+name", "-id"],
+        "bookmark": {"id": {"gt": 42}},
+    }
+
+
+def test_cursor_from_expression_builds_criteria_from_expression_dump():
+    with sqlalchemy_materia:
+        expression = Author["name"].starts_with("Ada") & (Author["field"] == "Physics")
+        bookmark = Author["id"] > 42
+        cursor = Cursor[Author].from_expression(
+            expression=expression,
+            bookmark=bookmark,
+            order_bys=(Author["name"].asc(), Author["id"].desc()),
+            limit=20,
+            offset=10,
+        )
+
+    decoded = Cursor[Author](str(cursor))
+
+    assert decoded.criteria.model_dump(
+        mode="json", by_alias=True, exclude_none=True
+    ) == {
+        "and": [
+            {"name": {"starts_with": "Ada"}},
+            {"field": {"eq": "Physics"}},
+        ],
+        "limit": 20,
+        "offset": 10,
+        "order_by": ["+name", "-id"],
+        "bookmark": {"id": {"gt": 42}},
     }
 
 
 def test_cursor_validation_rejects_invalid_token_and_entity():
-    criteria = PagedCriteria[Author].model_validate({"name": {"eq": "Ada"}})
-    cursor = Cursor[Author].from_criteria(criteria=criteria, position=(1,))
+    criteria = PagedCriteria[Author].model_validate(
+        {"name": {"eq": "Ada"}, "order_by": ["+id"]}
+    )
+    cursor = Cursor[Author].from_criteria(criteria=criteria)
 
     with pytest.raises(ValidationError, match="Invalid cursor token"):
         Cursor[Author].model_validate("not-base64-json")
@@ -171,11 +297,13 @@ def test_cursor_validation_rejects_invalid_token_and_entity():
 
 
 def test_cursor_validation_hides_invalid_payload_as_cursor_error():
-    criteria = PagedCriteria[Author].model_validate({"name": {"eq": "Ada"}})
-    cursor = Cursor[Author].from_criteria(criteria=criteria, position=(1,))
+    criteria = PagedCriteria[Author].model_validate(
+        {"name": {"eq": "Ada"}, "order_by": ["+id"]}
+    )
+    cursor = Cursor[Author].from_criteria(criteria=criteria)
     bad_payload = cursor.payload.model_dump(mode="json", by_alias=True)
     bad_payload["criteria"]["limit"] = 0
-    token = Cursor[Author].from_criteria(criteria=criteria, position=(1,)).root
+    token = str(Cursor[Author].from_criteria(criteria=criteria))
     assert token
 
     invalid_token = (
@@ -186,8 +314,10 @@ def test_cursor_validation_hides_invalid_payload_as_cursor_error():
 
 
 def test_cursor_validation_rejects_bad_version_and_missing_parts():
-    criteria = PagedCriteria[Author].model_validate({"name": {"eq": "Ada"}})
-    cursor = Cursor[Author].from_criteria(criteria=criteria, position=(1,))
+    criteria = PagedCriteria[Author].model_validate(
+        {"name": {"eq": "Ada"}, "order_by": ["+id"]}
+    )
+    cursor = Cursor[Author].from_criteria(criteria=criteria)
     payload = cursor.payload.model_dump(mode="json", by_alias=True)
 
     payload["version"] = 2
@@ -197,13 +327,13 @@ def test_cursor_validation_rejects_bad_version_and_missing_parts():
     with pytest.raises(ValidationError, match="Invalid cursor token"):
         Cursor[Author](bad_version_token)
 
-    del payload["position"]
+    del payload["criteria"]
     payload["version"] = 1
-    missing_position_token = (
+    missing_criteria_token = (
         base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
     )
     with pytest.raises(ValidationError, match="Invalid cursor token"):
-        Cursor[Author](missing_position_token)
+        Cursor[Author](missing_criteria_token)
 
 
 def test_page_unwraps_items_like_a_tuple():
