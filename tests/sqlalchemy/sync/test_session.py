@@ -23,7 +23,7 @@ from sqlalchemy import Engine, select, update
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import selectinload as sqlalchemy_selectinload
 
-from arcanus import PagedCriteria
+from arcanus import Criteria
 from arcanus.base import BaseTransmuter, Transmuter
 from arcanus.materia.sqlalchemy import Session
 from tests.transmuters import (
@@ -797,13 +797,13 @@ class TestSessionHelpers:
         self, engine: Engine
     ):
         """Test JSON criteria values can drive arcanus and SQLAlchemy expressions."""
-        criteria_model = PagedCriteria[Author]
+        criteria_model = Criteria[Author]
         payload = {
             "name": {"starts_with": "Criteria Chain"},
             "field": {"eq": "Xenobiology"},
-            "order_by": ["-name"],
-            "limit": 2,
         }
+        limit = 2
+        orders = (Author["name"].desc(),)
 
         with Session(engine) as session:
             session.add_all(
@@ -830,8 +830,7 @@ class TestSessionHelpers:
                 sqlalchemy_materia.expression_compiler
             )
             compiled_order_bys = tuple(
-                order_by(sqlalchemy_materia.expression_compiler)
-                for order_by in criteria.orders
+                order_by(sqlalchemy_materia.expression_compiler) for order_by in orders
             )
 
             manual_results = (
@@ -839,7 +838,7 @@ class TestSessionHelpers:
                     select(Author)
                     .where(compiled_expression)
                     .order_by(*compiled_order_bys)
-                    .limit(criteria.limit)
+                    .limit(limit)
                 )
                 .scalars()
                 .all()
@@ -847,8 +846,8 @@ class TestSessionHelpers:
             list_results = session.list(
                 Author,
                 expressions=[criteria_expression],
-                order_bys=criteria.orders,
-                limit=criteria.limit,
+                order_bys=orders,
+                limit=limit,
             )
 
             assert [author.name for author in manual_results] == [
@@ -943,13 +942,13 @@ class TestSessionHelpers:
 
     def test_partitions_with_json_criteria_expression_and_orders(self, engine: Engine):
         """Test partitions accepts criteria-derived arcanus expressions and orders."""
-        criteria_model = PagedCriteria[Author]
+        criteria_model = Criteria[Author]
         payload = {
             "name": {"starts_with": "Criteria Partition"},
             "field": {"eq": "Astrophysics"},
-            "order_by": ["+name"],
-            "limit": 3,
         }
+        limit = 3
+        orders = (Author["name"].asc(),)
 
         with Session(engine) as session:
             session.add_all(
@@ -970,8 +969,8 @@ class TestSessionHelpers:
             for partition in session.partitions(
                 Author,
                 size=2,
-                limit=criteria.limit,
-                order_bys=criteria.orders,
+                limit=limit,
+                order_bys=orders,
                 expressions=[criteria.expression],
             ):
                 all_results.extend(partition)

@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from arcanus import PagedCriteria
+from arcanus import Criteria
 from arcanus.materia.sqlalchemy import AsyncSession, raiseload, selectinload
 from tests.transmuters import (
     Author,
@@ -964,13 +964,13 @@ class TestAsyncSessionHelpers:
         self, async_engine: AsyncEngine
     ):
         """Test JSON criteria values can drive arcanus and SQLAlchemy expressions."""
-        criteria_model = PagedCriteria[Author]
+        criteria_model = Criteria[Author]
         payload = {
             "name": {"starts_with": "Async Criteria Chain"},
             "field": {"eq": "Xenobiology"},
-            "order_by": ["-name"],
-            "limit": 2,
         }
+        limit = 2
+        orders = (Author["name"].desc(),)
 
         async with AsyncSession(async_engine) as session:
             session.add_all(
@@ -997,21 +997,20 @@ class TestAsyncSessionHelpers:
                 sqlalchemy_materia.expression_compiler
             )
             compiled_order_bys = tuple(
-                order_by(sqlalchemy_materia.expression_compiler)
-                for order_by in criteria.orders
+                order_by(sqlalchemy_materia.expression_compiler) for order_by in orders
             )
 
             manual_result = await session.execute(
                 select(Author)
                 .where(compiled_expression)
                 .order_by(*compiled_order_bys)
-                .limit(criteria.limit)
+                .limit(limit)
             )
             list_results = await session.list(
                 Author,
                 expressions=[criteria_expression],
-                order_bys=criteria.orders,
-                limit=criteria.limit,
+                order_bys=orders,
+                limit=limit,
             )
 
             assert [author.name for author in manual_result.scalars().all()] == [
@@ -1228,13 +1227,13 @@ class TestAsyncSessionHelpers:
         self, async_engine: AsyncEngine
     ):
         """Test partitions accepts criteria-derived arcanus expressions and orders."""
-        criteria_model = PagedCriteria[Author]
+        criteria_model = Criteria[Author]
         payload = {
             "name": {"starts_with": "Async Criteria Partition"},
             "field": {"eq": "Astrophysics"},
-            "order_by": ["+name"],
-            "limit": 3,
         }
+        limit = 3
+        orders = (Author["name"].asc(),)
 
         async with AsyncSession(async_engine) as session:
             session.add_all(
@@ -1255,8 +1254,8 @@ class TestAsyncSessionHelpers:
             async for partition in session.partitions(
                 Author,
                 size=2,
-                limit=criteria.limit,
-                order_bys=criteria.orders,
+                limit=limit,
+                order_bys=orders,
                 expressions=[criteria.expression],
             ):
                 all_results.extend(partition)
