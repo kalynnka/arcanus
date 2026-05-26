@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from arcanus import Column, Expression, Order
+from arcanus.expression import and_, not_, or_
 from tests.transmuters import Author, Book, sqlalchemy_materia
 
 
@@ -63,6 +64,42 @@ def test_expression_logical_operators_and_text_helpers():
             {"not": {"name": {"not_like": "%z"}}},
         ]
     }
+
+
+def test_expression_static_helpers_dump_logical_groups():
+    with sqlalchemy_materia:
+        expression = and_(
+            (
+                Author["name"] == "Ada",
+                or_(
+                    (
+                        Author["field"] == "Physics",
+                        not_(Author["id"] < 10),
+                    )
+                ),
+            )
+        )
+
+    assert expression.dump() == {
+        "and": [
+            {"name": {"eq": "Ada"}},
+            {
+                "or": [
+                    {"field": {"eq": "Physics"}},
+                    {"not": {"id": {"lt": 10}}},
+                ]
+            },
+        ]
+    }
+
+
+def test_expression_any_and_has_dump_shape():
+    with sqlalchemy_materia:
+        any_expression = Author["books"].any(Book["title"] == "Notes")
+        has_expression = Book["author"].has(Author["name"] == "Ada")
+
+    assert any_expression.dump() == {"books": {"title": {"eq": "Notes"}}}
+    assert has_expression.dump() == {"author": {"name": {"eq": "Ada"}}}
 
 
 def test_expression_nested_boolean_dump_shape():

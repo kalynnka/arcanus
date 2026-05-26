@@ -6,6 +6,7 @@ from functools import reduce
 from typing import (
     Any,
     Generic,
+    Iterable,
     Literal,
     Protocol,
     Self,
@@ -31,6 +32,14 @@ class ExpressionCompiler(Protocol[NativeExpressionT, NativeOrderT]):
     def or_(self, expressions: tuple[NativeExpressionT, ...]) -> NativeExpressionT: ...
 
     def not_(self, expression: NativeExpressionT) -> NativeExpressionT: ...
+
+    def any_(
+        self, column: Column[Any], value: Expression[bool] | None
+    ) -> NativeExpressionT: ...
+
+    def has(
+        self, column: Column[Any], value: Expression[bool] | None
+    ) -> NativeExpressionT: ...
 
     def order(self, order: Order[Any]) -> NativeOrderT: ...
 
@@ -60,11 +69,49 @@ class NativeExpressionCompiler(ExpressionCompiler[Any, Any]):
     def not_(self, expression: Any) -> Any:
         return operators.invert(expression)
 
+    def any_(self, column: Column[Any], value: Expression[bool] | None) -> Any:
+        native = column.native
+        expression = unwrap(value)
+        any_method = getattr(native, "any", None)
+        if any_method is None:
+            raise ValueError("Any expression requires a collection relationship column")
+        return any_method(expression) if expression is not None else any_method()
+
+    def has(self, column: Column[Any], value: Expression[bool] | None) -> Any:
+        native = column.native
+        expression = unwrap(value)
+        has_method = getattr(native, "has", None)
+        if has_method is None:
+            raise ValueError("Has expression requires a scalar relationship column")
+        return has_method(expression) if expression is not None else has_method()
+
     def order(self, order: Order[Any]) -> Any:
         native = order.column.native
         return native.desc() if order.descending else native.asc()
 
 
+def and_(expressions: Iterable[Expression[bool]]) -> Expression[bool]:
+    return Expression(kind="and", expressions=tuple(expressions))
+
+
+def or_(expressions: Iterable[Expression[bool]]) -> Expression[bool]:
+    return Expression(kind="or", expressions=tuple(expressions))
+
+
+def not_(expression: Expression[bool]) -> Expression[bool]:
+    return Expression(kind="not", expressions=(expression,))
+
+
+def any_(column: Column[Any], value: Expression[bool] | None = None) -> Expression[bool]:
+    return Expression(kind="any", column=column, value=value)
+
+
+def has(column: Column[Any], value: Expression[bool] | None = None) -> Expression[bool]:
+    return Expression(kind="has", column=column, value=value)
+
+
+# TODO: Add a true expression-level exists(subquery) once Arcanus has a typed
+# subquery abstraction; relationship criteria should stay on any_/has.
 def unwrap(value: object) -> object:
     if isinstance(value, (Column, Expression, Order)):
         return value()
@@ -127,6 +174,12 @@ class Column(Generic[T]):
             value=value,
         )
 
+    def any(self, value: Expression[bool] | None = None) -> Expression[bool]:
+        return any_(self, value)
+
+    def has(self, value: Expression[bool] | None = None) -> Expression[bool]:
+        return has(self, value)
+
     def __lt__(self, value: object) -> Expression[bool]:
         return self.operate("lt", value)
 
@@ -187,20 +240,20 @@ class Column(Generic[T]):
 
 @dataclass(frozen=True, eq=False)
 class Expression(Generic[T]):
-    kind: Literal["comparison", "and", "or", "not"]
+    kind: Literal["comparison", "any", "has", "and", "or", "not"]
     column: Column[Any] | None = None
     operator: str | None = None
     value: object | None = None
     expressions: tuple[Expression[bool], ...] = ()
 
     def __and__(self, other: Expression[bool]) -> Expression[bool]:
-        return Expression(kind="and", expressions=(cast(Expression[bool], self), other))
+        return and_((cast(Expression[bool], self), other))
 
     def __or__(self, other: Expression[bool]) -> Expression[bool]:
-        return Expression(kind="or", expressions=(cast(Expression[bool], self), other))
+        return or_((cast(Expression[bool], self), other))
 
     def __invert__(self) -> Expression[bool]:
-        return Expression(kind="not", expressions=(cast(Expression[bool], self),))
+        return not_(cast(Expression[bool], self))
 
     def __clause_element__(self) -> Any:
         # SQLAlchemy inspects this hook structurally when expressions enter SQL clauses.
@@ -227,6 +280,18 @@ class Expression(Generic[T]):
             if self.column is None or self.operator is None:
                 raise ValueError("Comparison expression requires a column and operator")
             return compiler.apply(self.column, self.operator, self.value)
+        if self.kind == "any":
+            if self.column is None:
+                raise ValueError("Any expression requires a column")
+            return compiler.any_(
+                self.column, cast(Expression[bool] | None, self.value)
+            )
+        if self.kind == "has":
+            if self.column is None:
+                raise ValueError("Has expression requires a column")
+            return compiler.has(
+                self.column, cast(Expression[bool] | None, self.value)
+            )
 
         if self.kind == "and":
             return compiler.and_(
@@ -248,6 +313,10 @@ class Expression(Generic[T]):
                 raise ValueError("Comparison expression requires a column and operator")
             key = "in" if self.operator == "in_" else self.operator
             return {self.column.used_name: {key: dump(self.value)}}
+        if self.kind in {"any", "has"}:
+            if self.column is None:
+                raise ValueError(f"{self.kind.title()} expression requires a column")
+            return {self.column.used_name: dump(self.value)}
         if self.kind in {"and", "or"}:
             return {self.kind: [expression.dump() for expression in self.expressions]}
         if self.kind == "not":

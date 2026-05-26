@@ -81,6 +81,26 @@ class TransmuterProxied(Protocol):
     transmuter_proxy: Transmuter | None
 
 
+class TransmuterType(Protocol):
+    __name__: str
+    __module__: str
+    __qualname__: str
+    __pydantic_fields__: dict[str, FieldInfo]
+
+    @property
+    def model_associations(self) -> dict[str, FieldInfo]: ...
+
+    def __getitem__(self, name: str) -> Column[Any]: ...
+
+    def __hash__(self) -> int: ...
+
+
+def transmuter_type(model: object) -> TransmuterType:
+    if isinstance(model, TransmuterMetaclass):
+        return cast(TransmuterType, model)
+    raise TypeError("Criteria generics expect an arcanus transmuter type")
+
+
 class TransmuterProxiedMixin:
     """Mixin for materia provided objects proxied by a transmuter."""
 

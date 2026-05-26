@@ -18,7 +18,13 @@ from sqlalchemy.util import greenlet_spawn
 from arcanus.association import Association, DefferedAssociation, RelationGroupMap
 from arcanus.base import Transmuter
 from arcanus.criteria import CriteriaValue
-from arcanus.expression import Column, ExpressionCompiler, Order, unwrap
+from arcanus.expression import (
+    Column,
+    Expression,
+    ExpressionCompiler,
+    Order,
+    unwrap,
+)
 from arcanus.materia.base import BaseMateria, T
 
 
@@ -82,6 +88,40 @@ class SqlalchemyExpressionCompiler(
 
     def not_(self, expression: SQLCoreOperations[bool]) -> SQLCoreOperations[bool]:
         return cast(SQLCoreOperations[bool], operators.invert(expression))
+
+    def relationship_expression(
+        self, column: Column[Any], value: Expression[bool] | None
+    ) -> SQLCoreOperations[bool] | None:
+        return cast(
+            SQLCoreOperations[bool] | None,
+            value(self) if isinstance(value, Expression) else unwrap(value),
+        )
+
+    def any_(
+        self, column: Column[Any], value: Expression[bool] | None
+    ) -> SQLCoreOperations[bool]:
+        compiled = self.relationship_expression(column, value)
+        native = column.native
+        any_method = getattr(native, "any", None)
+        if any_method is None:
+            raise ValueError("Any expression requires a collection relationship column")
+        return cast(
+            SQLCoreOperations[bool],
+            any_method(compiled) if compiled is not None else any_method(),
+        )
+
+    def has(
+        self, column: Column[Any], value: Expression[bool] | None
+    ) -> SQLCoreOperations[bool]:
+        compiled = self.relationship_expression(column, value)
+        native = column.native
+        has_method = getattr(native, "has", None)
+        if has_method is None:
+            raise ValueError("Has expression requires a scalar relationship column")
+        return cast(
+            SQLCoreOperations[bool],
+            has_method(compiled) if compiled is not None else has_method(),
+        )
 
     def order(self, order: Order[Any]) -> SQLCoreOperations[CriteriaValue]:
         native = cast(SQLCoreOperations[CriteriaValue], order.column.native)

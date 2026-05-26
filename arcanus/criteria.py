@@ -11,12 +11,12 @@ from typing import (
     Generic,
     Iterator,
     Literal,
-    Protocol,
     Self,
     TypeVar,
     cast,
     get_args,
     get_origin,
+    get_type_hints,
     overload,
 )
 from uuid import UUID
@@ -33,11 +33,11 @@ from pydantic import (
 from pydantic._internal import _forward_ref, _generics, _typing_extra, _utils
 from pydantic._internal._generics import _get_caller_frame_info
 from pydantic.errors import PydanticUndefinedAnnotation, PydanticUserError
-from pydantic.fields import FieldInfo
 from pydantic_core import PydanticCustomError
 
 from arcanus.association import is_association
-from arcanus.expression import Column, Expression, Order
+from arcanus.base import TransmuterType, transmuter_type
+from arcanus.expression import Column, Expression, Order, and_, or_
 
 P = TypeVar("P")
 T = TypeVar("T")
@@ -49,29 +49,6 @@ CriteriaExampleValue = str | int | float | bool
 CriteriaExample = dict[str, CriteriaExampleValue | list[CriteriaExampleValue]]
 
 CRITERIA_CURSOR_VERSION = 1
-
-
-class PydanticModelType(Protocol):
-    __name__: str
-    __module__: str
-    __qualname__: str
-    __pydantic_fields__: dict[str, FieldInfo]
-
-    @property
-    def model_associations(self) -> dict[str, FieldInfo]: ...
-
-    def __getitem__(self, name: str) -> Column[Any]: ...
-
-    def __hash__(self) -> int: ...
-
-
-def pydantic_model_type(model: object) -> PydanticModelType:
-    if isinstance(model, type) and hasattr(model, "__pydantic_fields__"):
-        return cast(PydanticModelType, model)
-    raise TypeError(
-        "Criteria generics expect a Pydantic model, Pydantic dataclass, "
-        "or arcanus transmuter type"
-    )
 
 
 class BaseCriteria(BaseModel, Generic[T]):
@@ -132,7 +109,7 @@ class NumericCriteria(BaseCriteria[N]):
 
 
 class ModelGeneric(BaseModel, Generic[P]):
-    generic_model: ClassVar[PydanticModelType]
+    generic_model: ClassVar[TransmuterType]
 
     # Build model-specific fields while preserving Pydantic's generic cache.
     def __class_getitem__(
@@ -203,7 +180,7 @@ class ModelGeneric(BaseModel, Generic[P]):
                     pass
 
                 generic_model = (
-                    pydantic_model_type(args[0]) if isinstance(args[0], type) else None
+                    transmuter_type(args[0]) if isinstance(args[0], type) else None
                 )
                 annotations: dict[str, Any] = {}
                 fields: dict[str, Any] = {}
@@ -269,7 +246,7 @@ class ModelGeneric(BaseModel, Generic[P]):
 
     @classmethod
     def __get_generic_model_field_definitions__(
-        cls, generic_model: PydanticModelType
+        cls, generic_model: TransmuterType
     ) -> dict[str, Any]:
         return {}
 
@@ -298,7 +275,7 @@ class Criteria(ModelGeneric[P]):
 
     @classmethod
     def __get_generic_model_field_definitions__(
-        cls, generic_model: PydanticModelType
+        cls, generic_model: TransmuterType
     ) -> dict[str, Any]:
         scalar_fields: dict[str, Any] = {}
         scalar_examples: dict[str, CriteriaExample] = {}
@@ -334,13 +311,31 @@ class Criteria(ModelGeneric[P]):
             # Normalize scalar field annotations before mapping them to criteria types.
             annotation = info.annotation
             origin = get_origin(annotation)
-            if origin is Literal:
-                annotation = type(get_args(annotation)[0])
-            elif origin is UnionType or str(origin) == "typing.Union":
+            if origin is UnionType or str(origin) == "typing.Union":
                 annotation = next(
                     (arg for arg in get_args(annotation) if arg is not type(None)),
                     object,
                 )
+                origin = get_origin(annotation)
+            if origin is Literal:
+                literal_values = get_args(annotation)
+                if not literal_values:
+                    continue
+                criteria_type = cast(
+                    type[BaseCriteria[Any]], cast(Any, BaseCriteria)[annotation]
+                )
+                example = literal_values[0]
+                scalar_fields[name] = (
+                    criteria_type | None,
+                    Field(default=None),
+                )
+                scalar_examples[name] = criteria_example(
+                    criteria_type,
+                    example
+                    if isinstance(example, (str, int, float, bool))
+                    else "string",
+                )
+                continue
             else:
                 try:
                     if is_association(cast(type[Any], annotation)):
@@ -436,7 +431,7 @@ class Criteria(ModelGeneric[P]):
                 expressions.append(
                     column_expressions[0]
                     if len(column_expressions) == 1
-                    else Expression(kind="and", expressions=tuple(column_expressions))
+                    else and_(column_expressions)
                 )
 
         if self.and_:
@@ -455,7 +450,7 @@ class Criteria(ModelGeneric[P]):
                 expressions.append(
                     or_expressions[0]
                     if len(or_expressions) == 1
-                    else Expression(kind="or", expressions=tuple(or_expressions))
+                    else or_(or_expressions)
                 )
 
         if self.not_:
@@ -468,15 +463,87 @@ class Criteria(ModelGeneric[P]):
         return (
             expressions[0]
             if len(expressions) == 1
-            else Expression(kind="and", expressions=tuple(expressions))
+            else and_(expressions)
         )
+
+
+class NestedCriteria(Criteria[P]):
+    @classmethod
+    def __get_generic_model_field_definitions__(
+        cls, generic_model: TransmuterType
+    ) -> dict[str, Any]:
+        fields = super().__get_generic_model_field_definitions__(generic_model)
+        try:
+            annotations = get_type_hints(generic_model)
+        except (NameError, TypeError):
+            annotations = {}
+        for name, info in generic_model.model_associations.items():
+            annotation = annotations.get(name, info.annotation)
+            try:
+                if not is_association(
+                    cast(type[Any], get_origin(annotation) or annotation)
+                ):
+                    continue
+            except TypeError:
+                continue
+            related_model = next(
+                (
+                    argument
+                    for argument in reversed(get_args(annotation))
+                    if isinstance(argument, type)
+                    and hasattr(argument, "__pydantic_fields__")
+                ),
+                None,
+            )
+            if related_model is None:
+                continue
+            criteria_model = cast(
+                type[Criteria[P]],
+                cast(Any, Criteria)[related_model],
+            )
+            fields[name] = (criteria_model | None, Field(default=None))
+        return fields
+
+    @cached_property
+    def expression(self) -> Expression[bool] | None:
+        expressions: list[Expression[bool]] = []
+        scalar_expression = super().expression
+        if scalar_expression is not None:
+            expressions.append(scalar_expression)
+
+        generic_model = type(self).generic_model
+        try:
+            annotations = get_type_hints(generic_model)
+        except (NameError, TypeError):
+            annotations = {}
+        for name in generic_model.model_associations:
+            criteria = getattr(self, name, None)
+            if not isinstance(criteria, Criteria):
+                continue
+            expression = criteria.expression
+            if expression is not None:
+                column = cast(Column[CriteriaValue], generic_model[name])
+                annotation = annotations.get(
+                    name, generic_model.model_associations[name].annotation
+                )
+                origin = get_origin(annotation) or annotation
+                is_collection = isinstance(origin, type) and any(
+                    base in {list, set, dict} for base in origin.__mro__
+                )
+                expressions.append(
+                    column.any(expression) if is_collection else column.has(expression)
+                )
+
+        if not expressions:
+            return None
+        return expressions[0] if len(expressions) == 1 else and_(expressions)
 
 
 class Ordering(RootModel[tuple[str, ...]], Generic[P]):
     model_config = ConfigDict(frozen=True)
 
-    generic_model: ClassVar[PydanticModelType]
-    generic_cache: ClassVar[dict[tuple[type[Any], PydanticModelType], type[Any]]] = {}
+    generic_model: ClassVar[TransmuterType]
+    generic_cache: ClassVar[dict[tuple[type[Any], TransmuterType], type[Any]]] = {}
 
     def __class_getitem__(cls, generic_model: object | tuple[object, ...]) -> type[Any]:
         if isinstance(generic_model, tuple):
@@ -486,7 +553,7 @@ class Ordering(RootModel[tuple[str, ...]], Generic[P]):
 
         if not isinstance(generic_model, type):
             return cast(Any, super().__class_getitem__(cast(Any, generic_model)))
-        generic_model = pydantic_model_type(generic_model)
+        generic_model = transmuter_type(generic_model)
 
         cache_key = (cls, generic_model)
         if cache_key in cls.generic_cache:
@@ -556,7 +623,7 @@ class CursorBookmark(ModelGeneric[P]):
 
     @classmethod
     def __get_generic_model_field_definitions__(
-        cls, generic_model: PydanticModelType
+        cls, generic_model: TransmuterType
     ) -> dict[str, Any]:
         criteria_model = cast(type[Criteria[P]], cast(Any, Criteria)[generic_model])
         order_by_model = cast(type[Ordering[P]], cast(Any, Ordering)[generic_model])
@@ -618,8 +685,15 @@ class CursorPayload(BaseModel, Generic[P]):
         return self
 
 
+class NestedCursorPayload(CursorPayload[P]):
+    criteria: NestedCriteria[P] | None = None
+
+
 class Cursor(RootModel[str], Generic[P]):
     model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
+
+    payload_type: ClassVar[type[BaseModel]] = CursorPayload
+    criteria_type: ClassVar[type[BaseModel]] = Criteria
 
     _payload: CursorPayload[P] = PrivateAttr()
 
@@ -638,7 +712,7 @@ class Cursor(RootModel[str], Generic[P]):
         # Mypy cannot express runtime Pydantic generic indexing here.
         payload_model = cast(
             type[CursorPayload[P]],
-            cast(Any, CursorPayload)[generic_model],
+            cast(Any, type(self).payload_type)[generic_model],
         )
         try:
             # Decode and validate user tokens before accepting the root string.
@@ -675,16 +749,16 @@ class Cursor(RootModel[str], Generic[P]):
 
         # Mypy cannot express runtime Pydantic generic indexing here.
         criteria_model = cast(
-            type[Criteria[P]],
-            cast(Any, Criteria)[generic_model],
+            type[Criteria[P]], cast(Any, cls.criteria_type)[generic_model]
         )
         payload_model = cast(
-            type[CursorPayload[P]],
-            cast(Any, CursorPayload)[generic_model],
+            type[CursorPayload[P]], cast(Any, cls.payload_type)[generic_model]
         )
         order_by_model = cast(type[Ordering[P]], cast(Any, Ordering)[generic_model])
         criteria = (
-            criteria_model.model_validate(expression.dump()) if expression else None
+            criteria_model.model_validate(expression.dump())
+            if expression is not None
+            else None
         )
         order_by = order_by_model.from_orders(order_bys) if order_bys else None
 
@@ -734,6 +808,19 @@ class Cursor(RootModel[str], Generic[P]):
     @property
     def bookmark(self) -> CursorBookmark[P]:
         return self.payload.bookmark
+
+
+class NestedCursor(Cursor[P]):
+    payload_type: ClassVar[type[BaseModel]] = NestedCursorPayload
+    criteria_type: ClassVar[type[BaseModel]] = NestedCriteria
+
+    @property
+    def payload(self) -> NestedCursorPayload[P]:
+        return cast(NestedCursorPayload[P], self._payload)
+
+    @property
+    def criteria(self) -> NestedCriteria[P] | None:
+        return self.payload.criteria
 
 
 class Page(BaseModel, Generic[T]):

@@ -772,6 +772,21 @@ class TestSessionHelpers:
                 ["Relationship Filter Match"]
             ]
 
+            exists_results = session.list(
+                Book,
+                expressions=[
+                    Book["categories"].any(
+                        Category["name"] == "Relationship Filter Category"
+                    ),
+                    Book["author"].has(Author["field"] == "Astrophysics"),
+                ],
+                order_bys=[Book["title"]],
+            )
+            assert [book.title for book in exists_results] == [
+                "Relationship Filter Match",
+                "Relationship Filter Short",
+            ]
+
     def test_original_sqlalchemy_loader_options_accept_columns_at_runtime(
         self, engine: Engine
     ):

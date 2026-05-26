@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from sqlalchemy import Engine
 
-from arcanus import Criteria, Cursor, CursorBookmark, Page
+from arcanus import Criteria, Cursor, Page
+from arcanus.criteria import CursorBookmark
 from arcanus.materia.sqlalchemy import Session
 from tests.transmuters import Author, Book, BookDetail, Category, Publisher
 
@@ -66,6 +67,7 @@ class TestCursorPagination:
             assert decoded_criteria_expression.dump() == criteria_expression.dump()
             assert decoded.payload.limit == limit
             assert decoded.payload.order_by == ("+id",)
+            assert decoded.bookmark.criteria
             assert decoded.bookmark.criteria.model_dump(
                 mode="json", by_alias=True, exclude_none=True
             ) == {"id": {"gt": last_author_id}}
@@ -154,6 +156,7 @@ class TestCursorPagination:
             assert decoded.criteria is not None
             decoded_criteria_expression = decoded.criteria.expression
             assert decoded_criteria_expression is not None
+            assert decoded.bookmark.criteria
             decoded_bookmark_expression = decoded.bookmark.criteria.expression
             assert decoded_bookmark_expression is not None
 
@@ -236,6 +239,7 @@ class TestCursorPagination:
             assert decoded_criteria_expression.dump() == criteria_expression.dump()
             assert decoded.payload.limit == limit
             assert decoded.payload.order_by == ("+id",)
+            assert decoded.bookmark.criteria
             decoded_bookmark_expression = decoded.bookmark.criteria.expression
             assert decoded_bookmark_expression is not None
             next_list_items = session.list(
@@ -407,6 +411,7 @@ class TestCursorPagination:
             assert decoded.criteria is not None
             decoded_criteria_expression = decoded.criteria.expression
             assert decoded_criteria_expression is not None
+            assert decoded.bookmark.criteria
             decoded_bookmark_expression = decoded.bookmark.criteria.expression
             assert decoded_bookmark_expression is not None
             next_expressions = [

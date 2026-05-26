@@ -4,18 +4,23 @@ import base64
 import json
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from arcanus import (
     Criteria,
     Cursor,
-    CursorBookmark,
     Expression,
-    Ordering,
+    NestedCriteria,
+    NestedCursor,
     Page,
+)
+from arcanus.criteria import (
+    BaseCriteria,
+    CursorBookmark,
+    Ordering,
     TextCriteria,
 )
-from tests.transmuters import Author, sqlalchemy_materia
+from tests.transmuters import Author, Book, sqlalchemy_materia
 
 
 def test_criteria_validation_rejects_unknown_or_association_fields():
@@ -25,11 +30,70 @@ def test_criteria_validation_rejects_unknown_or_association_fields():
         criteria_model.model_validate({"books": {"eq": 1}})
 
 
-def test_criteria_generics_require_pydantic_model_types():
-    with pytest.raises(TypeError, match="Pydantic model"):
+def test_nested_criteria_accepts_one_layer_relationship_criteria():
+    criteria_model = NestedCriteria[Author]
+
+    criteria = criteria_model.model_validate(
+        {
+            "name": {"eq": "Ada"},
+            "books": {"title": {"eq": "Notes"}},
+        }
+    )
+    books = getattr(criteria, "books")
+
+    assert books.model_dump(mode="json", by_alias=True, exclude_none=True) == {
+        "title": {"eq": "Notes"}
+    }
+    assert criteria.model_dump(mode="json", by_alias=True, exclude_none=True) == {
+        "name": {"eq": "Ada"},
+        "books": {"title": {"eq": "Notes"}},
+    }
+    with sqlalchemy_materia:
+        expression = criteria.expression
+
+    assert expression is not None
+    assert expression.dump() == {
+        "and": [
+            {"name": {"eq": "Ada"}},
+            {"books": {"title": {"eq": "Notes"}}},
+        ]
+    }
+
+
+def test_nested_cursor_round_trips_relationship_criteria():
+    with sqlalchemy_materia:
+        bookmark = CursorBookmark[Author].from_expression(
+            order_bys=(Author["id"].desc(),)
+        )
+        cursor = NestedCursor[Author].from_expression(
+            expression=Author["books"].any(Book["title"] == "Notes"),
+            bookmark=bookmark,
+            limit=10,
+        )
+        restored = NestedCursor[Author](str(cursor))
+
+    assert restored.criteria is not None
+    dumped = restored.criteria.model_dump(
+        mode="json", by_alias=True, exclude_none=True
+    )
+    assert dumped == {
+        "books": {"title": {"eq": "Notes"}}
+    }
+    assert restored.limit == 10
+    assert restored.bookmark.order_by == ("-id",)
+
+
+def test_criteria_generics_require_transmuter_types():
+    class PlainPydanticModel(BaseModel):
+        id: int
+
+    with pytest.raises(TypeError, match="transmuter"):
         Criteria[int]
 
-    with pytest.raises(TypeError, match="Pydantic model"):
+    with pytest.raises(TypeError, match="transmuter"):
+        Criteria[PlainPydanticModel]
+
+    with pytest.raises(TypeError, match="transmuter"):
         Ordering[int]
 
 
@@ -52,6 +116,25 @@ def test_criteria_validation_rejects_wrong_value_types_and_operators():
         criteria_model.model_validate({"not": {"id": {"ge": "bad"}}})
 
 
+def test_literal_fields_use_exact_value_criteria():
+    criteria_model = Criteria[Author]
+
+    criteria = criteria_model.model_validate(
+        {"field": {"eq": "Physics", "in": ["Biology", "History"]}}
+    )
+    field_criteria: BaseCriteria[str] | None = getattr(criteria, "field")
+
+    assert field_criteria is not None
+    assert field_criteria.eq == "Physics"
+    assert field_criteria.in_ == ("Biology", "History")
+
+    with pytest.raises(ValidationError):
+        criteria_model.model_validate({"field": {"contains": "Physics"}})
+
+    with pytest.raises(ValidationError):
+        criteria_model.model_validate({"field": {"eq": "Painting"}})
+
+
 def test_criteria_validation_accepts_nested_logical_fields():
     criteria_model = Criteria[Author]
 
@@ -67,7 +150,7 @@ def test_criteria_validation_accepts_nested_logical_fields():
 
     assert criteria.or_ is not None
     name_criteria: TextCriteria[str] | None = getattr(criteria, "name")
-    first_or_field_criteria: TextCriteria[str] | None = getattr(
+    first_or_field_criteria: BaseCriteria[str] | None = getattr(
         criteria.or_[0], "field"
     )
 
