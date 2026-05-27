@@ -47,6 +47,14 @@ class ExpressionCompiler(Protocol[NativeExpressionT, NativeOrderT]):
 class NativeExpressionCompiler(ExpressionCompiler[Any, Any]):
     def apply(self, column: Column[Any], operator: str, value: object) -> Any:
         native = column.native
+        if operator == "is_":
+            return native.is_(unwrap(value))
+        if operator == "is_not":
+            return native.is_not(unwrap(value))
+        if operator == "between":
+            left, right = cast(tuple[object, object], unwrap(value))
+            return native.between(left, right)
+
         operation = getattr(operators, operator, None)
         if operation is not None:
             return operation(native, unwrap(value))
@@ -213,8 +221,17 @@ class Column(Generic[T]):
     def not_in(self, value: object) -> Expression[bool]:
         return self.operate("not_in", value)
 
+    def is_(self, value: object) -> Expression[bool]:
+        return self.operate("is_", value)
+
+    def is_not(self, value: object) -> Expression[bool]:
+        return self.operate("is_not", value)
+
     def contains(self, value: object) -> Expression[bool]:
         return self.operate("contains", value)
+
+    def icontains(self, value: object) -> Expression[bool]:
+        return self.operate("icontains", value)
 
     def not_contains(self, value: object) -> Expression[bool]:
         return self.operate("not_contains", value)
@@ -222,8 +239,26 @@ class Column(Generic[T]):
     def starts_with(self, value: str) -> Expression[bool]:
         return self.operate("starts_with", value)
 
+    def istartswith(self, value: str) -> Expression[bool]:
+        return self.operate("istartswith", value)
+
     def ends_with(self, value: str) -> Expression[bool]:
         return self.operate("ends_with", value)
+
+    def iendswith(self, value: str) -> Expression[bool]:
+        return self.operate("iendswith", value)
+
+    def not_ilike(self, value: str) -> Expression[bool]:
+        return self.operate("not_ilike", value)
+
+    def between(self, left: object, right: object) -> Expression[bool]:
+        return self.operate("between", (left, right))
+
+    def match(self, value: object) -> Expression[bool]:
+        return self.operate("match", value)
+
+    def regexp_match(self, value: object) -> Expression[bool]:
+        return self.operate("regexp_match", value)
 
     def startswith(self, value: str) -> Expression[bool]:
         return self.starts_with(value)

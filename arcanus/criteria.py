@@ -827,6 +827,7 @@ class Page(BaseModel, Generic[T]):
     model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
 
     items: tuple[T, ...]
+    total: int = 0
     next_cursor: str | None
     has_more: bool
 

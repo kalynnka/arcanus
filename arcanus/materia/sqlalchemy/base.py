@@ -16,7 +16,7 @@ from sqlalchemy.sql.roles import JoinTargetRole
 from sqlalchemy.util import greenlet_spawn
 
 from arcanus.association import Association, DefferedAssociation, RelationGroupMap
-from arcanus.base import Transmuter
+from arcanus.base import Transmuter, TransmuterMetaclass
 from arcanus.criteria import CriteriaValue
 from arcanus.expression import (
     Column,
@@ -40,6 +40,12 @@ def inspect_column(column: Column[Any]) -> Any:
     return inspect(column.native)
 
 
+@_inspects(TransmuterMetaclass)
+def inspect_transmuter_class(transmuter_cls: TransmuterMetaclass) -> Any:
+    provider = transmuter_cls.__transmuter_provider__
+    return inspect(provider) if provider is not None else None
+
+
 @lru_cache(maxsize=None)
 def extract_association_proxies(orm_class: Hashable) -> dict[str, str]:
     """Return ``{proxy_attr_name: target_relationship_name}`` for *orm_class*.
@@ -61,6 +67,14 @@ class SqlalchemyExpressionCompiler(
         self, column: Column[Any], operator: str, value: object
     ) -> SQLCoreOperations[bool]:
         native = cast(SQLCoreOperations[CriteriaValue], column.native)
+        if operator == "is_":
+            return cast(SQLCoreOperations[bool], native.is_(unwrap(value)))
+        if operator == "is_not":
+            return cast(SQLCoreOperations[bool], native.is_not(unwrap(value)))
+        if operator == "between":
+            left, right = cast(tuple[object, object], unwrap(value))
+            return cast(SQLCoreOperations[bool], native.between(left, right))
+
         operation = (
             None if operator == "contains" else getattr(operators, operator, None)
         )

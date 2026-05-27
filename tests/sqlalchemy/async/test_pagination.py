@@ -60,6 +60,7 @@ class TestAsyncCursorPagination:
             )
             first_page = Page(
                 items=tuple(first_items),
+                total=total,
                 next_cursor=str(first_cursor),
                 has_more=total > len(first_items),
             )
@@ -87,16 +88,19 @@ class TestAsyncCursorPagination:
             )
             second_page = Page(
                 items=tuple(second_items),
+                total=total,
                 next_cursor=str(first_cursor),
                 has_more=total > len(first_page) + len(second_items),
             )
 
             assert total == 4
+            assert first_page.total == 4
             assert [author.name for author in first_page] == [
                 "Async Cursor Page A",
                 "Async Cursor Page B",
             ]
             assert first_page.has_more is True
+            assert second_page.total == 4
             assert [author.name for author in second_page] == [
                 "Async Cursor Page C",
                 "Async Cursor Page D",
@@ -331,6 +335,12 @@ class TestAsyncCursorPagination:
                 order_bys=orders,
                 expressions=next_expressions,
             )
+            next_page = Page(
+                items=tuple(next_list_items),
+                total=total,
+                next_cursor=str(cursor),
+                has_more=total > len(first_items) + len(next_list_items),
+            )
             next_partition_items = [
                 item
                 async for partition in session.partitions(
@@ -344,13 +354,15 @@ class TestAsyncCursorPagination:
             ]
 
             assert total == 2
+            assert next_page.total == 2
+            assert next_page.has_more is False
             assert decoded.criteria is not None
             assert decoded.criteria.expression is not None
             assert decoded.criteria.expression.dump() == criteria_expression.dump()
             assert decoded.payload.limit == limit
             assert decoded.payload.order_by == ("+id",)
             assert [book.title for book in first_items] == ["Async Rel Cursor Match A"]
-            assert [book.title for book in next_list_items] == [
+            assert [book.title for book in next_page] == [
                 "Async Rel Cursor Next B"
             ]
             assert [book.title for book in next_partition_items] == [

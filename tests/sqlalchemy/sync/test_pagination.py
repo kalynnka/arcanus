@@ -55,6 +55,7 @@ class TestCursorPagination:
             )
             first_page = Page(
                 items=tuple(first_items),
+                total=total,
                 next_cursor=str(first_cursor),
                 has_more=total > len(first_items),
             )
@@ -82,16 +83,19 @@ class TestCursorPagination:
             )
             second_page = Page(
                 items=tuple(second_items),
+                total=total,
                 next_cursor=str(first_cursor),
                 has_more=total > len(first_page) + len(second_items),
             )
 
             assert total == 4
+            assert first_page.total == 4
             assert [author.name for author in first_page] == [
                 "Cursor Page A",
                 "Cursor Page B",
             ]
             assert first_page.has_more is True
+            assert second_page.total == 4
             assert [author.name for author in second_page] == [
                 "Cursor Page C",
                 "Cursor Page D",
@@ -227,10 +231,12 @@ class TestCursorPagination:
             )
             first_page = Page(
                 items=tuple(first_items),
+                total=session.count(Author, expressions=[criteria_expression]),
                 next_cursor=str(cursor),
                 has_more=True,
             )
 
+            assert first_page.total == 4
             assert first_page.next_cursor is not None
             decoded = Cursor[Author](first_page.next_cursor)
             assert decoded.criteria is not None
@@ -425,6 +431,12 @@ class TestCursorPagination:
                 order_bys=orders,
                 expressions=next_expressions,
             )
+            next_page = Page(
+                items=tuple(next_list_items),
+                total=total,
+                next_cursor=str(cursor),
+                has_more=total > len(first_items) + len(next_list_items),
+            )
             next_partition_items = [
                 item
                 for partition in session.partitions(
@@ -438,13 +450,15 @@ class TestCursorPagination:
             ]
 
             assert total == 2
+            assert next_page.total == 2
+            assert next_page.has_more is False
             assert decoded.criteria is not None
             assert decoded.criteria.expression is not None
             assert decoded.criteria.expression.dump() == criteria_expression.dump()
             assert decoded.payload.limit == limit
             assert decoded.payload.order_by == ("+id",)
             assert [book.title for book in first_items] == ["Rel Cursor Match A"]
-            assert [book.title for book in next_list_items] == ["Rel Cursor Next B"]
+            assert [book.title for book in next_page] == ["Rel Cursor Next B"]
             assert [book.title for book in next_partition_items] == [
                 "Rel Cursor Next B"
             ]

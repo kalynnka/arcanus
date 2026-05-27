@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, inspect, select
+from sqlalchemy.orm import selectin_polymorphic as sqlalchemy_selectin_polymorphic
 from sqlalchemy.orm import selectinload as sqlalchemy_selectinload
 from sqlalchemy.orm.strategy_options import _AbstractLoad
 
@@ -16,12 +17,23 @@ from arcanus.materia.sqlalchemy import (
     load_only,
     noload,
     raiseload,
+    selectin_polymorphic,
     selectinload,
     subqueryload,
     undefer,
 )
 from arcanus.materia.sqlalchemy.options import attributes
-from tests.transmuters import Author, Book, BookDetail, Category, Publisher
+from tests.transmuters import (
+    Author,
+    Book,
+    BookDetail,
+    Category,
+    Gallery,
+    ImageMedia,
+    MediaItem,
+    Publisher,
+    VideoMedia,
+)
 
 
 def test_attributes_unwraps_arcanus_columns_and_preserves_native_attributes():
@@ -58,6 +70,63 @@ def test_loader_option_wrappers_accept_native_sqlalchemy_attributes():
     ]
 
     assert all(isinstance(option, _AbstractLoad) for option in options)
+
+
+def test_sqlalchemy_inspects_registered_transmuter_classes():
+    assert inspect(MediaItem).class_ is MediaItem.__transmuter_provider__
+
+
+def test_selectin_polymorphic_wrapper_accepts_transmuters(engine: Engine):
+    image_name = "options_poly_img.png"
+    video_name = "options_poly_vid.mp4"
+
+    with Session(engine) as session:
+        gallery = Gallery(name="Options Polymorphic Gallery")
+        gallery.media["image"] = ImageMedia(
+            slot="image", name=image_name, width=1024, height=768
+        )
+        gallery.media["video"] = VideoMedia(
+            slot="video", name=video_name, duration=60.0
+        )
+        session.add(gallery)
+        session.flush()
+
+        items = session.scalars(
+            select(MediaItem)
+            .options(selectin_polymorphic(MediaItem, [ImageMedia, VideoMedia]))
+            .where(MediaItem["name"].in_((image_name, video_name)))
+            .order_by(MediaItem["name"])
+        ).all()
+
+        assert [type(item) for item in items] == [ImageMedia, VideoMedia]
+        assert [item.name for item in items] == [image_name, video_name]
+
+
+def test_original_sqlalchemy_selectin_polymorphic_uses_inspection_hook(
+    engine: Engine,
+):
+    image_name = "options_native_poly_img.png"
+    video_name = "options_native_poly_vid.mp4"
+
+    with Session(engine) as session:
+        gallery = Gallery(name="Options Native Polymorphic Gallery")
+        gallery.media["image"] = ImageMedia(
+            slot="image", name=image_name, width=512, height=384
+        )
+        gallery.media["video"] = VideoMedia(
+            slot="video", name=video_name, duration=30.0
+        )
+        session.add(gallery)
+        session.flush()
+
+        items = session.scalars(
+            select(MediaItem)
+            .options(sqlalchemy_selectin_polymorphic(cast(Any, MediaItem), [ImageMedia]))
+            .where(MediaItem["name"].in_((image_name, video_name)))
+            .order_by(MediaItem["name"])
+        ).all()
+
+        assert [type(item) for item in items] == [ImageMedia, VideoMedia]
 
 
 def test_chained_loader_options_accept_columns():

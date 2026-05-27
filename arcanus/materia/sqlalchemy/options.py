@@ -1,24 +1,13 @@
 # pyright: reportIncompatibleMethodOverride=false
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal, Self, overload, cast
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Self, overload, cast
 
-from sqlalchemy.orm import (
-    contains_eager as sqlalchemy_contains_eager,
-    defaultload as sqlalchemy_defaultload,
-    defer as sqlalchemy_defer,
-    joinedload as sqlalchemy_joinedload,
-    lazyload as sqlalchemy_lazyload,
-    load_only as sqlalchemy_load_only,
-    noload as sqlalchemy_noload,
-    raiseload as sqlalchemy_raiseload,
-    selectinload as sqlalchemy_selectinload,
-    subqueryload as sqlalchemy_subqueryload,
-    undefer as sqlalchemy_undefer,
-)
+from sqlalchemy import orm
 from sqlalchemy.orm.attributes import QueryableAttribute
 from sqlalchemy.orm.strategy_options import _AbstractLoad
 
+from arcanus.base import Transmuter
 from arcanus.expression import Column
 
 NativeLoadAttribute = Literal["*"] | QueryableAttribute[Any]
@@ -164,7 +153,7 @@ def contains_eager(*keys: LoadAttribute, **kwargs: Any) -> LoadOption: ...
 
 
 def contains_eager(*keys: LoadAttribute, **kwargs: Any) -> LoadOption:
-    return cast(LoadOption, sqlalchemy_contains_eager(*attributes(keys), **kwargs))
+    return cast(LoadOption, orm.contains_eager(*attributes(keys), **kwargs))
 
 
 @overload
@@ -180,7 +169,7 @@ def defaultload(*keys: LoadAttribute) -> LoadOption: ...
 
 
 def defaultload(*keys: LoadAttribute) -> LoadOption:
-    return cast(LoadOption, sqlalchemy_defaultload(*attributes(keys)))
+    return cast(LoadOption, orm.defaultload(*attributes(keys)))
 
 
 @overload
@@ -208,7 +197,7 @@ def defer(
 ) -> LoadOption:
     return cast(
         LoadOption,
-        sqlalchemy_defer(*attributes((key, *addl_attrs)), raiseload=raiseload),
+        orm.defer(*attributes((key, *addl_attrs)), raiseload=raiseload),
     )
 
 
@@ -225,7 +214,7 @@ def joinedload(*keys: LoadAttribute, **kwargs: Any) -> LoadOption: ...
 
 
 def joinedload(*keys: LoadAttribute, **kwargs: Any) -> LoadOption:
-    return cast(LoadOption, sqlalchemy_joinedload(*attributes(keys), **kwargs))
+    return cast(LoadOption, orm.joinedload(*attributes(keys), **kwargs))
 
 
 @overload
@@ -241,7 +230,7 @@ def lazyload(*keys: LoadAttribute) -> LoadOption: ...
 
 
 def lazyload(*keys: LoadAttribute) -> LoadOption:
-    return cast(LoadOption, sqlalchemy_lazyload(*attributes(keys)))
+    return cast(LoadOption, orm.lazyload(*attributes(keys)))
 
 
 @overload
@@ -257,9 +246,7 @@ def load_only(*attrs: LoadAttribute, raiseload: bool = False) -> LoadOption: ...
 
 
 def load_only(*attrs: LoadAttribute, raiseload: bool = False) -> LoadOption:
-    return cast(
-        LoadOption, sqlalchemy_load_only(*attributes(attrs), raiseload=raiseload)
-    )
+    return cast(LoadOption, orm.load_only(*attributes(attrs), raiseload=raiseload))
 
 
 @overload
@@ -275,7 +262,7 @@ def noload(*keys: LoadAttribute) -> LoadOption: ...
 
 
 def noload(*keys: LoadAttribute) -> LoadOption:
-    return cast(LoadOption, sqlalchemy_noload(*attributes(keys)))
+    return cast(LoadOption, orm.noload(*attributes(keys)))
 
 
 @overload
@@ -291,7 +278,7 @@ def raiseload(*keys: LoadAttribute, **kwargs: Any) -> LoadOption: ...
 
 
 def raiseload(*keys: LoadAttribute, **kwargs: Any) -> LoadOption:
-    return cast(LoadOption, sqlalchemy_raiseload(*attributes(keys), **kwargs))
+    return cast(LoadOption, orm.raiseload(*attributes(keys), **kwargs))
 
 
 @overload
@@ -317,7 +304,35 @@ def selectinload(
 ) -> LoadOption:
     return cast(
         LoadOption,
-        sqlalchemy_selectinload(*attributes(keys), recursion_depth=recursion_depth),
+        orm.selectinload(*attributes(keys), recursion_depth=recursion_depth),
+    )
+
+
+@overload
+def selectin_polymorphic(
+    base_cls: type[Transmuter], classes: Iterable[type[Transmuter]]
+) -> LoadOption: ...
+
+
+@overload
+def selectin_polymorphic(
+    base_cls: type[Any], classes: Iterable[type[Any]]
+) -> LoadOption: ...
+
+
+def selectin_polymorphic(
+    base_cls: type[Any], classes: Iterable[type[Any]]
+) -> LoadOption:
+    base_provider = cast(
+        type[Any], getattr(base_cls, "__transmuter_provider__", None) or base_cls
+    )
+    class_providers = tuple(
+        cast(type[Any], getattr(cls, "__transmuter_provider__", None) or cls)
+        for cls in classes
+    )
+    return cast(
+        LoadOption,
+        orm.selectin_polymorphic(base_provider, class_providers),
     )
 
 
@@ -334,7 +349,7 @@ def subqueryload(*keys: LoadAttribute) -> LoadOption: ...
 
 
 def subqueryload(*keys: LoadAttribute) -> LoadOption:
-    return cast(LoadOption, sqlalchemy_subqueryload(*attributes(keys)))
+    return cast(LoadOption, orm.subqueryload(*attributes(keys)))
 
 
 @overload
@@ -352,4 +367,4 @@ def undefer(key: LoadAttribute, *addl_attrs: LoadAttribute) -> LoadOption: ...
 
 
 def undefer(key: LoadAttribute, *addl_attrs: LoadAttribute) -> LoadOption:
-    return cast(LoadOption, sqlalchemy_undefer(*attributes((key, *addl_attrs))))
+    return cast(LoadOption, orm.undefer(*attributes((key, *addl_attrs))))

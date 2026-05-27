@@ -151,8 +151,17 @@ def test_expression_all_scalar_operator_dumps():
             Author["id"] != 2,
             Author["id"] <= 3,
             Author["id"] > 4,
+            Author["name"].is_(None),
+            Author["name"].is_not(None),
             Author["name"].ilike("%ada%"),
+            Author["name"].not_ilike("%bot%"),
             Author["name"].not_contains("bot"),
+            Author["name"].icontains("ada"),
+            Author["name"].istartswith("ada"),
+            Author["name"].iendswith("lovelace"),
+            Author["id"].between(1, 10),
+            Author["name"].match("ada"),
+            Author["name"].regexp_match("^A"),
         ]
 
     assert [expression.dump() for expression in expressions] == [
@@ -160,8 +169,17 @@ def test_expression_all_scalar_operator_dumps():
         {"id": {"ne": 2}},
         {"id": {"le": 3}},
         {"id": {"gt": 4}},
+        {"name": {"is_": None}},
+        {"name": {"is_not": None}},
         {"name": {"ilike": "%ada%"}},
+        {"name": {"not_ilike": "%bot%"}},
         {"name": {"not_contains": "bot"}},
+        {"name": {"icontains": "ada"}},
+        {"name": {"istartswith": "ada"}},
+        {"name": {"iendswith": "lovelace"}},
+        {"id": {"between": [1, 10]}},
+        {"name": {"match": "ada"}},
+        {"name": {"regexp_match": "^A"}},
     ]
 
 
@@ -181,6 +199,23 @@ def test_expression_compiler_rejects_unsupported_operator():
 
         with pytest.raises(ValueError, match="Unsupported expression operator"):
             expression()
+
+
+def test_expression_compiler_supports_extended_sqlalchemy_operators():
+    with sqlalchemy_materia:
+        expressions = [
+            Author["name"].is_not(None),
+            Author["id"].between(1, 10),
+            Author["name"].not_ilike("%bot%"),
+            Author["name"].icontains("ada"),
+            Author["name"].istartswith("ada"),
+            Author["name"].iendswith("lovelace"),
+            Author["name"].match("ada"),
+            Author["name"].regexp_match("^A"),
+        ]
+        compiled = [expression() for expression in expressions]
+
+    assert len(compiled) == len(expressions)
 
 
 def test_expression_compiler_rejects_malformed_expression():

@@ -522,9 +522,10 @@ def test_cursor_validation_rejects_bad_version_and_missing_bookmark():
 
 
 def test_page_unwraps_items_like_a_tuple():
-    page = Page(items=("a", "b", "c"), next_cursor="next", has_more=True)
+    page = Page(items=("a", "b", "c"), total=9, next_cursor="next", has_more=True)
 
     assert page
+    assert page.total == 9
     assert len(page) == 3
     assert page[0] == "a"
     assert page[1:] == ("b", "c")
@@ -539,6 +540,7 @@ def test_empty_page_is_false_and_has_no_cursor():
     page = Page[str](items=(), next_cursor=None, has_more=False)
 
     assert not page
+    assert page.total == 0
     assert len(page) == 0
     assert list(page) == []
     assert page.next_cursor is None
