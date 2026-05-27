@@ -362,9 +362,7 @@ class TestAsyncCursorPagination:
             assert decoded.payload.limit == limit
             assert decoded.payload.order_by == ("+id",)
             assert [book.title for book in first_items] == ["Async Rel Cursor Match A"]
-            assert [book.title for book in next_page] == [
-                "Async Rel Cursor Next B"
-            ]
+            assert [book.title for book in next_page] == ["Async Rel Cursor Next B"]
             assert [book.title for book in next_partition_items] == [
                 "Async Rel Cursor Next B"
             ]

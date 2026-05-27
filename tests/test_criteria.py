@@ -73,12 +73,8 @@ def test_nested_cursor_round_trips_relationship_criteria():
         restored = NestedCursor[Author](str(cursor))
 
     assert restored.criteria is not None
-    dumped = restored.criteria.model_dump(
-        mode="json", by_alias=True, exclude_none=True
-    )
-    assert dumped == {
-        "books": {"title": {"eq": "Notes"}}
-    }
+    dumped = restored.criteria.model_dump(mode="json", by_alias=True, exclude_none=True)
+    assert dumped == {"books": {"title": {"eq": "Notes"}}}
     assert restored.limit == 10
     assert restored.bookmark.order_by == ("-id",)
 
@@ -204,27 +200,27 @@ def test_criteria_expression_property_returns_arcanus_expression():
 
 def test_criteria_json_schema_uses_recursive_objects_for_logical_fields():
     schema = Criteria[Author].model_json_schema(by_alias=True)
-    definition = schema['$defs']['Criteria_Author_']
+    definition = schema["$defs"]["Criteria_Author_"]
 
-    assert definition['properties']['and']['anyOf'][0]['items'] == {
-        '$ref': '#/$defs/Criteria_Author_'
+    assert definition["properties"]["and"]["anyOf"][0]["items"] == {
+        "$ref": "#/$defs/Criteria_Author_"
     }
-    assert definition['properties']['or']['anyOf'][0]['items'] == {
-        '$ref': '#/$defs/Criteria_Author_'
+    assert definition["properties"]["or"]["anyOf"][0]["items"] == {
+        "$ref": "#/$defs/Criteria_Author_"
     }
-    assert definition['properties']['not']['anyOf'][0] == {
-        '$ref': '#/$defs/Criteria_Author_'
+    assert definition["properties"]["not"]["anyOf"][0] == {
+        "$ref": "#/$defs/Criteria_Author_"
     }
-    and_example = definition['properties']['and']['examples'][0][0]['test_id']
-    or_example = definition['properties']['or']['examples'][0][1]['id']
-    not_example = definition['properties']['not']['examples'][0]['test_id']
+    and_example = definition["properties"]["and"]["examples"][0][0]["test_id"]
+    or_example = definition["properties"]["or"]["examples"][0][1]["id"]
+    not_example = definition["properties"]["not"]["examples"][0]["test_id"]
 
-    assert and_example['eq'] == '3fa85f64-5717-4562-b3fc-2c963f66afa6'
-    assert and_example['in'] == ['3fa85f64-5717-4562-b3fc-2c963f66afa6']
-    assert and_example['lt'] == '3fa85f64-5717-4562-b3fc-2c963f66afa6'
-    assert or_example['ne'] == 1
-    assert or_example['not_in'] == [1]
-    assert not_example['ge'] == '3fa85f64-5717-4562-b3fc-2c963f66afa6'
+    assert and_example["eq"] == "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+    assert and_example["in"] == ["3fa85f64-5717-4562-b3fc-2c963f66afa6"]
+    assert and_example["lt"] == "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+    assert or_example["ne"] == 1
+    assert or_example["not_in"] == [1]
+    assert not_example["ge"] == "3fa85f64-5717-4562-b3fc-2c963f66afa6"
 
 
 def test_cursor_payload_bookmark_is_separate_from_paged_criteria():

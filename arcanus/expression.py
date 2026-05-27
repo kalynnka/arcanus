@@ -110,7 +110,9 @@ def not_(expression: Expression[bool]) -> Expression[bool]:
     return Expression(kind="not", expressions=(expression,))
 
 
-def any_(column: Column[Any], value: Expression[bool] | None = None) -> Expression[bool]:
+def any_(
+    column: Column[Any], value: Expression[bool] | None = None
+) -> Expression[bool]:
     return Expression(kind="any", column=column, value=value)
 
 
@@ -318,15 +320,11 @@ class Expression(Generic[T]):
         if self.kind == "any":
             if self.column is None:
                 raise ValueError("Any expression requires a column")
-            return compiler.any_(
-                self.column, cast(Expression[bool] | None, self.value)
-            )
+            return compiler.any_(self.column, cast(Expression[bool] | None, self.value))
         if self.kind == "has":
             if self.column is None:
                 raise ValueError("Has expression requires a column")
-            return compiler.has(
-                self.column, cast(Expression[bool] | None, self.value)
-            )
+            return compiler.has(self.column, cast(Expression[bool] | None, self.value))
 
         if self.kind == "and":
             return compiler.and_(

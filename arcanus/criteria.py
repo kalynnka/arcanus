@@ -44,7 +44,9 @@ T = TypeVar("T")
 S = TypeVar("S", bound=str)
 N = TypeVar("N", bound=float | int | UUID | datetime | bool)
 CriteriaValue = str | UUID | int | float | bool | datetime
-CriteriaValueType = type[str] | type[UUID] | type[int] | type[float] | type[bool] | type[datetime]
+CriteriaValueType = (
+    type[str] | type[UUID] | type[int] | type[float] | type[bool] | type[datetime]
+)
 CriteriaExampleValue = str | int | float | bool
 CriteriaExample = dict[str, CriteriaExampleValue | list[CriteriaExampleValue]]
 
@@ -371,9 +373,7 @@ class Criteria(ModelGeneric[P]):
             else []
         )
         single_example = (
-            {first_example[0]: first_example[1]}
-            if first_example is not None
-            else {}
+            {first_example[0]: first_example[1]} if first_example is not None else {}
         )
         and_examples = cast(Any, [and_example])
         single_examples = cast(Any, [single_example])
@@ -460,11 +460,7 @@ class Criteria(ModelGeneric[P]):
 
         if not expressions:
             return None
-        return (
-            expressions[0]
-            if len(expressions) == 1
-            else and_(expressions)
-        )
+        return expressions[0] if len(expressions) == 1 else and_(expressions)
 
 
 class NestedCriteria(Criteria[P]):

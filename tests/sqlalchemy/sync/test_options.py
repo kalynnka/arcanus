@@ -121,7 +121,9 @@ def test_original_sqlalchemy_selectin_polymorphic_uses_inspection_hook(
 
         items = session.scalars(
             select(MediaItem)
-            .options(sqlalchemy_selectin_polymorphic(cast(Any, MediaItem), [ImageMedia]))
+            .options(
+                sqlalchemy_selectin_polymorphic(cast(Any, MediaItem), [ImageMedia])
+            )
             .where(MediaItem["name"].in_((image_name, video_name)))
             .order_by(MediaItem["name"])
         ).all()
