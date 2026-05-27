@@ -140,7 +140,9 @@ def test_nested_cursor_round_trips_scalar_and_relationship_criteria():
         restored = NestedCursor[Author](str(cursor))
 
     assert restored.criteria is not None
-    assert restored.criteria.model_dump(mode="json", by_alias=True, exclude_none=True) == {
+    assert restored.criteria.model_dump(
+        mode="json", by_alias=True, exclude_none=True
+    ) == {
         "and": [
             {"name": {"eq": "Ada"}},
             {"books": {"title": {"eq": "Notes"}}},
