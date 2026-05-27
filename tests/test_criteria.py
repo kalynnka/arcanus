@@ -60,6 +60,53 @@ def test_nested_criteria_accepts_one_layer_relationship_criteria():
     }
 
 
+def test_nested_criteria_bool_branches_accept_one_layer_relationships():
+    criteria_model = NestedCriteria[Author]
+
+    criteria = criteria_model.model_validate(
+        {
+            "and": [
+                {"name": {"eq": "Ada"}},
+                {"books": {"title": {"eq": "Notes"}}},
+            ],
+        }
+    )
+
+    assert criteria.model_dump(mode="json", by_alias=True, exclude_none=True) == {
+        "and": [
+            {"name": {"eq": "Ada"}},
+            {"books": {"title": {"eq": "Notes"}}},
+        ]
+    }
+    with sqlalchemy_materia:
+        expression = criteria.expression
+
+    assert expression is not None
+    assert expression.dump() == {
+        "and": [
+            {"name": {"eq": "Ada"}},
+            {"books": {"title": {"eq": "Notes"}}},
+        ]
+    }
+
+
+def test_nested_criteria_bool_branches_keep_deeper_logic_scalar():
+    criteria_model = NestedCriteria[Author]
+
+    with pytest.raises(ValidationError):
+        criteria_model.model_validate(
+            {
+                "and": [
+                    {
+                        "and": [
+                            {"books": {"title": {"eq": "Notes"}}},
+                        ]
+                    },
+                ],
+            }
+        )
+
+
 def test_nested_cursor_round_trips_relationship_criteria():
     with sqlalchemy_materia:
         bookmark = CursorBookmark[Author].from_expression(
@@ -77,6 +124,28 @@ def test_nested_cursor_round_trips_relationship_criteria():
     assert dumped == {"books": {"title": {"eq": "Notes"}}}
     assert restored.limit == 10
     assert restored.bookmark.order_by == ("-id",)
+
+
+def test_nested_cursor_round_trips_scalar_and_relationship_criteria():
+    with sqlalchemy_materia:
+        bookmark = CursorBookmark[Author].from_expression(
+            order_bys=(Author["id"].desc(),)
+        )
+        cursor = NestedCursor[Author].from_expression(
+            expression=(Author["name"] == "Ada")
+            & Author["books"].any(Book["title"] == "Notes"),
+            bookmark=bookmark,
+            limit=10,
+        )
+        restored = NestedCursor[Author](str(cursor))
+
+    assert restored.criteria is not None
+    assert restored.criteria.model_dump(mode="json", by_alias=True, exclude_none=True) == {
+        "and": [
+            {"name": {"eq": "Ada"}},
+            {"books": {"title": {"eq": "Notes"}}},
+        ]
+    }
 
 
 def test_criteria_generics_require_transmuter_types():

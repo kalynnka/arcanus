@@ -346,7 +346,7 @@ class Transmuter(metaclass=TransmuterTypingMetaclass):
                     model_fields[name].alias or name: getattr(instance, name)
                     for name in cls.__pydantic_fields__.keys()
                     - cls.model_associations.keys()
-                    if model_fields[name].exclude
+                    if model_fields[name].exclude and not model_fields[name].frozen
                 }
                 provided = provider(**included, **excluded)
                 provided.transmuter_proxy = instance
@@ -798,6 +798,7 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
                     for name in cls.__pydantic_fields__.keys()
                     - cls.model_associations.keys()
                     if pydantic_fields[name].exclude
+                    and not pydantic_fields[name].frozen
                 }
                 provided = provider(**included, **excluded)
                 provided.transmuter_proxy = instance

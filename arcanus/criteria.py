@@ -463,7 +463,7 @@ class Criteria(ModelGeneric[P]):
         return expressions[0] if len(expressions) == 1 else and_(expressions)
 
 
-class NestedCriteria(Criteria[P]):
+class NestedCriteriaBranch(Criteria[P]):
     @classmethod
     def __get_generic_model_field_definitions__(
         cls, generic_model: TransmuterType
@@ -533,6 +533,31 @@ class NestedCriteria(Criteria[P]):
         if not expressions:
             return None
         return expressions[0] if len(expressions) == 1 else and_(expressions)
+
+
+class NestedCriteria(NestedCriteriaBranch[P]):
+    @classmethod
+    def __get_generic_model_field_definitions__(
+        cls, generic_model: TransmuterType
+    ) -> dict[str, Any]:
+        fields = super().__get_generic_model_field_definitions__(generic_model)
+        branch_model = cast(
+            type[NestedCriteriaBranch[P]],
+            cast(Any, NestedCriteriaBranch)[generic_model],
+        )
+        fields["and_"] = (
+            tuple.__class_getitem__((branch_model, ...)) | None,
+            Field(default=None, alias="and"),
+        )
+        fields["or_"] = (
+            tuple.__class_getitem__((branch_model, ...)) | None,
+            Field(default=None, alias="or"),
+        )
+        fields["not_"] = (
+            branch_model | None,
+            Field(default=None, alias="not"),
+        )
+        return fields
 
 
 class Ordering(RootModel[tuple[str, ...]], Generic[P]):
