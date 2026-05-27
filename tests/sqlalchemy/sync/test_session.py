@@ -873,6 +873,60 @@ class TestSessionHelpers:
                 author.name for author in manual_results
             ]
 
+    def test_list_with_text_range_criteria(self, engine: Engine):
+        """Text criteria range operators compile through SQLAlchemy string columns."""
+        criteria_model = Criteria[Author]
+        payload = {
+            "name": {"gt": "Text Range B", "le": "Text Range G"},
+            "field": {"eq": "Astronomy"},
+        }
+        orders = (Author["name"].asc(),)
+
+        with Session(engine) as session:
+            session.add_all(
+                [
+                    Author(name="Text Range A", field="Astronomy"),
+                    Author(name="Text Range C", field="Astronomy"),
+                    Author(name="Text Range G", field="Astronomy"),
+                    Author(name="Text Range Z", field="Astronomy"),
+                    Author(name="Text Range C", field="Robotics"),
+                ]
+            )
+            session.flush()
+
+            criteria = criteria_model.model_validate(payload)
+            assert criteria.expression is not None
+            criteria_expression = criteria.expression
+            compiled_expression = criteria_expression(
+                sqlalchemy_materia.expression_compiler
+            )
+            compiled_order_bys = tuple(
+                order_by(sqlalchemy_materia.expression_compiler) for order_by in orders
+            )
+
+            manual_results = (
+                session.execute(
+                    select(Author)
+                    .where(compiled_expression)
+                    .order_by(*compiled_order_bys)
+                )
+                .scalars()
+                .all()
+            )
+            list_results = session.list(
+                Author,
+                expressions=[criteria_expression],
+                order_bys=orders,
+            )
+
+            assert [author.name for author in manual_results] == [
+                "Text Range C",
+                "Text Range G",
+            ]
+            assert [author.name for author in list_results] == [
+                author.name for author in manual_results
+            ]
+
     def test_partitions_yields_chunks(self, engine: Engine):
         """Test partitions yields results in chunks."""
         with Session(engine) as session:
