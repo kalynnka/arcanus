@@ -906,7 +906,9 @@ class TestSessionHelpers:
 
             manual_results = (
                 session.execute(
-                    select(Author).where(compiled_expression).order_by(*compiled_order_bys)
+                    select(Author)
+                    .where(compiled_expression)
+                    .order_by(*compiled_order_bys)
                 )
                 .scalars()
                 .all()
