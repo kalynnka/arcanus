@@ -171,9 +171,6 @@ def test_criteria_validation_rejects_wrong_value_types_and_operators():
         criteria_model.model_validate({"id": {"lt": "not-an-int"}})
 
     with pytest.raises(ValidationError):
-        criteria_model.model_validate({"name": {"lt": "Ada"}})
-
-    with pytest.raises(ValidationError):
         criteria_model.model_validate({"and": [{"name": {"like": 123}}]})
 
     with pytest.raises(ValidationError):
@@ -200,6 +197,32 @@ def test_literal_fields_use_exact_value_criteria():
 
     with pytest.raises(ValidationError):
         criteria_model.model_validate({"field": {"eq": "Painting"}})
+
+
+def test_text_criteria_accepts_range_operators():
+    criteria_model = Criteria[Author]
+
+    criteria = criteria_model.model_validate(
+        {"name": {"lt": "Grace", "le": "Grace", "gt": "Ada", "ge": "Ada"}}
+    )
+    name_criteria: TextCriteria[str] | None = getattr(criteria, "name")
+
+    assert name_criteria is not None
+    assert name_criteria.lt == "Grace"
+    assert name_criteria.le == "Grace"
+    assert name_criteria.gt == "Ada"
+    assert name_criteria.ge == "Ada"
+    with sqlalchemy_materia:
+        expression = criteria.expression
+    assert expression is not None
+    assert expression.dump() == {
+        "and": [
+            {"name": {"lt": "Grace"}},
+            {"name": {"le": "Grace"}},
+            {"name": {"gt": "Ada"}},
+            {"name": {"ge": "Ada"}},
+        ]
+    }
 
 
 def test_criteria_validation_accepts_nested_logical_fields():
