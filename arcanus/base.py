@@ -332,23 +332,20 @@ class Transmuter(metaclass=TransmuterTypingMetaclass):
             # Normal validation
             instance: Self = handler(data)
             if provider is not None:
-                model_fields = cls.__pydantic_fields__
-                excludes = set(cls.model_associations.keys()) | set(
+                skipped_fields = set(cls.model_associations.keys()) | set(
                     getattr(cls, "__pydantic_computed_fields__", {}).keys()
                 )
-                if isinstance(instance, BaseModel):
-                    included = instance.model_dump(exclude=excludes, by_alias=True)
-                else:
-                    included = get_cached_adapter(cls).dump_python(
-                        instance, exclude=excludes, by_alias=True
-                    )
-                excluded = {
-                    model_fields[name].alias or name: getattr(instance, name)
-                    for name in cls.__pydantic_fields__.keys()
-                    - cls.model_associations.keys()
-                    if model_fields[name].exclude
-                }
-                provided = provider(**included, **excluded)
+                provider_values: dict[str, Any] = {}
+                for name, field_info in cls.__pydantic_fields__.items():
+                    if name in skipped_fields:
+                        continue
+                    try:
+                        provider_values[field_info.alias or name] = getattr(
+                            instance, name
+                        )
+                    except AttributeError:
+                        continue
+                provided = provider(**provider_values)
                 provided.transmuter_proxy = instance
                 object.__setattr__(instance, "__transmuter_provided__", provided)
                 object.__setattr__(instance, "__transmuter_revalidating__", False)
@@ -783,23 +780,20 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
             instance = super().model_construct(_fields_set=_fields_set, **inputs)
 
             if provider is not None:
-                pydantic_fields = cls.__pydantic_fields__
-                excludes = set(cls.model_associations.keys()) | set(
+                skipped_fields = set(cls.model_associations.keys()) | set(
                     getattr(cls, "__pydantic_computed_fields__", {}).keys()
                 )
-                if isinstance(instance, BaseModel):
-                    included = instance.model_dump(exclude=excludes, by_alias=True)
-                else:
-                    included = get_cached_adapter(cls).dump_python(
-                        instance, exclude=excludes, by_alias=True
-                    )
-                excluded = {
-                    pydantic_fields[name].alias or name: getattr(instance, name)
-                    for name in cls.__pydantic_fields__.keys()
-                    - cls.model_associations.keys()
-                    if pydantic_fields[name].exclude
-                }
-                provided = provider(**included, **excluded)
+                provider_values: dict[str, Any] = {}
+                for name, field_info in cls.__pydantic_fields__.items():
+                    if name in skipped_fields:
+                        continue
+                    try:
+                        provider_values[field_info.alias or name] = getattr(
+                            instance, name
+                        )
+                    except AttributeError:
+                        continue
+                provided = provider(**provider_values)
                 provided.transmuter_proxy = instance
                 object.__setattr__(instance, "__transmuter_provided__", provided)
                 object.__setattr__(instance, "__transmuter_revalidating__", False)
