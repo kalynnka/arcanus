@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Generic, TypeVar
 
 import pytest
 from pydantic import BaseModel, Field, ValidationError, field_validator
@@ -28,6 +28,8 @@ from arcanus.association import (
 )
 from arcanus.base import BaseTransmuter, Identity
 from tests.transmuters import Author, Book, Publisher, Review
+
+T = TypeVar("T")
 
 
 # Regular Pydantic BaseModel for testing nested compatibility
@@ -1593,3 +1595,17 @@ class TestModelComparison:
         publisher = Publisher(id=1, name="Test", country="USA")
 
         assert author != publisher
+
+
+class TestGenericTransmuter:
+    """Test Pydantic generic behavior on transmuters."""
+
+    def test_class_getitem_still_handles_type_parameters(self):
+        class Box(BaseTransmuter, Generic[T]):
+            value: T
+
+        typed_box = Box[int]
+
+        assert typed_box.model_validate({"value": 1}).value == 1
+        with pytest.raises(ValidationError):
+            typed_box.model_validate({"value": "not an int"})

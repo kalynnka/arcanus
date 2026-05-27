@@ -15,9 +15,8 @@ descriptors are:
 from __future__ import annotations
 
 from sqlalchemy import Engine, select
-from sqlalchemy.orm import raiseload, selectinload
 
-from arcanus.materia.sqlalchemy import Session
+from arcanus.materia.sqlalchemy import Session, raiseload, selectinload
 from tests.models import BlogAuthor as BlogAuthorModel
 from tests.models import BlogPost as BlogPostModel
 from tests.models import BlogTag as BlogTagModel

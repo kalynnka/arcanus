@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "arcanus"
-version = "0.0.18"
+version = "0.0.19"
 description = "Sticker to bind pydantic schemas with various datasources"
 authors = [
     {name = "arcanus", email = "luhui19970305@hotmail.com"},
@@ -69,6 +69,7 @@ dev = [
     "asyncpg>=0.30.0",
     # Redis test double — not a runtime dep
     "fakeredis>=2.0.0",
+    "pyright>=1.1.409",
 ]
 
 [tool.ruff]

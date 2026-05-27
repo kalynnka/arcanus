@@ -14,9 +14,8 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import Engine, select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
-from sqlalchemy.orm import selectinload
 
-from arcanus.materia.sqlalchemy import Session
+from arcanus.materia.sqlalchemy import Session, selectinload
 from tests.transmuters import Author, Book, Category, Publisher
 
 
@@ -335,8 +334,8 @@ class TestResultMappings:
 
             row = rows[0]
             # Should be able to access by column
-            assert row[Author["name"]] == "Column Mapping"
-            assert row[Author["field"]] == "History"
+            assert row[Author["name"].native] == "Column Mapping"
+            assert row[Author["field"].native] == "History"
 
     def test_mappings_one(self, engine: Engine):
         """Test mappings().one()."""

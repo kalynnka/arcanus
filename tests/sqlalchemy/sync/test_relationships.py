@@ -17,10 +17,9 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy import Engine, select
 from sqlalchemy.exc import InvalidRequestError
-from sqlalchemy.orm import joinedload, raiseload, selectinload
 
 from arcanus.association import Relation, RelationCollection
-from arcanus.materia.sqlalchemy import Session
+from arcanus.materia.sqlalchemy import Session, joinedload, raiseload, selectinload
 from tests.transmuters import (
     Author,
     Book,

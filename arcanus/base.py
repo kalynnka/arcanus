@@ -13,9 +13,11 @@ from typing import (
     Protocol,
     Self,
     TypeVar,
+    cast,
     dataclass_transform,
     get_origin,
     get_type_hints,
+    overload,
     runtime_checkable,
 )
 from weakref import WeakKeyDictionary, ref
@@ -34,6 +36,7 @@ from pydantic.fields import Field, FieldInfo, PrivateAttr
 from pydantic_core import SchemaValidator
 
 from arcanus.association import Association
+from arcanus.expression import Column
 from arcanus.materia.base import (
     BaseMateria,
     BidirectonDict,
@@ -78,6 +81,26 @@ class TransmuterProxied(Protocol):
     transmuter_proxy: Transmuter | None
 
 
+class TransmuterType(Protocol):
+    __name__: str
+    __module__: str
+    __qualname__: str
+    __pydantic_fields__: dict[str, FieldInfo]
+
+    @property
+    def model_associations(self) -> dict[str, FieldInfo]: ...
+
+    def __getitem__(self, name: str) -> Column[Any]: ...
+
+    def __hash__(self) -> int: ...
+
+
+def transmuter_type(model: object) -> TransmuterType:
+    if isinstance(model, TransmuterMetaclass):
+        return cast(TransmuterType, model)
+    raise TypeError("Criteria generics expect an arcanus transmuter type")
+
+
 class TransmuterProxiedMixin:
     """Mixin for materia provided objects proxied by a transmuter."""
 
@@ -92,11 +115,23 @@ class TransmuterProxiedMixin:
         self._transmuter_proxy = ref(value)
 
 
+class TransmuterTypingMetaclass(type):
+    # Dataclass transmuters need class subscription typing before Pydantic finalizes them.
+    @overload
+    def __getitem__(self, name: str) -> Column[Any]: ...
+
+    @overload
+    def __getitem__(self, name: object) -> Any: ...
+
+    def __getitem__(self, name: object) -> Any:
+        return cast(Any, self).__class_getitem__(name)
+
+
 class Identity:
     """Marker class for identity fields that could not be set in creation and immutable."""
 
 
-class Transmuter:
+class Transmuter(metaclass=TransmuterTypingMetaclass):
     """
     A mixin base providing common transmuter instance methods.
     All the subclasses should use TransmuterMetaclass as their metaclass.
@@ -126,6 +161,37 @@ class Transmuter:
         model_identities: ClassVar[dict[str, FieldInfo]]
         Create: ClassVar[type[BaseModel]]
         Update: ClassVar[type[BaseModel]]
+
+        @classmethod
+        def model_validate(
+            cls: type[Self],
+            obj: Any,
+            *,
+            strict: bool | None = None,
+            extra: Any | None = None,
+            from_attributes: bool | None = None,
+            context: Any | None = None,
+            by_alias: bool | None = None,
+            by_name: bool | None = None,
+        ) -> Self: ...
+
+    @overload
+    @classmethod
+    def __class_getitem__(cls, name: str) -> Column[Any]: ...
+
+    @overload
+    @classmethod
+    def __class_getitem__(cls, name: object) -> Any: ...
+
+    @classmethod
+    def __class_getitem__(cls, name: object) -> Any:
+        if (
+            isinstance(name, str)
+            and isinstance(cls, TransmuterMetaclass)
+            and name in cls.__pydantic_fields__
+        ):
+            return cls._column(name)
+        return BaseModel.__class_getitem__.__func__(cls, name)
 
     def __hash__(self) -> int:
         return id(self)
@@ -338,7 +404,7 @@ class Transmuter:
     kw_only_default=True,
     field_specifiers=(Field, PrivateAttr, NoInitField),
 )
-class TransmuterMetaclass(ModelMetaclass):
+class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
     __transmuter_complete__: bool
     __transmuter_associations__: dict[str, FieldInfo]
     __transmuter_associations_completed__: bool
@@ -459,34 +525,30 @@ class TransmuterMetaclass(ModelMetaclass):
             fields = object.__getattribute__(self, "__pydantic_fields__")
 
             transmuter_name = object.__getattribute__(self, "__name__")
-            if info := fields.get(name):
-                if provider := object.__getattribute__(self, "__transmuter_provider__"):
-                    try:
-                        return object.__getattribute__(provider, info.alias or name)
-                    except AttributeError as inner:
-                        raise AttributeError(
-                            f"Attribute '{name}' (alias: '{info.alias or name}') is not defined in the materia provider for {transmuter_name}. "
-                            f"The provider {provider.__name__} does not have this attribute. "
-                            f"Ensure the provider class includes this attribute definition."
-                        ) from inner
-                else:
-                    materia = object.__getattribute__(self, "__transmuter_materia__")
-                    raise AttributeError(
-                        f"Transmuter {transmuter_name} has not been blessed by the active materia ({materia.__class__.__name__}). "
-                        f"Cannot access attribute '{name}' without a provider. "
-                        f"Use materia.bless() to register this transmuter with a provider."
-                    ) from e
+            if fields.get(name):
+                try:
+                    return self._column(name)
+                except KeyError as inner:
+                    raise AttributeError(str(inner)) from e
             raise AttributeError(
                 f"Attribute '{name}' is not defined in transmuter {transmuter_name}. "
                 f"Available fields: {', '.join(fields.keys())}"
             ) from e
 
-    # TODO: Have no idea to give proper type hint to proxied provider column here
-    def __getitem__(self, name: str) -> Any:
+    def _column(self, name: str) -> Column[Any]:
         if info := self.__pydantic_fields__.get(name):
             if provider := self.__transmuter_provider__:
                 try:
-                    return getattr(provider, info.alias or name)
+                    used_name = info.alias or name
+                    native = getattr(provider, used_name)
+                    return self.__transmuter_materia__.column_type(
+                        owner=self,
+                        field_name=name,
+                        used_name=used_name,
+                        info=info,
+                        annotation=info.annotation,
+                        native=native,
+                    )
                 except AttributeError as inner:
                     raise KeyError(
                         f"Column '{name}' (alias: '{info.alias or name}') is not defined in the materia provider for {self.__name__}. "
@@ -504,6 +566,17 @@ class TransmuterMetaclass(ModelMetaclass):
             f"Field '{name}' is not defined in transmuter {self.__name__}. "
             f"Available fields: {', '.join(self.__pydantic_fields__.keys())}"
         )
+
+    @overload
+    def __getitem__(self, name: str) -> Column[Any]: ...
+
+    @overload
+    def __getitem__(self, name: object) -> Any: ...
+
+    def __getitem__(self, name: object) -> Column[Any] | Any:
+        if isinstance(name, str) and name in self.__pydantic_fields__:
+            return self._column(name)
+        return self.__class_getitem__(name)
 
     @property
     def __transmuter_materia__(self) -> BaseMateria:
@@ -596,6 +669,18 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
 
     __transmuter_provided__: Optional[TransmuterProxied] = NoInitField(init=False)
     __transmuter_revalidating__: bool = NoInitField(init=False)
+
+    @overload
+    @classmethod
+    def __class_getitem__(cls, name: str) -> Column[Any]: ...
+
+    @overload
+    @classmethod
+    def __class_getitem__(cls, name: object) -> Any: ...
+
+    @classmethod
+    def __class_getitem__(cls, name: object) -> Any:
+        return Transmuter.__class_getitem__.__func__(cls, name)
 
     def __deepcopy__(self, memo: dict[int, Any] | None = None) -> Self:
         copied = super().__deepcopy__(memo)
@@ -691,7 +776,9 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
 
         else:
             # Normal construction
-            inputs = data if isinstance(data, dict) else data.__dict__ if data else {}
+            inputs = dict(
+                data if isinstance(data, dict) else data.__dict__ if data else {}
+            )
             inputs.update(values)
             instance = super().model_construct(_fields_set=_fields_set, **inputs)
 

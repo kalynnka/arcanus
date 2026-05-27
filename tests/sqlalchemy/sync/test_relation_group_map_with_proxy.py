@@ -15,10 +15,9 @@ Part 2 – Proxy *over* attribute_keyed_list_dict:
 from __future__ import annotations
 
 from sqlalchemy import Engine, select
-from sqlalchemy.orm import raiseload, selectinload
 
 from arcanus.association import RelationGroupMap
-from arcanus.materia.sqlalchemy import Session
+from arcanus.materia.sqlalchemy import Session, raiseload, selectinload
 from tests.models import Article as ArticleModel
 from tests.models import ArticleGeneratedFile as ArticleGeneratedFileModel
 from tests.models import GeneratedFile as GeneratedFileModel
