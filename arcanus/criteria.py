@@ -75,6 +75,10 @@ class BaseCriteria(BaseModel, Generic[T]):
 
 
 class TextCriteria(BaseCriteria[S]):
+    lt: S | None = None
+    le: S | None = None
+    gt: S | None = None
+    ge: S | None = None
     contains: S | None = None
     not_contains: S | None = None
     starts_with: S | None = None
@@ -85,6 +89,10 @@ class TextCriteria(BaseCriteria[S]):
 
     criteria_operators: ClassVar[tuple[tuple[str, str], ...]] = (
         *BaseCriteria.criteria_operators,
+        ("lt", "lt"),
+        ("le", "le"),
+        ("gt", "gt"),
+        ("ge", "ge"),
         ("contains", "contains"),
         ("not_contains", "not_contains"),
         ("starts_with", "starts_with"),
