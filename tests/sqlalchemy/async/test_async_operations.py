@@ -960,10 +960,10 @@ class TestAsyncSessionHelpers:
             ]
 
     @pytest.mark.asyncio
-    async def test_async_list_with_json_criteria_expression_and_compiler_chain(
+    async def test_async_list_with_json_criteria_expression(
         self, async_engine: AsyncEngine
     ):
-        """Test JSON criteria values can drive arcanus and SQLAlchemy expressions."""
+        """Test JSON criteria values can drive AsyncSession list expressions."""
         criteria_model = Criteria[Author]
         payload = {
             "name": {"starts_with": "Async Criteria Chain"},
@@ -991,32 +991,13 @@ class TestAsyncSessionHelpers:
                 mode="json", by_alias=True, exclude_none=True
             ) == criteria.model_dump(mode="json", by_alias=True, exclude_none=True)
 
-            assert criteria.expression is not None
-            criteria_expression = criteria.expression
-            compiled_expression = criteria_expression(
-                sqlalchemy_materia.expression_compiler
-            )
-            compiled_order_bys = tuple(
-                order_by(sqlalchemy_materia.expression_compiler) for order_by in orders
-            )
-
-            manual_result = await session.execute(
-                select(Author)
-                .where(compiled_expression)
-                .order_by(*compiled_order_bys)
-                .limit(limit)
-            )
             list_results = await session.list(
                 Author,
-                expressions=[criteria_expression],
+                expressions=criteria.expressions,
                 order_bys=orders,
                 limit=limit,
             )
 
-            assert [author.name for author in manual_result.scalars().all()] == [
-                "Async Criteria Chain C",
-                "Async Criteria Chain B",
-            ]
             assert [author.name for author in list_results] == [
                 "Async Criteria Chain C",
                 "Async Criteria Chain B",
@@ -1248,7 +1229,7 @@ class TestAsyncSessionHelpers:
             await session.flush()
 
             criteria = criteria_model.model_validate_json(json.dumps(payload))
-            assert criteria.expression is not None
+            assert criteria.expressions
 
             all_results = []
             async for partition in session.partitions(
@@ -1256,7 +1237,7 @@ class TestAsyncSessionHelpers:
                 size=2,
                 limit=limit,
                 order_bys=orders,
-                expressions=[criteria.expression],
+                expressions=criteria.expressions,
             ):
                 all_results.extend(partition)
 

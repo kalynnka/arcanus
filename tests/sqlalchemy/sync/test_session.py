@@ -808,10 +808,8 @@ class TestSessionHelpers:
 
             assert result.author.value.name == "Native Loader Author"
 
-    def test_list_with_json_criteria_expression_and_compiler_chain(
-        self, engine: Engine
-    ):
-        """Test JSON criteria values can drive arcanus and SQLAlchemy expressions."""
+    def test_list_with_json_criteria_expression(self, engine: Engine):
+        """Test JSON criteria values can drive Session list expressions."""
         criteria_model = Criteria[Author]
         payload = {
             "name": {"starts_with": "Criteria Chain"},
@@ -839,38 +837,16 @@ class TestSessionHelpers:
                 mode="json", by_alias=True, exclude_none=True
             ) == criteria.model_dump(mode="json", by_alias=True, exclude_none=True)
 
-            assert criteria.expression is not None
-            criteria_expression = criteria.expression
-            compiled_expression = criteria_expression(
-                sqlalchemy_materia.expression_compiler
-            )
-            compiled_order_bys = tuple(
-                order_by(sqlalchemy_materia.expression_compiler) for order_by in orders
-            )
-
-            manual_results = (
-                session.execute(
-                    select(Author)
-                    .where(compiled_expression)
-                    .order_by(*compiled_order_bys)
-                    .limit(limit)
-                )
-                .scalars()
-                .all()
-            )
             list_results = session.list(
                 Author,
-                expressions=[criteria_expression],
+                expressions=criteria.expressions,
                 order_bys=orders,
                 limit=limit,
             )
 
-            assert [author.name for author in manual_results] == [
+            assert [author.name for author in list_results] == [
                 "Criteria Chain C",
                 "Criteria Chain B",
-            ]
-            assert [author.name for author in list_results] == [
-                author.name for author in manual_results
             ]
 
     def test_list_with_text_range_criteria(self, engine: Engine):
@@ -895,36 +871,15 @@ class TestSessionHelpers:
             session.flush()
 
             criteria = criteria_model.model_validate(payload)
-            assert criteria.expression is not None
-            criteria_expression = criteria.expression
-            compiled_expression = criteria_expression(
-                sqlalchemy_materia.expression_compiler
-            )
-            compiled_order_bys = tuple(
-                order_by(sqlalchemy_materia.expression_compiler) for order_by in orders
-            )
-
-            manual_results = (
-                session.execute(
-                    select(Author)
-                    .where(compiled_expression)
-                    .order_by(*compiled_order_bys)
-                )
-                .scalars()
-                .all()
-            )
             list_results = session.list(
                 Author,
-                expressions=[criteria_expression],
+                expressions=criteria.expressions,
                 order_bys=orders,
             )
 
-            assert [author.name for author in manual_results] == [
+            assert [author.name for author in list_results] == [
                 "Text Range C",
                 "Text Range G",
-            ]
-            assert [author.name for author in list_results] == [
-                author.name for author in manual_results
             ]
 
     def test_partitions_yields_chunks(self, engine: Engine):
@@ -1032,7 +987,7 @@ class TestSessionHelpers:
             session.flush()
 
             criteria = criteria_model.model_validate_json(json.dumps(payload))
-            assert criteria.expression is not None
+            assert criteria.expressions
 
             all_results = []
             for partition in session.partitions(
@@ -1040,7 +995,7 @@ class TestSessionHelpers:
                 size=2,
                 limit=limit,
                 order_bys=orders,
-                expressions=[criteria.expression],
+                expressions=criteria.expressions,
             ):
                 all_results.extend(partition)
 
