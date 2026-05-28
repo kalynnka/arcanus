@@ -16,7 +16,8 @@ from arcanus import (
 )
 from arcanus.criteria import (
     BaseCriteria,
-    CursorBookmark,
+    BookmarkCriteria,
+    ExactCriteria,
     Ordering,
     TextCriteria,
 )
@@ -49,15 +50,12 @@ def test_nested_criteria_accepts_one_layer_relationship_criteria():
         "books": {"title": {"eq": "Notes"}},
     }
     with sqlalchemy_materia:
-        expression = criteria.expression
+        expressions = criteria.expressions
 
-    assert expression is not None
-    assert expression.dump() == {
-        "and": [
-            {"name": {"eq": "Ada"}},
-            {"books": {"title": {"eq": "Notes"}}},
-        ]
-    }
+    assert tuple(expression.dump() for expression in expressions) == (
+        {"name": {"eq": "Ada"}},
+        {"books": {"title": {"eq": "Notes"}}},
+    )
 
 
 def test_nested_criteria_bool_branches_accept_one_layer_relationships():
@@ -79,15 +77,12 @@ def test_nested_criteria_bool_branches_accept_one_layer_relationships():
         ]
     }
     with sqlalchemy_materia:
-        expression = criteria.expression
+        expressions = criteria.expressions
 
-    assert expression is not None
-    assert expression.dump() == {
-        "and": [
-            {"name": {"eq": "Ada"}},
-            {"books": {"title": {"eq": "Notes"}}},
-        ]
-    }
+    assert tuple(expression.dump() for expression in expressions) == (
+        {"name": {"eq": "Ada"}},
+        {"books": {"title": {"eq": "Notes"}}},
+    )
 
 
 def test_nested_criteria_bool_branches_keep_deeper_logic_scalar():
@@ -109,12 +104,10 @@ def test_nested_criteria_bool_branches_keep_deeper_logic_scalar():
 
 def test_nested_cursor_round_trips_relationship_criteria():
     with sqlalchemy_materia:
-        bookmark = CursorBookmark[Author].from_expression(
-            order_bys=(Author["id"].desc(),)
-        )
-        cursor = NestedCursor[Author].from_expression(
-            expression=Author["books"].any(Book["title"] == "Notes"),
-            bookmark=bookmark,
+        cursor = NestedCursor[Author].from_expressions(
+            expressions=(Author["books"].any(Book["title"] == "Notes"),),
+            bookmark=Author["id"] < 123,
+            order_bys=(Author["id"].desc(),),
             limit=10,
         )
         restored = NestedCursor[Author](str(cursor))
@@ -123,18 +116,18 @@ def test_nested_cursor_round_trips_relationship_criteria():
     dumped = restored.criteria.model_dump(mode="json", by_alias=True, exclude_none=True)
     assert dumped == {"books": {"title": {"eq": "Notes"}}}
     assert restored.limit == 10
-    assert restored.bookmark.order_by == ("-id",)
+    assert restored.order_by == ("-id",)
 
 
 def test_nested_cursor_round_trips_scalar_and_relationship_criteria():
     with sqlalchemy_materia:
-        bookmark = CursorBookmark[Author].from_expression(
-            order_bys=(Author["id"].desc(),)
-        )
-        cursor = NestedCursor[Author].from_expression(
-            expression=(Author["name"] == "Ada")
-            & Author["books"].any(Book["title"] == "Notes"),
-            bookmark=bookmark,
+        cursor = NestedCursor[Author].from_expressions(
+            expressions=(
+                (Author["name"] == "Ada")
+                & Author["books"].any(Book["title"] == "Notes"),
+            ),
+            bookmark=Author["id"] < 123,
+            order_bys=(Author["id"].desc(),),
             limit=10,
         )
         restored = NestedCursor[Author](str(cursor))
@@ -186,7 +179,7 @@ def test_literal_fields_use_exact_value_criteria():
     criteria = criteria_model.model_validate(
         {"field": {"eq": "Physics", "in": ["Biology", "History"]}}
     )
-    field_criteria: BaseCriteria[str] | None = getattr(criteria, "field")
+    field_criteria: ExactCriteria[str] | None = getattr(criteria, "field")
 
     assert field_criteria is not None
     assert field_criteria.eq == "Physics"
@@ -213,16 +206,13 @@ def test_text_criteria_accepts_range_operators():
     assert name_criteria.gt == "Ada"
     assert name_criteria.ge == "Ada"
     with sqlalchemy_materia:
-        expression = criteria.expression
-    assert expression is not None
-    assert expression.dump() == {
-        "and": [
-            {"name": {"lt": "Grace"}},
-            {"name": {"le": "Grace"}},
-            {"name": {"gt": "Ada"}},
-            {"name": {"ge": "Ada"}},
-        ]
-    }
+        expressions = criteria.expressions
+    assert tuple(expression.dump() for expression in expressions) == (
+        {"name": {"lt": "Grace"}},
+        {"name": {"le": "Grace"}},
+        {"name": {"gt": "Ada"}},
+        {"name": {"ge": "Ada"}},
+    )
 
 
 def test_criteria_validation_accepts_nested_logical_fields():
@@ -268,7 +258,7 @@ def test_expression_dump_round_trips_through_criteria_json():
     assert restored.model_dump(mode="json", by_alias=True, exclude_none=True) == payload
 
 
-def test_criteria_expression_property_returns_arcanus_expression():
+def test_criteria_expressions_property_returns_arcanus_expressions():
     criteria_model = Criteria[Author]
     criteria = criteria_model.model_validate(
         {
@@ -279,17 +269,14 @@ def test_criteria_expression_property_returns_arcanus_expression():
     )
 
     with sqlalchemy_materia:
-        expression = criteria.expression
+        expressions = criteria.expressions
 
-    assert expression is not None
-    assert expression is criteria.expression
-    assert expression.dump() == {
-        "and": [
-            {"name": {"contains": "Ada"}},
-            {"field": {"eq": "Physics"}},
-            {"not": {"id": {"in": [1, 2]}}},
-        ]
-    }
+    assert expressions is criteria.expressions
+    assert tuple(expression.dump() for expression in expressions) == (
+        {"name": {"contains": "Ada"}},
+        {"field": {"eq": "Physics"}},
+        {"not": {"id": {"in": [1, 2]}}},
+    )
 
 
 def test_criteria_json_schema_uses_recursive_objects_for_logical_fields():
@@ -324,12 +311,9 @@ def test_cursor_payload_bookmark_is_separate_from_paged_criteria():
         }
     )
     with sqlalchemy_materia:
-        cursor = Cursor[Author].from_expression(
-            expression=criteria.expression,
-            bookmark=CursorBookmark[Author].from_expression(
-                expression=Author["id"] > 123,
-                order_bys=(Author["id"].asc(),),
-            ),
+        cursor = Cursor[Author].from_expressions(
+            expressions=criteria.expressions,
+            bookmark=Author["id"] > 123,
             order_bys=(Author["id"].asc(),),
             limit=100,
         )
@@ -337,13 +321,13 @@ def test_cursor_payload_bookmark_is_separate_from_paged_criteria():
 
     with sqlalchemy_materia:
         assert decoded.criteria is not None
-        assert decoded.bookmark.criteria is not None
-        criteria_expression = decoded.criteria.expression
-        bookmark_expression = decoded.bookmark.criteria.expression
+        criteria_expressions = decoded.criteria.expressions
+        bookmark_expression = decoded.bookmark.expression
 
-    assert criteria_expression is not None
+    assert tuple(expression.dump() for expression in criteria_expressions) == (
+        {"name": {"starts_with": "Ada"}},
+    )
     assert bookmark_expression is not None
-    assert criteria_expression.dump() == {"name": {"starts_with": "Ada"}}
     assert bookmark_expression.dump() == {"id": {"gt": 123}}
 
 
@@ -355,8 +339,9 @@ def test_upper_criteria_handles_scalar_field_expression_translation():
     assert name_criteria is not None
     assert name_criteria.contains == "Ada"
     with sqlalchemy_materia:
-        assert criteria.expression is not None
-        assert criteria.expression.dump() == {"name": {"contains": "Ada"}}
+        expressions = criteria.expressions
+        assert expressions
+        assert expressions[0].dump() == {"name": {"contains": "Ada"}}
 
 
 def test_cursor_from_expression_round_trips_payload_and_token():
@@ -368,15 +353,11 @@ def test_cursor_from_expression_round_trips_payload_and_token():
     )
 
     with sqlalchemy_materia:
-        cursor = Cursor[Author].from_expression(
-            expression=criteria.expression,
-            bookmark=CursorBookmark[Author].from_expression(
-                expression=Author["id"] > 42,
-                order_bys=(Author["name"].asc(), Author["id"].desc()),
-            ),
+        cursor = Cursor[Author].from_expressions(
+            expressions=criteria.expressions,
+            bookmark=Author["id"] > 42,
             order_bys=(Author["name"].asc(), Author["id"].desc()),
             limit=20,
-            offset=10,
         )
     token = str(cursor)
     decoded = Cursor[Author].model_validate(token)
@@ -393,28 +374,22 @@ def test_cursor_from_expression_round_trips_payload_and_token():
         "name": {"starts_with": "Ada"},
     }
     assert decoded.payload.limit == 20
-    assert decoded.payload.offset == 10
     assert decoded.payload.order_by == ("+name", "-id")
-    assert decoded.bookmark.criteria is not None
-    assert decoded.bookmark.criteria.model_dump(
+    assert decoded.bookmark is not None
+    assert decoded.bookmark.model_dump(
         mode="json", by_alias=True, exclude_none=True
     ) == {"id": {"gt": 42}}
-    assert decoded.bookmark.order_by == ("+name", "-id")
 
 
 def test_cursor_from_expression_builds_criteria_from_expression_dump():
     with sqlalchemy_materia:
         expression = Author["name"].starts_with("Ada") & (Author["field"] == "Physics")
         bookmark = Author["id"] > 42
-        cursor = Cursor[Author].from_expression(
-            expression=expression,
-            bookmark=CursorBookmark[Author].from_expression(
-                expression=bookmark,
-                order_bys=(Author["name"].asc(), Author["id"].desc()),
-            ),
+        cursor = Cursor[Author].from_expressions(
+            expressions=(expression,),
+            bookmark=bookmark,
             order_bys=(Author["name"].asc(), Author["id"].desc()),
             limit=20,
-            offset=10,
         )
 
     decoded = Cursor[Author](str(cursor))
@@ -429,13 +404,11 @@ def test_cursor_from_expression_builds_criteria_from_expression_dump():
         ],
     }
     assert decoded.payload.limit == 20
-    assert decoded.payload.offset == 10
     assert decoded.payload.order_by == ("+name", "-id")
-    assert decoded.bookmark.criteria is not None
-    assert decoded.bookmark.criteria.model_dump(
+    assert decoded.bookmark is not None
+    assert decoded.bookmark.model_dump(
         mode="json", by_alias=True, exclude_none=True
     ) == {"id": {"gt": 42}}
-    assert decoded.bookmark.order_by == ("+name", "-id")
 
 
 def test_ordering_validates_model_scalar_fields_as_root_model():
@@ -456,58 +429,85 @@ def test_ordering_validates_model_scalar_fields_as_root_model():
         order_by_model.model_validate(["-books"])
 
 
-def test_cursor_bookmark_order_by_reuses_order_by_model():
-    bookmark_model = CursorBookmark[Author]
+def test_bookmark_criteria_uses_implicit_or_branches():
+    bookmark_model = BookmarkCriteria[Author]
 
     bookmark = bookmark_model.model_validate(
         {
-            "criteria": {"id": {"gt": 42}},
-            "order_by": ["+name", "-id"],
+            "or": [
+                {"name": {"gt": "Ada"}},
+                {"and": [{"name": {"eq": "Ada"}}, {"id": {"lt": 42}}]},
+            ]
         }
     )
 
-    assert bookmark.criteria is not None
-    assert bookmark.criteria.model_dump(
-        mode="json", by_alias=True, exclude_none=True
-    ) == {"id": {"gt": 42}}
-    assert bookmark.order_by == ("+name", "-id")
-
-    with pytest.raises(ValidationError):
-        bookmark_model.model_validate(
-            {
-                "criteria": {"id": {"gt": 42}},
-                "order_by": ["books"],
-            }
-        )
-
-    with pytest.raises(ValidationError):
-        bookmark_model.model_validate(
-            {
-                "criteria": {"id": {"gt": 42}},
-                "order_by": ["-books"],
-            }
-        )
-
-
-def test_cursor_bookmark_can_be_order_only():
+    assert bookmark.model_dump(mode="json", by_alias=True, exclude_none=True) == {
+        "or": [
+            {"name": {"gt": "Ada"}},
+            {"and": [{"name": {"eq": "Ada"}}, {"id": {"lt": 42}}]},
+        ]
+    }
     with sqlalchemy_materia:
-        bookmark = CursorBookmark[Author].from_expression(
-            order_bys=(Author["id"].desc(),)
+        expression = bookmark.expression
+        assert expression is not None
+        assert expression.dump() == {
+            "or": [
+                {"name": {"gt": "Ada"}},
+                {
+                    "and": [
+                        {"name": {"eq": "Ada"}},
+                        {"id": {"lt": 42}},
+                    ]
+                },
+            ]
+        }
+
+    with pytest.raises(ValidationError):
+        bookmark_model.model_validate({"name": {"starts_with": "Ada"}})
+
+    with pytest.raises(ValidationError):
+        bookmark_model.model_validate({"id": {"in": [42]}})
+
+    with pytest.raises(ValidationError):
+        bookmark_model.model_validate({"id": {"le": 42}})
+
+    with pytest.raises(ValidationError):
+        bookmark_model.model_validate({"id": {"ge": 42}})
+
+
+def test_cursor_requires_order_and_bookmark():
+    with sqlalchemy_materia:
+        cursor = Cursor[Author].from_expressions(
+            bookmark=Author["id"] < 123,
+            order_bys=(Author["id"].desc(),),
         )
 
-    assert bookmark.criteria is None
-    assert bookmark.order_by == ("-id",)
+    assert cursor.bookmark.model_dump(
+        mode="json", by_alias=True, exclude_none=True
+    ) == {"id": {"lt": 123}}
+    assert cursor.order_by == ("-id",)
+
+    with (
+        sqlalchemy_materia,
+        pytest.raises(ValidationError, match="Cursor requires order_by"),
+    ):
+        Cursor[Author].from_expressions(bookmark=Author["id"] > 0, order_bys=())
+
+    with sqlalchemy_materia:
+        cursor = Cursor[Author].from_expressions(order_bys=(Author["id"].desc(),))
+
+    assert cursor.bookmark.expression is None
+    assert (
+        cursor.bookmark.model_dump(mode="json", by_alias=True, exclude_none=True) == {}
+    )
 
 
 def test_cursor_validation_rejects_invalid_token_and_entity():
     criteria = Criteria[Author].model_validate({"name": {"eq": "Ada"}})
     with sqlalchemy_materia:
-        cursor = Cursor[Author].from_expression(
-            bookmark=CursorBookmark[Author].from_expression(
-                expression=Author["id"] > 0,
-                order_bys=(Author["id"].asc(),),
-            ),
-            expression=criteria.expression,
+        cursor = Cursor[Author].from_expressions(
+            expressions=criteria.expressions,
+            bookmark=Author["id"] > 0,
             order_bys=(Author["id"].asc(),),
             limit=100,
         )
@@ -526,7 +526,7 @@ def test_cursor_validation_rejects_invalid_token_and_entity():
         Cursor[Author].model_validate(bad_entity_token)
 
     bad_bookmark_payload = cursor.payload.model_dump(mode="json", by_alias=True)
-    bad_bookmark_payload["bookmark"]["order_by"] = ["-books"]
+    bad_bookmark_payload["bookmark"] = {"name": {"gt": "Ada"}}
     bad_bookmark_token = (
         base64.urlsafe_b64encode(json.dumps(bad_bookmark_payload).encode())
         .decode()
@@ -539,22 +539,16 @@ def test_cursor_validation_rejects_invalid_token_and_entity():
 def test_cursor_validation_hides_invalid_payload_as_cursor_error():
     criteria = Criteria[Author].model_validate({"name": {"eq": "Ada"}})
     with sqlalchemy_materia:
-        cursor = Cursor[Author].from_expression(
-            bookmark=CursorBookmark[Author].from_expression(
-                expression=Author["id"] > 0,
-                order_bys=(Author["id"].asc(),),
-            ),
-            expression=criteria.expression,
+        cursor = Cursor[Author].from_expressions(
+            expressions=criteria.expressions,
+            bookmark=Author["id"] > 0,
             order_bys=(Author["id"].asc(),),
             limit=100,
         )
         token = str(
-            Cursor[Author].from_expression(
-                bookmark=CursorBookmark[Author].from_expression(
-                    expression=Author["id"] > 0,
-                    order_bys=(Author["id"].asc(),),
-                ),
-                expression=criteria.expression,
+            Cursor[Author].from_expressions(
+                expressions=criteria.expressions,
+                bookmark=Author["id"] > 0,
                 order_bys=(Author["id"].asc(),),
                 limit=100,
             )
@@ -570,15 +564,12 @@ def test_cursor_validation_hides_invalid_payload_as_cursor_error():
         Cursor[Author].model_validate(invalid_token)
 
 
-def test_cursor_validation_rejects_bad_version_and_missing_bookmark():
+def test_cursor_validation_rejects_bad_version_and_missing_required_payload_fields():
     criteria = Criteria[Author].model_validate({"name": {"eq": "Ada"}})
     with sqlalchemy_materia:
-        cursor = Cursor[Author].from_expression(
-            bookmark=CursorBookmark[Author].from_expression(
-                expression=Author["id"] > 0,
-                order_bys=(Author["id"].asc(),),
-            ),
-            expression=criteria.expression,
+        cursor = Cursor[Author].from_expressions(
+            expressions=criteria.expressions,
+            bookmark=Author["id"] > 0,
             order_bys=(Author["id"].asc(),),
             limit=100,
         )
@@ -590,6 +581,16 @@ def test_cursor_validation_rejects_bad_version_and_missing_bookmark():
     )
     with pytest.raises(ValidationError, match="Invalid cursor token"):
         Cursor[Author](bad_version_token)
+
+    missing_order_payload = cursor.payload.model_dump(mode="json", by_alias=True)
+    del missing_order_payload["order_by"]
+    missing_order_token = (
+        base64.urlsafe_b64encode(json.dumps(missing_order_payload).encode())
+        .decode()
+        .rstrip("=")
+    )
+    with pytest.raises(ValidationError, match="Invalid cursor token"):
+        Cursor[Author](missing_order_token)
 
     del payload["bookmark"]
     payload["version"] = 1
@@ -627,13 +628,13 @@ def test_page_unwraps_items_like_a_tuple():
 
 
 def test_empty_page_is_false_and_has_no_cursor():
-    page = Page[str](items=(), next_cursor=None, has_more=False)
+    page = Page[str](items=(), next_cursor="next", has_more=False)
 
     assert not page
     assert page.total == 0
     assert len(page) == 0
     assert list(page) == []
-    assert page.next_cursor is None
+    assert page.next_cursor == "next"
     assert page.has_more is False
 
 
