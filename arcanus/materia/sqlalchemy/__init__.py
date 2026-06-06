@@ -28,6 +28,7 @@ from arcanus.materia.sqlalchemy.options import (
     selectinload,
     subqueryload,
     undefer,
+    with_polymorphic,
 )
 
 __all__ = [
@@ -48,4 +49,5 @@ __all__ = [
     "selectinload",
     "subqueryload",
     "undefer",
+    "with_polymorphic",
 ]

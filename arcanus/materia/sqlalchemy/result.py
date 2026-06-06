@@ -62,7 +62,7 @@ class AdaptedCommon(FilterResult[_R]):
 
 
 class AdaptedResult(_WithKeys, AdaptedCommon[Row[_TP]]):
-    entities: tuple[type[Any], ...]
+    entities: tuple[Any, ...]
 
     _real_result: Result[_TP]
     _row_logging_fn: Optional[Callable[[Row[Any]], Row[Any]]] = None
@@ -70,7 +70,7 @@ class AdaptedResult(_WithKeys, AdaptedCommon[Row[_TP]]):
     def __init__(
         self,
         real_result: Result[_TP],
-        entities: tuple[type[Any], ...] = (),
+        entities: tuple[Any, ...] = (),
     ):
         self._real_result = real_result
 
@@ -286,7 +286,7 @@ class AdaptedResult(_WithKeys, AdaptedCommon[Row[_TP]]):
 
 
 class AdaptedScalarResult(ScalarResult[_R]):
-    _entities: tuple[type[Any], ...]
+    _entities: tuple[Any, ...]
 
     __slots__ = ()
 
@@ -297,7 +297,7 @@ class AdaptedScalarResult(ScalarResult[_R]):
         self,
         real_result: AdaptedResult[Any],
         index: _KeyIndexType,
-        entities: tuple[type[Any], ...] = (),
+        entities: tuple[Any, ...] = (),
     ):
         self._unique_filter_state = real_result._unique_filter_state
         self._real_result = real_result
@@ -399,12 +399,12 @@ class AdaptedScalarResult(ScalarResult[_R]):
 
 class AdaptedFrozenResult(FrozenResult[_TP]):
     data: Sequence[Any]
-    _entities: tuple[type[Any], ...]
+    _entities: tuple[Any, ...]
 
     def __init__(
         self,
         result: AdaptedResult[_TP],
-        entities: tuple[type[Any], ...] = (),
+        entities: tuple[Any, ...] = (),
     ):
         self.metadata = result._metadata._for_freeze()
         self._source_supports_scalars = result._source_supports_scalars
@@ -470,7 +470,7 @@ class AdaptedMappingResult(_WithKeys, AdaptedCommon[RowMapping]):
     _post_creational_filter = operator.attrgetter("_mapping")
 
     _real_result: AdaptedResult[Any]
-    _entities: tuple[type[Any], ...]
+    _entities: tuple[Any, ...]
 
     def __init__(self, result: AdaptedResult[Any]):
         self._real_result = result
@@ -613,13 +613,13 @@ class AsyncAdaptedResult(_WithKeys, AsyncAdaptedCommon[Row[_TP]]):
 
     __slots__ = ()
 
-    entities: tuple[type[Any], ...]
+    entities: tuple[Any, ...]
     _real_result: Result[_TP]
 
     def __init__(
         self,
         real_result: Result[_TP],
-        entities: tuple[type[Any], ...] = (),
+        entities: tuple[Any, ...] = (),
     ):
         self._real_result = real_result
 
@@ -814,13 +814,13 @@ class AsyncAdaptedScalarResult(AsyncAdaptedCommon[_R]):
     __slots__ = ()
 
     _generate_rows = False
-    _entities: tuple[type[Any], ...]
+    _entities: tuple[Any, ...]
 
     def __init__(
         self,
         real_result: Result[Any],
         index: _KeyIndexType,
-        entities: tuple[type[Any], ...] = (),
+        entities: tuple[Any, ...] = (),
     ):
         self._real_result = real_result
 
@@ -920,12 +920,12 @@ class AsyncAdaptedMappingResult(_WithKeys, AsyncAdaptedCommon[RowMapping]):
 
     _generate_rows = True
     _post_creational_filter = operator.attrgetter("_mapping")
-    _entities: tuple[type[Any], ...]
+    _entities: tuple[Any, ...]
 
     def __init__(
         self,
         result: Result[Any],
-        entities: tuple[type[Any], ...] = (),
+        entities: tuple[Any, ...] = (),
     ):
         self._real_result = result
         self._metadata = result._metadata
