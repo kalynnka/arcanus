@@ -1,0 +1,23 @@
+name: PR Title
+
+on:
+    pull_request:
+        types: [opened, edited, synchronize, reopened]
+
+permissions:
+    pull-requests: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    conventional-title:
+        name: Validate Conventional Commit title
+        runs-on: ubuntu-latest
+        steps:
+            # The PR title becomes the squash-merge commit subject that release-please reads,
+            # so it must be a valid Conventional Commit.
+            - uses: amannn/action-semantic-pull-request@v6
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
