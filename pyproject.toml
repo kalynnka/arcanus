@@ -59,6 +59,8 @@ dev = [
     "pytest-benchmark>=5.2.3",
     "mypy>=1.0.0",
     "pre-commit>=3.0.0",
+    # Pretty tables for the local benchmark gap report (scripts/bench.py)
+    "rich>=13.0.0",
     # Keep local development synced with every optional runtime feature.
     "sqlalchemy>=2.0.0",
     "greenlet>=3.2.4",

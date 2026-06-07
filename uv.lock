@@ -22,7 +22,7 @@ wheels = [
 
 [[package]]
 name = "arcanus"
-version = "0.0.21"
+version = "0.0.23"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
@@ -61,6 +61,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "pytest-xdist" },
     { name = "redis" },
+    { name = "rich" },
     { name = "sqlalchemy" },
 ]
 
@@ -95,6 +96,7 @@ dev = [
     { name = "pytest-cov", specifier = ">=4.1.0" },
     { name = "pytest-xdist", specifier = ">=3.5.0" },
     { name = "redis", specifier = ">=5.0.0" },
+    { name = "rich", specifier = ">=13.0.0" },
     { name = "sqlalchemy", specifier = ">=2.0.0" },
 ]
 

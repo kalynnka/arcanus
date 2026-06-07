@@ -1,6 +1,10 @@
 # Project
 profile*
 
+# Benchmark artifacts (pytest-benchmark / CodSpeed local caches)
+.benchmarks/
+.codspeed/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
