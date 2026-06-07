@@ -410,6 +410,7 @@ class MediaItem(TestIdMixin, BaseTransmuter):
     slot: str = ""
     name: str
     media_type: str = "generic"
+    gallery_id: int | None = None
 
 
 @sqlalchemy_materia.bless(models.ImageAttachment)
@@ -426,6 +427,61 @@ class VideoMedia(MediaItem):
     """Video subtype."""
 
     media_type: str = "video"
+    duration: float = 0.0
+
+
+@sqlalchemy_materia.bless(models.AbstractMediaAttachment)
+class AbstractMedia(TestIdMixin, BaseTransmuter):
+    """Abstract base media transmuter for polymorphic result tests."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    name: str
+    media_type: str
+
+
+@sqlalchemy_materia.bless(models.AbstractImageAttachment)
+class AbstractImageMedia(AbstractMedia):
+    """Image subtype under an abstract mapped base."""
+
+    media_type: str = "image"
+    width: int = 0
+    height: int = 0
+
+
+@sqlalchemy_materia.bless(models.AbstractVideoAttachment)
+class AbstractVideoMedia(AbstractMedia):
+    """Video subtype under an abstract mapped base."""
+
+    media_type: str = "video"
+    duration: float = 0.0
+
+
+@sqlalchemy_materia.bless(models.LibraryAsset)
+class LibraryAsset(TestIdMixin, BaseTransmuter):
+    """Base asset transmuter for joined-table polymorphic tests."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    name: str
+    asset_type: str = "asset"
+
+
+@sqlalchemy_materia.bless(models.PdfAsset)
+class PdfAsset(LibraryAsset):
+    """PDF asset subtype stored in its own table."""
+
+    asset_type: str = "pdf"
+    pages: int = 0
+
+
+@sqlalchemy_materia.bless(models.AudioAsset)
+class AudioAsset(LibraryAsset):
+    """Audio asset subtype stored in its own table."""
+
+    asset_type: str = "audio"
     duration: float = 0.0
 
 

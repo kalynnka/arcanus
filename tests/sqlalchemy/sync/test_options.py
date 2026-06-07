@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from sqlalchemy import Engine, inspect, select
+from sqlalchemy.orm import Mapper
 from sqlalchemy.orm import selectin_polymorphic as sqlalchemy_selectin_polymorphic
 from sqlalchemy.orm import selectinload as sqlalchemy_selectinload
 from sqlalchemy.orm.strategy_options import _AbstractLoad
@@ -33,6 +34,7 @@ from tests.transmuters import (
     MediaItem,
     Publisher,
     VideoMedia,
+    sqlalchemy_materia,
 )
 
 
@@ -73,7 +75,8 @@ def test_loader_option_wrappers_accept_native_sqlalchemy_attributes():
 
 
 def test_sqlalchemy_inspects_registered_transmuter_classes():
-    assert inspect(MediaItem).class_ is MediaItem.__transmuter_provider__
+    mapper = cast(Mapper[Any], inspect(MediaItem))
+    assert mapper.class_ is sqlalchemy_materia.formulars[MediaItem]
 
 
 def test_selectin_polymorphic_wrapper_accepts_transmuters(engine: Engine):

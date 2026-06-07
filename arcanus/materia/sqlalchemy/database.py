@@ -1,20 +1,30 @@
 from __future__ import annotations
 
+import operator
+from functools import reduce
+from types import UnionType
 from typing import (
+    Annotated,
     Any,
     AsyncIterator,
+    Callable,
     Iterable,
     Iterator,
     Literal,
     Optional,
+    Protocol,
     Self,
     Sequence,
     TypeVar,
     Union,
+    cast,
+    get_args,
+    get_origin,
     overload,
 )
 from weakref import WeakKeyDictionary
 
+from pydantic import Discriminator, Tag
 from sqlalchemy import exc, inspect, tuple_, util
 from sqlalchemy.engine.cursor import CursorResult
 from sqlalchemy.engine.interfaces import _CoreAnyExecuteParams, _CoreSingleExecuteParams
@@ -23,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncResult
 from sqlalchemy.ext.asyncio import AsyncSession as SqlalchemyAsyncSession
 from sqlalchemy.orm import (
     InstanceState,
+    Mapper,
     Query,
     attributes,
     object_mapper,
@@ -73,8 +84,97 @@ from arcanus.materia.sqlalchemy.result import (
 T = TypeVar("T", bound=Transmuter)
 
 
-def resolve_statement_entities(statement: Executable) -> list[type[Any]]:
-    entities: list[type[Any]] = []
+class PolymorphicInspection(Protocol):
+    with_polymorphic_mappers: Sequence[Mapper[Any]]
+
+
+def polymorphic_discriminator(discriminator_key: str) -> Callable[..., str | None]:
+    def get_discriminator(value: Any) -> str | None:
+        if isinstance(value, dict):
+            discriminator = value.get(discriminator_key)
+        else:
+            discriminator = getattr(value, discriminator_key, None)
+        return str(discriminator) if discriminator is not None else None
+
+    return get_discriminator
+
+
+def union_type(types: Sequence[Any]) -> Any:
+    if not types:
+        return object
+    return reduce(operator.or_, types)
+
+
+def contains_transmuter_type(entity: Any) -> bool:
+    if isinstance(entity, type):
+        return issubclass(entity, Transmuter)
+    origin = get_origin(entity)
+    if origin is Annotated:
+        return contains_transmuter_type(get_args(entity)[0])
+    if origin in (Union, UnionType):
+        return any(contains_transmuter_type(arg) for arg in get_args(entity))
+    return False
+
+
+def discriminated_union_type(
+    variants: Sequence[tuple[type[Transmuter], Any]], discriminator_key: str
+) -> Any:
+    tagged_variants = [
+        Annotated[transmuter, Tag(str(identity))] for transmuter, identity in variants
+    ]
+    return Annotated[
+        union_type(tagged_variants),
+        Discriminator(polymorphic_discriminator(discriminator_key)),
+    ]
+
+
+def polymorphic_result_type(
+    provider: type[Any], selected_mappers: Iterable[Mapper[Any]] | None = None
+) -> Any:
+    mapper = cast(Mapper[Any], inspect(provider))
+    formulars = active_materia.get().formulars
+    transmuter = formulars.reverse.get(provider)
+    if transmuter is None:
+        return object
+
+    descendant_variants: list[tuple[type[Transmuter], Any]] = []
+    base_variant: tuple[type[Transmuter], Any] | None = None
+    mappers = selected_mappers or mapper.self_and_descendants
+    for descendant in mappers:
+        descendant_transmuter = formulars.reverse.get(descendant.class_)
+        if descendant_transmuter is None or descendant.polymorphic_identity is None:
+            continue
+        variant = (descendant_transmuter, descendant.polymorphic_identity)
+        if descendant.class_ is provider:
+            base_variant = variant
+        else:
+            descendant_variants.append(variant)
+
+    if not descendant_variants:
+        return transmuter
+
+    variants = descendant_variants
+    if base_variant is not None and not mapper.polymorphic_abstract:
+        variants = [*descendant_variants, base_variant]
+
+    polymorphic_on = mapper.polymorphic_on
+    discriminator_key = getattr(polymorphic_on, "key", None)
+    if discriminator_key:
+        return discriminated_union_type(variants, discriminator_key)
+    return union_type([variant[0] for variant in variants])
+
+
+def polymorphic_mappers(expr: Any) -> tuple[Mapper[Any], ...] | None:
+    inspected = inspect(expr, raiseerr=False)
+    if inspected is None:
+        return None
+    polymorphic = cast(PolymorphicInspection, inspected)
+    mappers = polymorphic.with_polymorphic_mappers
+    return tuple(mappers) if mappers else None
+
+
+def resolve_statement_entities(statement: Executable) -> list[Any]:
+    entities: list[Any] = []
     if isinstance(statement, Select):
         for desc in statement.column_descriptions:
             if ((expr := desc.get("expr")) is not None) and (
@@ -86,7 +186,11 @@ def resolve_statement_entities(statement: Executable) -> list[type[Any]]:
                 else:
                     transmuter = active_materia.get().formulars.reverse.get(type)
                     if transmuter:
-                        entities.append(transmuter)
+                        entity = polymorphic_result_type(
+                            type,
+                            polymorphic_mappers(expr),
+                        )
+                        entities.append(entity)
                     else:
                         try:
                             entities.append(type.python_type)
@@ -232,9 +336,7 @@ class Session(SqlalchemySession):
             return result
 
         entities = resolve_statement_entities(statement)
-        if entities and any(
-            isinstance(e, type) and issubclass(e, Transmuter) for e in entities
-        ):
+        if entities and any(contains_transmuter_type(entity) for entity in entities):
             return AdaptedResult(
                 real_result=result,
                 entities=tuple(entities),
@@ -455,7 +557,7 @@ class Session(SqlalchemySession):
         if isinstance(entity, type) and issubclass(entity, Transmuter):
             instance = super().get(
                 # sqlalchemy materia requires transumter to have a provider blessed
-                entity.__transmuter_provider__,  # pyright: ignore[reportArgumentType]
+                active_materia.get()[entity],  # pyright: ignore[reportArgumentType]
                 ident,
                 options=options,
                 populate_existing=populate_existing,
@@ -619,7 +721,7 @@ class Session(SqlalchemySession):
         if not idents:
             return []
 
-        mapper = inspect(entity.__transmuter_provider__)
+        mapper = inspect(active_materia.get()[entity])
         pk_columns = mapper.primary_key  # pyright: ignore[reportOptionalMemberAccess]
 
         if len(pk_columns) == 1:

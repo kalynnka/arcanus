@@ -1,17 +1,22 @@
 # pyright: reportIncompatibleMethodOverride=false
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Self, overload, cast
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Self, TypeVar, overload, cast
 
 from sqlalchemy import orm
 from sqlalchemy.orm.attributes import QueryableAttribute
 from sqlalchemy.orm.strategy_options import _AbstractLoad
+from sqlalchemy.orm.util import AliasedClass
 
 from arcanus.base import Transmuter
 from arcanus.expression import Column
+from arcanus.materia.base import active_materia
 
 NativeLoadAttribute = Literal["*"] | QueryableAttribute[Any]
 LoadAttribute = NativeLoadAttribute | Column[Any]
+T1 = TypeVar("T1", bound=Transmuter)
+T2 = TypeVar("T2", bound=Transmuter)
+T3 = TypeVar("T3", bound=Transmuter)
 
 if TYPE_CHECKING:
 
@@ -323,16 +328,129 @@ def selectin_polymorphic(
 def selectin_polymorphic(
     base_cls: type[Any], classes: Iterable[type[Any]]
 ) -> LoadOption:
-    base_provider = cast(
-        type[Any], getattr(base_cls, "__transmuter_provider__", None) or base_cls
-    )
-    class_providers = tuple(
-        cast(type[Any], getattr(cls, "__transmuter_provider__", None) or cls)
-        for cls in classes
-    )
+    base_provider = provider_type(base_cls)
+    class_providers = tuple(provider_type(cls) for cls in classes)
     return cast(
         LoadOption,
         orm.selectin_polymorphic(base_provider, class_providers),
+    )
+
+
+def provider_type(cls: type[Any]) -> type[Any]:
+    if isinstance(cls, type) and issubclass(cls, Transmuter):
+        return cast(type[Any], active_materia.get().formulars.get(cls) or cls)
+    return cls
+
+
+@overload
+def with_polymorphic(
+    base_cls: type[Any],
+    classes: tuple[type[T1]],
+    selectable: Any = False,
+    flat: bool = False,
+    polymorphic_on: Any = None,
+    aliased: bool = False,
+    innerjoin: bool = False,
+    adapt_on_names: bool = False,
+    name: str | None = None,
+    _use_mapper_path: bool = False,
+) -> AliasedClass[T1]: ...
+
+
+@overload
+def with_polymorphic(
+    base_cls: type[Any],
+    classes: tuple[type[T1], type[T2]],
+    selectable: Any = False,
+    flat: bool = False,
+    polymorphic_on: Any = None,
+    aliased: bool = False,
+    innerjoin: bool = False,
+    adapt_on_names: bool = False,
+    name: str | None = None,
+    _use_mapper_path: bool = False,
+) -> AliasedClass[T1 | T2]: ...
+
+
+@overload
+def with_polymorphic(
+    base_cls: type[Any],
+    classes: tuple[type[T1], type[T2], type[T3]],
+    selectable: Any = False,
+    flat: bool = False,
+    polymorphic_on: Any = None,
+    aliased: bool = False,
+    innerjoin: bool = False,
+    adapt_on_names: bool = False,
+    name: str | None = None,
+    _use_mapper_path: bool = False,
+) -> AliasedClass[T1 | T2 | T3]: ...
+
+
+@overload
+def with_polymorphic(
+    base_cls: type[Any],
+    classes: Literal["*"],
+    selectable: Any = False,
+    flat: bool = False,
+    polymorphic_on: Any = None,
+    aliased: bool = False,
+    innerjoin: bool = False,
+    adapt_on_names: bool = False,
+    name: str | None = None,
+    _use_mapper_path: bool = False,
+) -> AliasedClass[Any]: ...
+
+
+@overload
+def with_polymorphic(
+    base_cls: type[Any],
+    classes: Iterable[type[Any]],
+    selectable: Any = False,
+    flat: bool = False,
+    polymorphic_on: Any = None,
+    aliased: bool = False,
+    innerjoin: bool = False,
+    adapt_on_names: bool = False,
+    name: str | None = None,
+    _use_mapper_path: bool = False,
+) -> AliasedClass[Any]: ...
+
+
+def with_polymorphic(
+    base_cls: type[Any],
+    classes: Iterable[type[Any]] | Literal["*"],
+    selectable: Any = False,
+    flat: bool = False,
+    polymorphic_on: Any = None,
+    aliased: bool = False,
+    innerjoin: bool = False,
+    adapt_on_names: bool = False,
+    name: str | None = None,
+    _use_mapper_path: bool = False,
+) -> AliasedClass[Any]:
+    base_provider = provider_type(base_cls)
+    if classes == "*":
+        class_providers: Iterable[type[Any]] | Literal["*"] = "*"
+    else:
+        class_providers = tuple(provider_type(cls) for cls in classes)
+    native_polymorphic_on = (
+        polymorphic_on() if isinstance(polymorphic_on, Column) else polymorphic_on
+    )
+    return cast(
+        AliasedClass[Any],
+        orm.with_polymorphic(
+            base_provider,
+            class_providers,
+            selectable=selectable,
+            flat=flat,
+            polymorphic_on=native_polymorphic_on,
+            aliased=aliased,
+            innerjoin=innerjoin,
+            adapt_on_names=adapt_on_names,
+            name=name,
+            _use_mapper_path=_use_mapper_path,
+        ),
     )
 
 

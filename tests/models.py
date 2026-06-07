@@ -567,6 +567,76 @@ class VideoAttachment(MediaAttachment):
     }
 
 
+class AbstractMediaAttachment(Base):
+    __tablename__ = "abstract_media_attachment"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration: Mapped[float | None] = mapped_column(Integer, nullable=True)
+
+    __mapper_args__ = {
+        "polymorphic_on": "media_type",
+        "polymorphic_abstract": True,
+    }
+
+
+class AbstractImageAttachment(AbstractMediaAttachment):
+    __mapper_args__ = {
+        "polymorphic_identity": "image",
+    }
+
+
+class AbstractVideoAttachment(AbstractMediaAttachment):
+    __mapper_args__ = {
+        "polymorphic_identity": "video",
+    }
+
+
+class LibraryAsset(Base):
+    __tablename__ = "library_asset"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    asset_type: Mapped[str] = mapped_column(String(50), nullable=False)
+
+    __mapper_args__ = {
+        "polymorphic_on": "asset_type",
+        "polymorphic_identity": "asset",
+        "with_polymorphic": "*",
+    }
+
+
+class PdfAsset(LibraryAsset):
+    __tablename__ = "pdf_asset"
+
+    id: Mapped[int] = mapped_column(
+        ForeignKey("library_asset.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    pages: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    __mapper_args__ = {
+        "polymorphic_identity": "pdf",
+    }
+
+
+class AudioAsset(LibraryAsset):
+    __tablename__ = "audio_asset"
+
+    id: Mapped[int] = mapped_column(
+        ForeignKey("library_asset.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    duration: Mapped[float] = mapped_column(Integer, nullable=False)
+
+    __mapper_args__ = {
+        "polymorphic_identity": "audio",
+    }
+
+
 __all__ = [
     "Base",
     "Publisher",
@@ -589,6 +659,12 @@ __all__ = [
     "MediaAttachment",
     "ImageAttachment",
     "VideoAttachment",
+    "AbstractMediaAttachment",
+    "AbstractImageAttachment",
+    "AbstractVideoAttachment",
+    "LibraryAsset",
+    "PdfAsset",
+    "AudioAsset",
     "BlogAuthor",
     "BlogPost",
     "BlogTag",
