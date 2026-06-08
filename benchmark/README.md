@@ -33,13 +33,13 @@ CodeSpeed's instrumentation mode needs valgrind (Linux/CI only), so locally use
 the wall-clock reporter:
 
 ```bash
-uv run python scripts/bench.py report           # the gap report, both axes
-uv run python scripts/bench.py report --axis a   # one axis
-uv run python scripts/bench.py report -k nested  # filter by test name
-uv run python scripts/bench.py --help            # full command/option help
+uv run python scripts/benchmark.py report           # the gap report, both axes
+uv run python scripts/benchmark.py report --axis a   # one axis
+uv run python scripts/benchmark.py report -k nested  # filter by test name
+uv run python scripts/benchmark.py --help            # full command/option help
 ```
 
-`scripts/bench.py` is a Typer CLI (`report`, `compare`, `profile`); every command
+`scripts/benchmark.py` is a Typer CLI (`report`, `compare`, `profile`); every command
 and flag has `--help`. pytest's own output is hidden — runs are saved under
 `./.bench/` (`last.json`, plus `main.json` when you `--save main`). Raw
 pytest-benchmark also works: `uv run pytest benchmark/ --benchmark-enable`.
@@ -60,10 +60,10 @@ ratios cancel machine noise, so this is robust on CI runners):
 
 ```bash
 # snapshot a baseline (e.g. while on main) → ./.bench/main.json
-uv run python scripts/bench.py report --save main
+uv run python scripts/benchmark.py report --save main
 # on your branch — see the drift, then enforce it:
-uv run python scripts/bench.py compare            # vs ./.bench/main.json
-uv run python scripts/bench.py compare --gate     # exit 1 on >10% regression
+uv run python scripts/benchmark.py compare            # vs ./.bench/main.json
+uv run python scripts/benchmark.py compare --gate     # exit 1 on >10% regression
 ```
 
 `--base NAME` picks a different baseline (name under `./.bench`, or a JSON path);
@@ -76,7 +76,7 @@ fails the gate. The DB-bound loading groups are noisy (±10–15%); raise
 ## Drilling into a regression
 
 ```bash
-uv run python scripts/bench.py profile transmuter_validate_scalar --top 30
+uv run python scripts/benchmark.py profile transmuter_validate_scalar --top 30
 ```
 
 `TARGET` is a pytest `-k` pattern matching the **test function name**, not the

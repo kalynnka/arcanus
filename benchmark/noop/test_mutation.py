@@ -7,7 +7,10 @@ path versus a hand-written validate-then-setattr loop.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
+from pytest_benchmark.fixture import BenchmarkFixture
 
 from benchmark.data import ref_schemas as R
 from tests import schemas as S
@@ -17,12 +20,14 @@ from tests import transmuters as T
 class TestMutateCollection:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="noop-mutation-collection")
-    def test_pydantic_mutate_collection(self, benchmark, nested_book_data):
+    def test_pydantic_mutate_collection(
+        self, benchmark: BenchmarkFixture, nested_book_data: list[dict[str, Any]]
+    ):
         author = S.Author(id=1, name="Mutator", field="Physics")
         books = [S.Book.model_validate(d) for d in nested_book_data]
         extra = S.Book.model_validate(nested_book_data[0])
 
-        def mutate():
+        def mutate() -> None:
             author.books.clear()
             author.books.extend(books)
             author.books.append(extra)
@@ -32,12 +37,14 @@ class TestMutateCollection:
         assert len(author.books) == len(books)
 
     @pytest.mark.benchmark(group="noop-mutation-collection")
-    def test_transmuter_mutate_collection(self, benchmark, nested_book_data):
+    def test_transmuter_mutate_collection(
+        self, benchmark: BenchmarkFixture, nested_book_data: list[dict[str, Any]]
+    ):
         author = T.Author(id=1, name="Mutator", field="Physics")
         books = [T.Book.model_validate(d) for d in nested_book_data]
         extra = T.Book.model_validate(nested_book_data[0])
 
-        def mutate():
+        def mutate() -> None:
             author.books.clear()
             author.books.extend(books)
             author.books.append(extra)
@@ -50,14 +57,16 @@ class TestMutateCollection:
 class TestMutateGroupMap:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="noop-mutation-groupmap")
-    def test_pydantic_mutate_groupmap(self, benchmark, grouped_catalog_data):
+    def test_pydantic_mutate_groupmap(
+        self, benchmark: BenchmarkFixture, grouped_catalog_data: list[dict[str, Any]]
+    ):
         catalog = R.GroupedCatalogRef(id=1, title="Mutator")
         groups = {
             key: [R.TagRef.model_validate(t) for t in tags]
             for key, tags in grouped_catalog_data[0]["tags"].items()
         }
 
-        def mutate():
+        def mutate() -> None:
             catalog.tags.clear()
             for key, tags in groups.items():
                 catalog.tags[key] = tags
@@ -66,14 +75,16 @@ class TestMutateGroupMap:
         assert len(catalog.tags) == len(groups)
 
     @pytest.mark.benchmark(group="noop-mutation-groupmap")
-    def test_transmuter_mutate_groupmap(self, benchmark, grouped_catalog_data):
+    def test_transmuter_mutate_groupmap(
+        self, benchmark: BenchmarkFixture, grouped_catalog_data: list[dict[str, Any]]
+    ):
         catalog = T.GroupedCatalog(id=1, title="Mutator")
         groups = {
             key: [T.GroupedTag.model_validate(t) for t in tags]
             for key, tags in grouped_catalog_data[0]["tags"].items()
         }
 
-        def mutate():
+        def mutate() -> None:
             catalog.tags.clear()
             for key, tags in groups.items():
                 catalog.tags[key] = tags
@@ -87,10 +98,10 @@ class TestAbsorbUpdate:
 
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="noop-absorb-update")
-    def test_pydantic_apply_update(self, benchmark):
+    def test_pydantic_apply_update(self, benchmark: BenchmarkFixture):
         author = S.AuthorFlat(id=1, name="Original", field="Physics")
 
-        def apply():
+        def apply() -> None:
             partial = R.AuthorUpdateRef.model_validate(self.UPDATE)
             for key, value in partial.model_dump(exclude_unset=True).items():
                 setattr(author, key, value)
@@ -99,10 +110,10 @@ class TestAbsorbUpdate:
         assert author.name == "Updated Name"
 
     @pytest.mark.benchmark(group="noop-absorb-update")
-    def test_transmuter_absorb(self, benchmark):
+    def test_transmuter_absorb(self, benchmark: BenchmarkFixture):
         author = T.AuthorFlat(id=1, name="Original", field="Physics")
 
-        def absorb():
+        def absorb() -> None:
             author.absorb(T.AuthorFlat.Update(**self.UPDATE))
 
         benchmark(absorb)

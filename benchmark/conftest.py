@@ -7,8 +7,10 @@ conftests; this root only registers the shared ``baseline`` marker. See
 
 from __future__ import annotations
 
+import pytest
 
-def pytest_configure(config):
+
+def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
         "baseline: reference/control benchmark (pure Pydantic, pure ORM, or "

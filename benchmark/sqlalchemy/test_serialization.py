@@ -9,12 +9,16 @@ are excluded so both sides emit the same shape.
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 from pydantic import TypeAdapter
+from pytest_benchmark.fixture import BenchmarkFixture
 from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm import joinedload as sa_joinedload
 
+from arcanus.materia.sqlalchemy import Session as ArcanusSession
 from arcanus.materia.sqlalchemy import joinedload
 from tests import models, schemas
 from tests.transmuters import Author, Book
@@ -35,11 +39,14 @@ class TestSerializeDictScalar:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="serialize-dict-scalar")
     def test_sqlalchemy_serialize_dict_scalar(
-        self, benchmark, session_factory, seeded_authors
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_authors: list[models.Author],
     ):
         ids = [a.id for a in seeded_authors[:BATCH_SIZE]]
 
-        def serialize():
+        def serialize() -> list[Any]:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.Author).where(models.Author.id.in_(ids))
@@ -51,11 +58,14 @@ class TestSerializeDictScalar:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="serialize-dict-scalar")
     def test_pydantic_sqlalchemy_serialize_dict_scalar(
-        self, benchmark, session_factory, seeded_authors
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_authors: list[models.Author],
     ):
         ids = [a.id for a in seeded_authors[:BATCH_SIZE]]
 
-        def serialize():
+        def serialize() -> list[Any]:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.Author).where(models.Author.id.in_(ids))
@@ -66,11 +76,14 @@ class TestSerializeDictScalar:
 
     @pytest.mark.benchmark(group="serialize-dict-scalar")
     def test_arcanus_serialize_dict_scalar(
-        self, benchmark, arcanus_session_factory, seeded_authors
+        self,
+        benchmark: BenchmarkFixture,
+        arcanus_session_factory: sessionmaker[ArcanusSession],
+        seeded_authors: list[models.Author],
     ):
         ids = [a.id for a in seeded_authors[:BATCH_SIZE]]
 
-        def serialize():
+        def serialize() -> list[Any]:
             with arcanus_session_factory() as session:
                 rows = session.scalars(
                     select(Author).where(Author["id"].in_(ids))
@@ -84,11 +97,14 @@ class TestSerializeJsonScalar:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="serialize-json-scalar")
     def test_sqlalchemy_serialize_json_scalar(
-        self, benchmark, session_factory, seeded_authors
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_authors: list[models.Author],
     ):
         ids = [a.id for a in seeded_authors[:BATCH_SIZE]]
 
-        def serialize():
+        def serialize() -> str:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.Author).where(models.Author.id.in_(ids))
@@ -102,12 +118,15 @@ class TestSerializeJsonScalar:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="serialize-json-scalar")
     def test_pydantic_sqlalchemy_serialize_json_scalar(
-        self, benchmark, session_factory, seeded_authors
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_authors: list[models.Author],
     ):
         ids = [a.id for a in seeded_authors[:BATCH_SIZE]]
         adapter = TypeAdapter(list[schemas.AuthorFlat])
 
-        def serialize():
+        def serialize() -> bytes:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.Author).where(models.Author.id.in_(ids))
@@ -118,18 +137,21 @@ class TestSerializeJsonScalar:
 
     @pytest.mark.benchmark(group="serialize-json-scalar")
     def test_arcanus_serialize_json_scalar(
-        self, benchmark, arcanus_session_factory, seeded_authors
+        self,
+        benchmark: BenchmarkFixture,
+        arcanus_session_factory: sessionmaker[ArcanusSession],
+        seeded_authors: list[models.Author],
     ):
         ids = [a.id for a in seeded_authors[:BATCH_SIZE]]
         adapter = TypeAdapter(list[Author])
 
-        def serialize():
+        def serialize() -> bytes:
             with arcanus_session_factory() as session:
                 rows = session.scalars(
                     select(Author).where(Author["id"].in_(ids))
                 ).all()
                 return adapter.dump_json(
-                    rows, exclude={"__all__": {"books", "test_id"}}
+                    list(rows), exclude={"__all__": {"books", "test_id"}}
                 )
 
         assert benchmark(serialize)
@@ -139,11 +161,14 @@ class TestSerializeDictNested:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="serialize-dict-nested")
     def test_sqlalchemy_serialize_dict_nested(
-        self, benchmark, session_factory, seeded_books
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_books: list[models.Book],
     ):
         ids = [b.id for b in seeded_books[:BATCH_SIZE]]
 
-        def serialize():
+        def serialize() -> list[Any]:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.Book)
@@ -169,11 +194,14 @@ class TestSerializeDictNested:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="serialize-dict-nested")
     def test_pydantic_sqlalchemy_serialize_dict_nested(
-        self, benchmark, session_factory, seeded_books
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_books: list[models.Book],
     ):
         ids = [b.id for b in seeded_books[:BATCH_SIZE]]
 
-        def serialize():
+        def serialize() -> list[Any]:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.Book)
@@ -189,11 +217,14 @@ class TestSerializeDictNested:
 
     @pytest.mark.benchmark(group="serialize-dict-nested")
     def test_arcanus_serialize_dict_nested(
-        self, benchmark, arcanus_session_factory, seeded_books
+        self,
+        benchmark: BenchmarkFixture,
+        arcanus_session_factory: sessionmaker[ArcanusSession],
+        seeded_books: list[models.Book],
     ):
         ids = [b.id for b in seeded_books[:BATCH_SIZE]]
 
-        def serialize():
+        def serialize() -> list[Any]:
             with arcanus_session_factory() as session:
                 rows = session.scalars(
                     select(Book)
@@ -209,12 +240,15 @@ class TestSerializeJsonNested:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="serialize-json-nested")
     def test_pydantic_sqlalchemy_serialize_json_nested(
-        self, benchmark, session_factory, seeded_books
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_books: list[models.Book],
     ):
         ids = [b.id for b in seeded_books[:BATCH_SIZE]]
         adapter = TypeAdapter(list[schemas.BookFlat])
 
-        def serialize():
+        def serialize() -> bytes:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.Book)
@@ -230,11 +264,14 @@ class TestSerializeJsonNested:
 
     @pytest.mark.benchmark(group="serialize-json-nested")
     def test_arcanus_serialize_json_nested(
-        self, benchmark, arcanus_session_factory, seeded_books
+        self,
+        benchmark: BenchmarkFixture,
+        arcanus_session_factory: sessionmaker[ArcanusSession],
+        seeded_books: list[models.Book],
     ):
         ids = [b.id for b in seeded_books[:BATCH_SIZE]]
 
-        def serialize():
+        def serialize() -> list[str]:
             with arcanus_session_factory() as session:
                 rows = session.scalars(
                     select(Book)

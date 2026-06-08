@@ -12,7 +12,7 @@ from typing import Generator
 
 import pytest
 from sqlalchemy import Engine, create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from arcanus.materia.sqlalchemy import Session as ArcanusSession
 from arcanus.materia.sqlalchemy.base import SqlalchemyMateria
@@ -39,12 +39,12 @@ def setup_database(engine: Engine) -> None:
 
 
 @pytest.fixture(scope="session")
-def session_factory(engine: Engine) -> sessionmaker:
+def session_factory(engine: Engine) -> sessionmaker[Session]:
     return sessionmaker(bind=engine, expire_on_commit=False)
 
 
 @pytest.fixture(scope="session")
-def arcanus_session_factory(engine: Engine) -> sessionmaker:
+def arcanus_session_factory(engine: Engine) -> sessionmaker[ArcanusSession]:
     return sessionmaker(bind=engine, expire_on_commit=False, class_=ArcanusSession)
 
 

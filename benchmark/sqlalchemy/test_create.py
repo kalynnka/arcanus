@@ -7,9 +7,13 @@ are never mutated. The gap = arcanus / (Pydantic+SQLAlchemy).
 from __future__ import annotations
 
 import random
+from typing import Any
 
 import pytest
+from pytest_benchmark.fixture import BenchmarkFixture
+from sqlalchemy.orm import Session, sessionmaker
 
+from arcanus.materia.sqlalchemy import Session as ArcanusSession
 from tests import models, schemas
 from tests.transmuters import Author, Book
 
@@ -17,10 +21,15 @@ from tests.transmuters import Author, Book
 class TestCreateSingleAuthor:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="create-single-author")
-    def test_sqlalchemy_create(self, benchmark, session_factory, create_author_data):
+    def test_sqlalchemy_create(
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        create_author_data: list[dict[str, Any]],
+    ):
         data = random.choice(create_author_data)
 
-        def create():
+        def create() -> None:
             with session_factory() as session:
                 session.add(models.Author(name=data["name"], field=data["write_field"]))
                 session.flush()
@@ -31,11 +40,14 @@ class TestCreateSingleAuthor:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="create-single-author")
     def test_pydantic_sqlalchemy_create(
-        self, benchmark, session_factory, create_author_data
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        create_author_data: list[dict[str, Any]],
     ):
         data = random.choice(create_author_data)
 
-        def create():
+        def create() -> None:
             with session_factory() as session:
                 validated = schemas.AuthorCreate.model_validate(data)
                 session.add(models.Author(**validated.model_dump()))
@@ -46,11 +58,14 @@ class TestCreateSingleAuthor:
 
     @pytest.mark.benchmark(group="create-single-author")
     def test_arcanus_create(
-        self, benchmark, arcanus_session_factory, create_author_data
+        self,
+        benchmark: BenchmarkFixture,
+        arcanus_session_factory: sessionmaker[ArcanusSession],
+        create_author_data: list[dict[str, Any]],
     ):
         data = random.choice(create_author_data)
 
-        def create():
+        def create() -> None:
             with arcanus_session_factory() as session:
                 session.add(Author(name=data["name"], field=data["write_field"]))
                 session.flush()
@@ -63,11 +78,14 @@ class TestCreateNestedBook:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="create-nested-book")
     def test_sqlalchemy_create_nested(
-        self, benchmark, session_factory, create_nested_book_data
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        create_nested_book_data: list[dict[str, Any]],
     ):
         data = random.choice(create_nested_book_data)
 
-        def create():
+        def create() -> None:
             with session_factory() as session:
                 book = models.Book(
                     title=data["title"],
@@ -84,11 +102,14 @@ class TestCreateNestedBook:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="create-nested-book")
     def test_pydantic_sqlalchemy_create_nested(
-        self, benchmark, session_factory, create_nested_book_data
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        create_nested_book_data: list[dict[str, Any]],
     ):
         data = random.choice(create_nested_book_data)
 
-        def create():
+        def create() -> None:
             with session_factory() as session:
                 validated = schemas.BookCreate.model_validate(data)
                 book = models.Book(
@@ -105,11 +126,14 @@ class TestCreateNestedBook:
 
     @pytest.mark.benchmark(group="create-nested-book")
     def test_arcanus_create_nested(
-        self, benchmark, arcanus_session_factory, create_nested_book_data
+        self,
+        benchmark: BenchmarkFixture,
+        arcanus_session_factory: sessionmaker[ArcanusSession],
+        create_nested_book_data: list[dict[str, Any]],
     ):
         data = random.choice(create_nested_book_data)
 
-        def create():
+        def create() -> None:
             with arcanus_session_factory() as session:
                 session.add(Book(**data))
                 session.flush()
@@ -123,11 +147,15 @@ class TestCreateBulkAuthors:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="create-bulk-authors")
     def test_sqlalchemy_create_bulk(
-        self, benchmark, session_factory, create_author_data, n
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        create_author_data: list[dict[str, Any]],
+        n: int,
     ):
         rows = create_author_data[:n]
 
-        def create():
+        def create() -> None:
             with session_factory() as session:
                 session.add_all(
                     models.Author(name=d["name"], field=d["write_field"]) for d in rows
@@ -140,11 +168,15 @@ class TestCreateBulkAuthors:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="create-bulk-authors")
     def test_pydantic_sqlalchemy_create_bulk(
-        self, benchmark, session_factory, create_author_data, n
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        create_author_data: list[dict[str, Any]],
+        n: int,
     ):
         rows = create_author_data[:n]
 
-        def create():
+        def create() -> None:
             with session_factory() as session:
                 validated = [schemas.AuthorCreate.model_validate(d) for d in rows]
                 session.add_all(models.Author(**v.model_dump()) for v in validated)
@@ -155,11 +187,15 @@ class TestCreateBulkAuthors:
 
     @pytest.mark.benchmark(group="create-bulk-authors")
     def test_arcanus_create_bulk(
-        self, benchmark, arcanus_session_factory, create_author_data, n
+        self,
+        benchmark: BenchmarkFixture,
+        arcanus_session_factory: sessionmaker[ArcanusSession],
+        create_author_data: list[dict[str, Any]],
+        n: int,
     ):
         rows = create_author_data[:n]
 
-        def create():
+        def create() -> None:
             with arcanus_session_factory() as session:
                 session.add_all(
                     Author(name=d["name"], field=d["write_field"]) for d in rows

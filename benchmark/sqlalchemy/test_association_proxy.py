@@ -8,11 +8,15 @@ automatically. Reads and serialization over seeded blog posts.
 from __future__ import annotations
 
 import random
+from typing import Any
 
 import pytest
+from pytest_benchmark.fixture import BenchmarkFixture
 from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm import selectinload as sa_selectinload
 
+from arcanus.materia.sqlalchemy import Session as ArcanusSession
 from arcanus.materia.sqlalchemy import selectinload
 from tests import models, schemas
 from tests.transmuters import BlogPost
@@ -23,28 +27,36 @@ BATCH_SIZE = 50
 class TestReadSinglePostScalarProxy:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="read-single-post-proxy")
-    def test_sqlalchemy_read(self, benchmark, session_factory, seeded_blog_posts):
+    def test_sqlalchemy_read(
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_blog_posts: list[models.BlogPost],
+    ):
         post_id = random.choice(seeded_blog_posts).id
 
-        def read():
+        def read() -> None:
             with session_factory() as session:
                 post = session.scalars(
                     select(models.BlogPost)
                     .where(models.BlogPost.id == post_id)
                     .options(sa_selectinload(models.BlogPost.author))
                 ).first()
-                assert post.author_name is not None
+                assert post is not None and post.author_name is not None
 
         benchmark(read)
 
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="read-single-post-proxy")
     def test_pydantic_sqlalchemy_read(
-        self, benchmark, session_factory, seeded_blog_posts
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_blog_posts: list[models.BlogPost],
     ):
         post_id = random.choice(seeded_blog_posts).id
 
-        def read():
+        def read() -> None:
             with session_factory() as session:
                 post = session.scalars(
                     select(models.BlogPost)
@@ -64,17 +76,22 @@ class TestReadSinglePostScalarProxy:
         benchmark(read)
 
     @pytest.mark.benchmark(group="read-single-post-proxy")
-    def test_arcanus_read(self, benchmark, arcanus_session_factory, seeded_blog_posts):
+    def test_arcanus_read(
+        self,
+        benchmark: BenchmarkFixture,
+        arcanus_session_factory: sessionmaker[ArcanusSession],
+        seeded_blog_posts: list[models.BlogPost],
+    ):
         post_id = random.choice(seeded_blog_posts).id
 
-        def read():
+        def read() -> None:
             with arcanus_session_factory() as session:
                 post = session.scalars(
                     select(BlogPost)
                     .where(BlogPost["id"] == post_id)
                     .options(selectinload(BlogPost["author"]))
                 ).first()
-                assert post.author_name is not None
+                assert post is not None and post.author_name is not None
 
         benchmark(read)
 
@@ -82,8 +99,13 @@ class TestReadSinglePostScalarProxy:
 class TestReadManyPostsScalarProxy:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="read-many-posts-proxy")
-    def test_sqlalchemy_read_many(self, benchmark, session_factory, seeded_blog_posts):
-        def read():
+    def test_sqlalchemy_read_many(
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_blog_posts: list[models.BlogPost],
+    ):
+        def read() -> None:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.BlogPost)
@@ -97,9 +119,12 @@ class TestReadManyPostsScalarProxy:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="read-many-posts-proxy")
     def test_pydantic_sqlalchemy_read_many(
-        self, benchmark, session_factory, seeded_blog_posts
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_blog_posts: list[models.BlogPost],
     ):
-        def read():
+        def read() -> None:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.BlogPost)
@@ -123,9 +148,12 @@ class TestReadManyPostsScalarProxy:
 
     @pytest.mark.benchmark(group="read-many-posts-proxy")
     def test_arcanus_read_many(
-        self, benchmark, arcanus_session_factory, seeded_blog_posts
+        self,
+        benchmark: BenchmarkFixture,
+        arcanus_session_factory: sessionmaker[ArcanusSession],
+        seeded_blog_posts: list[models.BlogPost],
     ):
-        def read():
+        def read() -> None:
             with arcanus_session_factory() as session:
                 rows = session.scalars(
                     select(BlogPost)
@@ -140,28 +168,36 @@ class TestReadManyPostsScalarProxy:
 class TestReadPostCollectionProxy:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="read-single-post-collection-proxy")
-    def test_sqlalchemy_read(self, benchmark, session_factory, seeded_blog_posts):
+    def test_sqlalchemy_read(
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_blog_posts: list[models.BlogPost],
+    ):
         post_id = random.choice(seeded_blog_posts).id
 
-        def read():
+        def read() -> None:
             with session_factory() as session:
                 post = session.scalars(
                     select(models.BlogPost)
                     .where(models.BlogPost.id == post_id)
                     .options(sa_selectinload(models.BlogPost.tags))
                 ).first()
-                assert len(list(post.tag_labels)) >= 0
+                assert post is not None and len(list(post.tag_labels)) >= 0
 
         benchmark(read)
 
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="read-single-post-collection-proxy")
     def test_pydantic_sqlalchemy_read(
-        self, benchmark, session_factory, seeded_blog_posts
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_blog_posts: list[models.BlogPost],
     ):
         post_id = random.choice(seeded_blog_posts).id
 
-        def read():
+        def read() -> None:
             with session_factory() as session:
                 post = session.scalars(
                     select(models.BlogPost)
@@ -181,17 +217,22 @@ class TestReadPostCollectionProxy:
         benchmark(read)
 
     @pytest.mark.benchmark(group="read-single-post-collection-proxy")
-    def test_arcanus_read(self, benchmark, arcanus_session_factory, seeded_blog_posts):
+    def test_arcanus_read(
+        self,
+        benchmark: BenchmarkFixture,
+        arcanus_session_factory: sessionmaker[ArcanusSession],
+        seeded_blog_posts: list[models.BlogPost],
+    ):
         post_id = random.choice(seeded_blog_posts).id
 
-        def read():
+        def read() -> None:
             with arcanus_session_factory() as session:
                 post = session.scalars(
                     select(BlogPost)
                     .where(BlogPost["id"] == post_id)
                     .options(selectinload(BlogPost["tags"]))
                 ).first()
-                assert len(post.tag_labels) >= 0
+                assert post is not None and len(post.tag_labels) >= 0
 
         benchmark(read)
 
@@ -199,8 +240,13 @@ class TestReadPostCollectionProxy:
 class TestSerializePostProxies:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="serialize-post-proxy-dict")
-    def test_sqlalchemy_serialize(self, benchmark, session_factory, seeded_blog_posts):
-        def serialize():
+    def test_sqlalchemy_serialize(
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_blog_posts: list[models.BlogPost],
+    ):
+        def serialize() -> list[Any]:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.BlogPost)
@@ -226,9 +272,12 @@ class TestSerializePostProxies:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="serialize-post-proxy-dict")
     def test_pydantic_sqlalchemy_serialize(
-        self, benchmark, session_factory, seeded_blog_posts
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_blog_posts: list[models.BlogPost],
     ):
-        def serialize():
+        def serialize() -> list[Any]:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.BlogPost)
@@ -255,9 +304,12 @@ class TestSerializePostProxies:
 
     @pytest.mark.benchmark(group="serialize-post-proxy-dict")
     def test_arcanus_serialize(
-        self, benchmark, arcanus_session_factory, seeded_blog_posts
+        self,
+        benchmark: BenchmarkFixture,
+        arcanus_session_factory: sessionmaker[ArcanusSession],
+        seeded_blog_posts: list[models.BlogPost],
     ):
-        def serialize():
+        def serialize() -> list[Any]:
             with arcanus_session_factory() as session:
                 rows = session.scalars(
                     select(BlogPost)

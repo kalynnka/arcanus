@@ -8,8 +8,14 @@ Pydantic; candidate = arcanus AsyncSession returning transmuters.
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Sequence
+from typing import Any
+
 import pytest
+from pytest_benchmark.fixture import BenchmarkFixture
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.ext.asyncio import AsyncSession as SAAsyncSession
 
 from arcanus.materia.sqlalchemy import AsyncSession as ArcanusAsyncSession
@@ -23,11 +29,15 @@ class TestAsyncReadOne:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="async-read-one")
     def test_pydantic_sqlalchemy_async_read_one(
-        self, benchmark, bench_loop, async_engine, async_author_ids
+        self,
+        benchmark: BenchmarkFixture,
+        bench_loop: asyncio.AbstractEventLoop,
+        async_engine: AsyncEngine,
+        async_author_ids: list[int],
     ):
         author_id = async_author_ids[0]
 
-        async def op():
+        async def op() -> schemas.AuthorFlat:
             async with SAAsyncSession(async_engine) as session:
                 orm = (
                     await session.execute(
@@ -40,11 +50,15 @@ class TestAsyncReadOne:
 
     @pytest.mark.benchmark(group="async-read-one")
     def test_arcanus_async_read_one(
-        self, benchmark, bench_loop, async_engine, async_author_ids
+        self,
+        benchmark: BenchmarkFixture,
+        bench_loop: asyncio.AbstractEventLoop,
+        async_engine: AsyncEngine,
+        async_author_ids: list[int],
     ):
         author_id = async_author_ids[0]
 
-        async def op():
+        async def op() -> Author:
             async with ArcanusAsyncSession(async_engine) as session:
                 return await session.one(Author, id=author_id)
 
@@ -55,11 +69,15 @@ class TestAsyncBulkIds:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="async-bulk-ids")
     def test_pydantic_sqlalchemy_async_bulk(
-        self, benchmark, bench_loop, async_engine, async_author_ids
+        self,
+        benchmark: BenchmarkFixture,
+        bench_loop: asyncio.AbstractEventLoop,
+        async_engine: AsyncEngine,
+        async_author_ids: list[int],
     ):
         ids = async_author_ids[:BATCH]
 
-        async def op():
+        async def op() -> list[Any]:
             async with SAAsyncSession(async_engine) as session:
                 rows = (
                     (
@@ -77,11 +95,15 @@ class TestAsyncBulkIds:
 
     @pytest.mark.benchmark(group="async-bulk-ids")
     def test_arcanus_async_bulk(
-        self, benchmark, bench_loop, async_engine, async_author_ids
+        self,
+        benchmark: BenchmarkFixture,
+        bench_loop: asyncio.AbstractEventLoop,
+        async_engine: AsyncEngine,
+        async_author_ids: list[int],
     ):
         ids = async_author_ids[:BATCH]
 
-        async def op():
+        async def op() -> list[Any]:
             async with ArcanusAsyncSession(async_engine) as session:
                 return await session.bulk(Author, ids)
 
@@ -92,9 +114,13 @@ class TestAsyncList:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="async-list")
     def test_pydantic_sqlalchemy_async_list(
-        self, benchmark, bench_loop, async_engine, async_author_ids
+        self,
+        benchmark: BenchmarkFixture,
+        bench_loop: asyncio.AbstractEventLoop,
+        async_engine: AsyncEngine,
+        async_author_ids: list[int],
     ):
-        async def op():
+        async def op() -> list[Any]:
             async with SAAsyncSession(async_engine) as session:
                 rows = (
                     (
@@ -113,9 +139,13 @@ class TestAsyncList:
 
     @pytest.mark.benchmark(group="async-list")
     def test_arcanus_async_list(
-        self, benchmark, bench_loop, async_engine, async_author_ids
+        self,
+        benchmark: BenchmarkFixture,
+        bench_loop: asyncio.AbstractEventLoop,
+        async_engine: AsyncEngine,
+        async_author_ids: list[int],
     ):
-        async def op():
+        async def op() -> Sequence[Any]:
             async with ArcanusAsyncSession(async_engine) as session:
                 return await session.list(Author, limit=BATCH, order_bys=[Author["id"]])
 
@@ -126,9 +156,13 @@ class TestAsyncStreamPartitions:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="async-stream-partitions")
     def test_pydantic_sqlalchemy_async_stream(
-        self, benchmark, bench_loop, async_engine, async_author_ids
+        self,
+        benchmark: BenchmarkFixture,
+        bench_loop: asyncio.AbstractEventLoop,
+        async_engine: AsyncEngine,
+        async_author_ids: list[int],
     ):
-        async def op():
+        async def op() -> int:
             async with SAAsyncSession(async_engine) as session:
                 result = await session.stream_scalars(
                     select(models.Author)
@@ -145,9 +179,13 @@ class TestAsyncStreamPartitions:
 
     @pytest.mark.benchmark(group="async-stream-partitions")
     def test_arcanus_async_stream(
-        self, benchmark, bench_loop, async_engine, async_author_ids
+        self,
+        benchmark: BenchmarkFixture,
+        bench_loop: asyncio.AbstractEventLoop,
+        async_engine: AsyncEngine,
+        async_author_ids: list[int],
     ):
-        async def op():
+        async def op() -> int:
             async with ArcanusAsyncSession(async_engine) as session:
                 total = 0
                 async for part in session.partitions(
@@ -163,9 +201,12 @@ class TestAsyncCreate:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="async-create-author")
     def test_pydantic_sqlalchemy_async_create(
-        self, benchmark, bench_loop, async_engine
+        self,
+        benchmark: BenchmarkFixture,
+        bench_loop: asyncio.AbstractEventLoop,
+        async_engine: AsyncEngine,
     ):
-        async def op():
+        async def op() -> None:
             async with SAAsyncSession(async_engine) as session:
                 validated = schemas.AuthorCreate.model_validate(
                     {"name": "Async New", "write_field": "Physics"}
@@ -177,8 +218,13 @@ class TestAsyncCreate:
         benchmark(lambda: bench_loop.run_until_complete(op()))
 
     @pytest.mark.benchmark(group="async-create-author")
-    def test_arcanus_async_create(self, benchmark, bench_loop, async_engine):
-        async def op():
+    def test_arcanus_async_create(
+        self,
+        benchmark: BenchmarkFixture,
+        bench_loop: asyncio.AbstractEventLoop,
+        async_engine: AsyncEngine,
+    ):
+        async def op() -> None:
             async with ArcanusAsyncSession(async_engine) as session:
                 session.add(Author(name="Async New", field="Physics"))
                 await session.flush()

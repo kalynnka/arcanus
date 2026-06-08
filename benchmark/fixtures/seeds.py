@@ -9,10 +9,10 @@ local report can derive per-object timings. Imported by the Axis B conftest.
 from __future__ import annotations
 
 import random
-from typing import Generator
+from typing import Any, Generator
 
 import pytest
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from benchmark.data import builders, corpus
 from tests import models
@@ -52,7 +52,9 @@ def _title(rng: random.Random) -> str:
 
 
 @pytest.fixture(scope="session")
-def seeded_authors(session_factory: sessionmaker) -> Generator[list, None, None]:
+def seeded_authors(
+    session_factory: sessionmaker[Session],
+) -> Generator[list[models.Author], None, None]:
     """100 flat authors (no books)."""
     rng = random.Random(corpus.SEED)
     with session_factory() as session:
@@ -65,7 +67,9 @@ def seeded_authors(session_factory: sessionmaker) -> Generator[list, None, None]
 
 
 @pytest.fixture(scope="session")
-def seeded_books(session_factory: sessionmaker) -> Generator[list, None, None]:
+def seeded_books(
+    session_factory: sessionmaker[Session],
+) -> Generator[list[models.Book], None, None]:
     """100 books, each linked to an author and a publisher."""
     rng = random.Random(corpus.SEED + 1)
     with session_factory() as session:
@@ -91,8 +95,8 @@ def seeded_books(session_factory: sessionmaker) -> Generator[list, None, None]:
 
 @pytest.fixture(scope="session")
 def seeded_authors_with_books(
-    session_factory: sessionmaker,
-) -> Generator[list, None, None]:
+    session_factory: sessionmaker[Session],
+) -> Generator[list[models.Author], None, None]:
     """100 authors each owning K books — powers loading-strategy + 1-M mutation."""
     rng = random.Random(corpus.SEED + 2)
     with session_factory() as session:
@@ -120,7 +124,7 @@ def seeded_authors_with_books(
 
 @pytest.fixture(scope="session")
 def seeded_publisher(
-    session_factory: sessionmaker,
+    session_factory: sessionmaker[Session],
 ) -> Generator[models.Publisher, None, None]:
     """One committed publisher, for attaching freshly-built books in mutations."""
     with session_factory() as session:
@@ -132,7 +136,9 @@ def seeded_publisher(
 
 
 @pytest.fixture(scope="session")
-def seeded_categories(session_factory: sessionmaker) -> Generator[list, None, None]:
+def seeded_categories(
+    session_factory: sessionmaker[Session],
+) -> Generator[list[models.Category], None, None]:
     """A reusable pool of categories for M-M associate benchmarks."""
     with session_factory() as session:
         categories = [
@@ -148,8 +154,8 @@ def seeded_categories(session_factory: sessionmaker) -> Generator[list, None, No
 
 @pytest.fixture(scope="session")
 def seeded_books_with_categories(
-    session_factory: sessionmaker,
-) -> Generator[list, None, None]:
+    session_factory: sessionmaker[Session],
+) -> Generator[list[models.Book], None, None]:
     """50 books each tagged with C categories (M-M) — powers M-M load/mutation."""
     rng = random.Random(corpus.SEED + 3)
     with session_factory() as session:
@@ -180,8 +186,8 @@ def seeded_books_with_categories(
 
 @pytest.fixture(scope="session")
 def seeded_books_with_reviews(
-    session_factory: sessionmaker,
-) -> Generator[list, None, None]:
+    session_factory: sessionmaker[Session],
+) -> Generator[list[models.Book], None, None]:
     """50 books each with R reviews (1-M) — powers 1-M load."""
     rng = random.Random(corpus.SEED + 4)
     with session_factory() as session:
@@ -214,7 +220,9 @@ def seeded_books_with_reviews(
 
 
 @pytest.fixture(scope="session")
-def seeded_blog_posts(session_factory: sessionmaker) -> Generator[list, None, None]:
+def seeded_blog_posts(
+    session_factory: sessionmaker[Session],
+) -> Generator[list[models.BlogPost], None, None]:
     """100 blog posts with author + M-M tags — powers association-proxy reads."""
     rng = random.Random(corpus.SEED + 10)
     with session_factory() as session:
@@ -241,7 +249,9 @@ def seeded_blog_posts(session_factory: sessionmaker) -> Generator[list, None, No
 
 
 @pytest.fixture(scope="session")
-def seeded_shelf(session_factory: sessionmaker) -> Generator[models.Shelf, None, None]:
+def seeded_shelf(
+    session_factory: sessionmaker[Session],
+) -> Generator[models.Shelf, None, None]:
     """One shelf with N items keyed by label — powers RelationMap mutation."""
     with session_factory() as session:
         shelf = models.Shelf(name="Benchmark Shelf")
@@ -260,7 +270,7 @@ def seeded_shelf(session_factory: sessionmaker) -> Generator[models.Shelf, None,
 
 @pytest.fixture(scope="session")
 def seeded_warehouse(
-    session_factory: sessionmaker,
+    session_factory: sessionmaker[Session],
 ) -> Generator[models.Warehouse, None, None]:
     """One warehouse with grouped items + a manager — powers RelationGroupMap mutation."""
     rng = random.Random(corpus.SEED + 5)
@@ -287,21 +297,21 @@ def seeded_warehouse(
 
 
 @pytest.fixture(scope="session")
-def create_author_data() -> list:
+def create_author_data() -> list[dict[str, Any]]:
     """Author create payloads ({name, write_field}); enough for bulk n=100."""
     return builders.create_author_dicts(100)
 
 
 @pytest.fixture(scope="session")
-def create_nested_book_data() -> list:
+def create_nested_book_data() -> list[dict[str, Any]]:
     """Book create payloads with nested author + publisher for create benchmarks."""
     return builders.create_nested_book_dicts(50)
 
 
 @pytest.fixture(scope="session")
 def seeded_article(
-    session_factory: sessionmaker,
-) -> Generator[tuple, None, None]:
+    session_factory: sessionmaker[Session],
+) -> Generator[tuple[models.Article, list[models.GeneratedFile]], None, None]:
     """One article + a pool of generated files — powers association-proxy creator."""
     with session_factory() as session:
         article = models.Article(title="Benchmark Article")

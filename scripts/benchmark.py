@@ -12,11 +12,11 @@ machine noise — a robust "did we slow down too much" signal.
 Saved runs live under ./.bench (e.g. ./.bench/main.json, ./.bench/last.json).
 
 Typical use:
-  uv run python scripts/bench.py report                 # see the gaps now
-  uv run python scripts/bench.py report --save main      # snapshot a baseline
-  uv run python scripts/bench.py compare                 # drift vs ./.bench/main.json
-  uv run python scripts/bench.py compare --gate          # …and fail on >10% regression
-  uv run python scripts/bench.py profile mutate_collection   # drill into one gap
+  uv run python scripts/benchmark.py report                 # see the gaps now
+  uv run python scripts/benchmark.py report --save main      # snapshot a baseline
+  uv run python scripts/benchmark.py compare                 # drift vs ./.bench/main.json
+  uv run python scripts/benchmark.py compare --gate          # …and fail on >10% regression
+  uv run python scripts/benchmark.py profile mutate_collection   # drill into one gap
 """
 
 from __future__ import annotations

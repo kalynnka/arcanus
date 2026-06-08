@@ -14,9 +14,8 @@ import random
 from typing import Generator
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.ext.asyncio import AsyncSession as SAAsyncSession
-from sqlalchemy.ext.asyncio import create_async_engine
 
 from benchmark.data import corpus
 from tests import models

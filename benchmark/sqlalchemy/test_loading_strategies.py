@@ -10,11 +10,14 @@ strategy is the only variable and results don't depend on seed/DB ordering.
 from __future__ import annotations
 
 import pytest
+from pytest_benchmark.fixture import BenchmarkFixture
 from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm import joinedload as sa_joinedload
 from sqlalchemy.orm import selectinload as sa_selectinload
 from sqlalchemy.orm import subqueryload as sa_subqueryload
 
+from arcanus.materia.sqlalchemy import Session as ArcanusSession
 from arcanus.materia.sqlalchemy import joinedload, selectinload, subqueryload
 from benchmark.data import ref_schemas as R
 from tests import models, schemas
@@ -27,11 +30,14 @@ class TestSelectinloadBooks:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="load-selectinload-books")
     def test_sqlalchemy_selectinload(
-        self, benchmark, session_factory, seeded_authors_with_books
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_authors_with_books: list[models.Author],
     ):
         ids = [a.id for a in seeded_authors_with_books[:LIMIT]]
 
-        def read():
+        def read() -> None:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.Author)
@@ -45,11 +51,14 @@ class TestSelectinloadBooks:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="load-selectinload-books")
     def test_pydantic_sqlalchemy_selectinload(
-        self, benchmark, session_factory, seeded_authors_with_books
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_authors_with_books: list[models.Author],
     ):
         ids = [a.id for a in seeded_authors_with_books[:LIMIT]]
 
-        def read():
+        def read() -> None:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.Author)
@@ -63,11 +72,14 @@ class TestSelectinloadBooks:
 
     @pytest.mark.benchmark(group="load-selectinload-books")
     def test_arcanus_selectinload(
-        self, benchmark, arcanus_session_factory, seeded_authors_with_books
+        self,
+        benchmark: BenchmarkFixture,
+        arcanus_session_factory: sessionmaker[ArcanusSession],
+        seeded_authors_with_books: list[models.Author],
     ):
         ids = [a.id for a in seeded_authors_with_books[:LIMIT]]
 
-        def read():
+        def read() -> None:
             with arcanus_session_factory() as session:
                 rows = session.scalars(
                     select(Author)
@@ -83,11 +95,14 @@ class TestSubqueryloadBooks:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="load-subqueryload-books")
     def test_sqlalchemy_subqueryload(
-        self, benchmark, session_factory, seeded_authors_with_books
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_authors_with_books: list[models.Author],
     ):
         ids = [a.id for a in seeded_authors_with_books[:LIMIT]]
 
-        def read():
+        def read() -> None:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.Author)
@@ -101,11 +116,14 @@ class TestSubqueryloadBooks:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="load-subqueryload-books")
     def test_pydantic_sqlalchemy_subqueryload(
-        self, benchmark, session_factory, seeded_authors_with_books
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_authors_with_books: list[models.Author],
     ):
         ids = [a.id for a in seeded_authors_with_books[:LIMIT]]
 
-        def read():
+        def read() -> None:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.Author)
@@ -119,11 +137,14 @@ class TestSubqueryloadBooks:
 
     @pytest.mark.benchmark(group="load-subqueryload-books")
     def test_arcanus_subqueryload(
-        self, benchmark, arcanus_session_factory, seeded_authors_with_books
+        self,
+        benchmark: BenchmarkFixture,
+        arcanus_session_factory: sessionmaker[ArcanusSession],
+        seeded_authors_with_books: list[models.Author],
     ):
         ids = [a.id for a in seeded_authors_with_books[:LIMIT]]
 
-        def read():
+        def read() -> None:
             with arcanus_session_factory() as session:
                 rows = session.scalars(
                     select(Author)
@@ -138,10 +159,15 @@ class TestSubqueryloadBooks:
 class TestJoinedloadBookRels:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="load-joinedload-book-rels")
-    def test_sqlalchemy_joinedload(self, benchmark, session_factory, seeded_books):
+    def test_sqlalchemy_joinedload(
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_books: list[models.Book],
+    ):
         ids = [b.id for b in seeded_books[:LIMIT]]
 
-        def read():
+        def read() -> None:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.Book)
@@ -158,11 +184,14 @@ class TestJoinedloadBookRels:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="load-joinedload-book-rels")
     def test_pydantic_sqlalchemy_joinedload(
-        self, benchmark, session_factory, seeded_books
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_books: list[models.Book],
     ):
         ids = [b.id for b in seeded_books[:LIMIT]]
 
-        def read():
+        def read() -> None:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.Book)
@@ -178,10 +207,15 @@ class TestJoinedloadBookRels:
         benchmark(read)
 
     @pytest.mark.benchmark(group="load-joinedload-book-rels")
-    def test_arcanus_joinedload(self, benchmark, arcanus_session_factory, seeded_books):
+    def test_arcanus_joinedload(
+        self,
+        benchmark: BenchmarkFixture,
+        arcanus_session_factory: sessionmaker[ArcanusSession],
+        seeded_books: list[models.Book],
+    ):
         ids = [b.id for b in seeded_books[:LIMIT]]
 
-        def read():
+        def read() -> None:
             with arcanus_session_factory() as session:
                 rows = session.scalars(
                     select(Book)
@@ -197,11 +231,14 @@ class TestLoadCategoriesMM:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="load-categories-mm")
     def test_sqlalchemy_categories(
-        self, benchmark, session_factory, seeded_books_with_categories
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_books_with_categories: list[models.Book],
     ):
         ids = [b.id for b in seeded_books_with_categories[:LIMIT]]
 
-        def read():
+        def read() -> None:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.Book)
@@ -215,11 +252,14 @@ class TestLoadCategoriesMM:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="load-categories-mm")
     def test_pydantic_sqlalchemy_categories(
-        self, benchmark, session_factory, seeded_books_with_categories
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_books_with_categories: list[models.Book],
     ):
         ids = [b.id for b in seeded_books_with_categories[:LIMIT]]
 
-        def read():
+        def read() -> None:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.Book)
@@ -233,11 +273,14 @@ class TestLoadCategoriesMM:
 
     @pytest.mark.benchmark(group="load-categories-mm")
     def test_arcanus_categories(
-        self, benchmark, arcanus_session_factory, seeded_books_with_categories
+        self,
+        benchmark: BenchmarkFixture,
+        arcanus_session_factory: sessionmaker[ArcanusSession],
+        seeded_books_with_categories: list[models.Book],
     ):
         ids = [b.id for b in seeded_books_with_categories[:LIMIT]]
 
-        def read():
+        def read() -> None:
             with arcanus_session_factory() as session:
                 rows = session.scalars(
                     select(Book)
@@ -253,11 +296,14 @@ class TestLoadReviews1M:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="load-reviews-1m")
     def test_sqlalchemy_reviews(
-        self, benchmark, session_factory, seeded_books_with_reviews
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_books_with_reviews: list[models.Book],
     ):
         ids = [b.id for b in seeded_books_with_reviews[:LIMIT]]
 
-        def read():
+        def read() -> None:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.Book)
@@ -271,11 +317,14 @@ class TestLoadReviews1M:
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="load-reviews-1m")
     def test_pydantic_sqlalchemy_reviews(
-        self, benchmark, session_factory, seeded_books_with_reviews
+        self,
+        benchmark: BenchmarkFixture,
+        session_factory: sessionmaker[Session],
+        seeded_books_with_reviews: list[models.Book],
     ):
         ids = [b.id for b in seeded_books_with_reviews[:LIMIT]]
 
-        def read():
+        def read() -> None:
             with session_factory() as session:
                 rows = session.scalars(
                     select(models.Book)
@@ -289,11 +338,14 @@ class TestLoadReviews1M:
 
     @pytest.mark.benchmark(group="load-reviews-1m")
     def test_arcanus_reviews(
-        self, benchmark, arcanus_session_factory, seeded_books_with_reviews
+        self,
+        benchmark: BenchmarkFixture,
+        arcanus_session_factory: sessionmaker[ArcanusSession],
+        seeded_books_with_reviews: list[models.Book],
     ):
         ids = [b.id for b in seeded_books_with_reviews[:LIMIT]]
 
-        def read():
+        def read() -> None:
             with arcanus_session_factory() as session:
                 rows = session.scalars(
                     select(Book)
