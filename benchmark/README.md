@@ -72,8 +72,12 @@ uv run python scripts/bench.py compare /tmp/main.json --json /tmp/current.json -
 uv run python scripts/bench.py profile transmuter_validate_scalar --top 30
 ```
 
-This runs the matching benchmarks under cProfile (via pytest-benchmark) and prints
-the top cumulative frames so you can see *where* the gap comes from.
+`TARGET` is a pytest `-k` pattern matching the **test function name**, not the
+benchmark `group=` label — e.g. the group `noop-mutation-collection` is profiled
+with `profile mutate_collection` (or `transmuter_mutate_collection` for just the
+candidate). This runs the matching benchmarks under cProfile (via
+pytest-benchmark) and prints the top cumulative frames so you can see *where* the
+gap comes from. (List names with `pytest benchmark/ --collect-only -q`.)
 
 ## How CodeSpeed fits
 

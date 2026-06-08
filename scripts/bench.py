@@ -305,7 +305,17 @@ def run_profile(args) -> int:
         "no:cacheprovider",
     ]
     console.print(f"[dim]profiling: {' '.join(cmd)}[/dim]")
-    return subprocess.run(cmd, cwd=REPO_ROOT).returncode
+    code = subprocess.run(cmd, cwd=REPO_ROOT).returncode
+    if code == 5:  # pytest EXIT_NOTESTSCOLLECTED — nothing matched -k
+        console.print(
+            f"[yellow]nothing matched -k '{args.target}'. TARGET is a pytest "
+            "test-name pattern, not a benchmark group name.[/yellow]\n"
+            "  Use the candidate function token — e.g. for group "
+            "'noop-mutation-collection' run: "
+            "[bold]profile mutate_collection[/bold]\n"
+            "  (list test names with: pytest benchmark/ --collect-only -q)"
+        )
+    return code
 
 
 def build_parser() -> argparse.ArgumentParser:
