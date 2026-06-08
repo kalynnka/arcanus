@@ -196,6 +196,15 @@ class Transmuter(metaclass=TransmuterTypingMetaclass):
     def __hash__(self) -> int:
         return id(self)
 
+    def __eq__(self, other: object) -> bool:
+        # Identity equality, to match the identity __hash__ above. Transmuters are
+        # mutable, provider-backed proxies; pydantic's default structural equality
+        # both violates the hash/eq contract (id hash vs value eq) and is costly on
+        # hot paths — e.g. list.remove / `in` over a relationship collection scans
+        # with a full field-by-field compare. Defined alongside __hash__ so Python
+        # does not reset __hash__ to None.
+        return self is other
+
     def __getattribute__(self, name: str) -> Any:
         value = super().__getattribute__(name)
         if isinstance(value, Association):
