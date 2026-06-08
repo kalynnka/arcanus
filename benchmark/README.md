@@ -33,12 +33,16 @@ CodeSpeed's instrumentation mode needs valgrind (Linux/CI only), so locally use
 the wall-clock reporter:
 
 ```bash
-uv run python scripts/bench.py report          # the gap report, both axes
-uv run python scripts/bench.py report --axis a  # one axis
-uv run python scripts/bench.py report -k nested # filter by test name
+uv run python scripts/bench.py report           # the gap report, both axes
+uv run python scripts/bench.py report --axis a   # one axis
+uv run python scripts/bench.py report -k nested  # filter by test name
+uv run python scripts/bench.py --help            # full command/option help
 ```
 
-Raw pytest-benchmark also works: `uv run pytest benchmark/ --benchmark-enable`.
+`scripts/bench.py` is a Typer CLI (`report`, `compare`, `profile`); every command
+and flag has `--help`. pytest's own output is hidden — runs are saved under
+`./.bench/` (`last.json`, plus `main.json` when you `--save main`). Raw
+pytest-benchmark also works: `uv run pytest benchmark/ --benchmark-enable`.
 
 ## Reading the gap report
 
@@ -50,21 +54,24 @@ The gap is colored green (≤1.5×) / yellow (≤3×) / red (>3×) as a soft cue
 
 ## The gate: gap drift vs main (10%)
 
-There are no absolute ceilings. The gate compares this branch against a
-main-branch run and fails only when a group's gap regresses by more than 10%
-(measured ratios cancel machine noise, so this is robust on CI runners):
+There are no absolute ceilings. The gate compares this branch against a saved
+baseline and fails only when a group's gap regresses by more than 10% (measured
+ratios cancel machine noise, so this is robust on CI runners):
 
 ```bash
-# on main:
-uv run pytest benchmark/ --benchmark-enable --benchmark-json=/tmp/main.json
+# snapshot a baseline (e.g. while on main) → ./.bench/main.json
+uv run python scripts/bench.py report --save main
 # on your branch — see the drift, then enforce it:
-uv run python scripts/bench.py compare /tmp/main.json --json /tmp/current.json
-uv run python scripts/bench.py compare /tmp/main.json --json /tmp/current.json --gate
+uv run python scripts/bench.py compare            # vs ./.bench/main.json
+uv run python scripts/bench.py compare --gate     # exit 1 on >10% regression
 ```
 
-`--gate` exits non-zero on regression; `--max-regression 0.10` is the default
-10% allowance. A group with no main baseline (e.g. a brand-new group) is shown as
-`new` and never fails the gate.
+`--base NAME` picks a different baseline (name under `./.bench`, or a JSON path);
+`--use NAME` compares a saved run as "now" instead of measuring live (CI uses
+`--base … --use …`). `--max-regression 0.10` is the default 10% allowance. A
+group with no baseline (e.g. a brand-new group) is shown as `new` and never
+fails the gate. The DB-bound loading groups are noisy (±10–15%); raise
+`--rounds 8` for a steadier gate on those.
 
 ## Drilling into a regression
 

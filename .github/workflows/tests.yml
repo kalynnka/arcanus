@@ -166,5 +166,5 @@ jobs:
       - name: Gate gap drift vs main
         working-directory: pr
         run: |
-          uv run python scripts/bench.py compare /tmp/main.json \
-            --json /tmp/current.json --gate --max-regression 0.10
+          uv run python scripts/bench.py compare \
+            --base /tmp/main.json --use /tmp/current.json --gate --max-regression 0.10
