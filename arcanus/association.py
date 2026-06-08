@@ -403,15 +403,27 @@ class RelationCollection(list[T], Association[T]):
     @overload
     def bless(self, value: Any) -> T: ...
     def bless(self, value: Any | Iterable[Any]) -> T | Iterable[T]:
-        """Bless the value into the generic type."""
+        """Bless the value into the generic type.
+
+        Items that are already the target type skip pydantic entirely. Pydantic
+        does fast-path instances (``revalidate_instances='never'``), but it still
+        dispatches the per-item ``model_formulate`` wrap-validator and the
+        TypeAdapter/list-schema machinery (~13µs for 50 valid items vs ~1µs for a
+        plain isinstance sweep). The ``isinstance(target, type)`` guard keeps the
+        fast path off typing special-forms.
+        """
+        target = self.__args__[0]
         is_iterable = isinstance(value, Iterable) and not isinstance(
-            value, get_origin(self.__args__[0]) or self.__args__[0]
+            value, get_origin(target) or target
         )
 
         if is_iterable:
+            if isinstance(target, type) and all(isinstance(v, target) for v in value):
+                return value
             return self.__list_validator__.validate_python(value)
-        else:
-            return self.__validator__.validate_python(value)
+        if isinstance(target, type) and isinstance(value, target):
+            return value
+        return self.__validator__.validate_python(value)
 
     def prepare(self, instance: Transmuter, field_name: str):
         super().prepare(instance, field_name)
@@ -670,9 +682,10 @@ class RelationCollection(list[T], Association[T]):
 
     @ensure_loaded
     def remove(self, value: T):
-        item: T = self.bless(value)
+        # bless() is only needed to locate the value on the provider side; under
+        # a no-op/absent provider it would be discarded, so skip it entirely.
         if self.__provided__ is not None:
-            self.__provided__.remove(item.__transmuter_provided__)
+            self.__provided__.remove(self.bless(value).__transmuter_provided__)
         super().remove(value)
 
     @ensure_loaded
