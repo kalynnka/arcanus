@@ -409,8 +409,8 @@ class RelationCollection(list[T], Association[T]):
         does fast-path instances (``revalidate_instances='never'``), but it still
         dispatches the per-item ``model_formulate`` wrap-validator and the
         TypeAdapter/list-schema machinery (~13µs for 50 valid items vs ~1µs for a
-        plain isinstance sweep). The ``isinstance(target, type)`` guard keeps the
-        fast path off typing special-forms.
+        plain isinstance sweep). The element type is always a concrete class, so
+        the isinstance check needs no guard.
         """
         target = self.__args__[0]
         is_iterable = isinstance(value, Iterable) and not isinstance(
@@ -418,10 +418,10 @@ class RelationCollection(list[T], Association[T]):
         )
 
         if is_iterable:
-            if isinstance(target, type) and all(isinstance(v, target) for v in value):
+            if all(isinstance(item, target) for item in value):
                 return value
             return self.__list_validator__.validate_python(value)
-        if isinstance(target, type) and isinstance(value, target):
+        if isinstance(value, target):
             return value
         return self.__validator__.validate_python(value)
 
@@ -772,14 +772,18 @@ class RelationSet(set[T], Association[T]):
     def bless(self, value: Any) -> T: ...
     def bless(self, value: Any | Iterable[Any]) -> T | set[T]:
         """Bless the value into the generic type."""
+        target: type[T] = self.__args__[0]
         is_iterable = isinstance(value, Iterable) and not isinstance(
-            value, get_origin(self.__args__[0]) or self.__args__[0]
+            value, get_origin(target) or target
         )
 
         if is_iterable:
+            if all(isinstance(item, target) for item in value):
+                return set(value)
             return self.__set_validator__.validate_python(value)
-        else:
-            return self.__validator__.validate_python(value)
+        if isinstance(value, target):
+            return value
+        return self.__validator__.validate_python(value)
 
     def prepare(self, instance: Transmuter, field_name: str):
         super().prepare(instance, field_name)
@@ -802,12 +806,17 @@ class RelationSet(set[T], Association[T]):
         return wrapper
 
     def _load(self):
+        # already loaded
+        if self.__loaded__:
+            return self
+
         # maybe during deepcopy from field default
         if not self.__instance__:
             return self
 
-        # or the relationship is already loaded
-        if self.__loaded__:
+        # no backing provider (NoOpMateria / not-yet-persisted): nothing to load
+        if self.__instance_provider__ is None:
+            self.__loaded__ = True
             return self
 
         active_materia.get().load_association(self)
@@ -835,12 +844,17 @@ class RelationSet(set[T], Association[T]):
         return self
 
     async def _aload(self):
+        # already loaded
+        if self.__loaded__:
+            return self
+
         # maybe during deepcopy from field default
         if not self.__instance__:
             return self
 
-        # or the relationship is already loaded
-        if self.__loaded__:
+        # no backing provider: nothing to load
+        if self.__instance_provider__ is None:
+            self.__loaded__ = True
             return self
 
         # A: No provided, None
@@ -1188,14 +1202,25 @@ class RelationMap(dict[K, T], Association[T]):
 
     def bless_key(self, key: Any) -> K:
         """Validate and coerce a key into the key type."""
+        target = self.__args__[0]
+        if isinstance(target, type) and isinstance(key, target):
+            return key
         return self.__key_validator__.validate_python(key)
 
     def bless_value(self, value: Any) -> T:
         """Validate and coerce a single value into the value type."""
+        target = self.__args__[1]
+        if isinstance(value, target):
+            return value
         return self.__validator__.validate_python(value)
 
     def bless(self, value: Mapping[K, Any]) -> dict[K, T]:
         """Validate and coerce an entire dict/mapping into dict[K, T]."""
+        key_t, val_t = self.__args__[0], self.__args__[1]
+        if isinstance(key_t, type) and all(
+            isinstance(k, key_t) and isinstance(v, val_t) for k, v in value.items()
+        ):
+            return dict(value)
         return self.__dict_validator__.validate_python(value)
 
     def prepare(self, instance: Transmuter, field_name: str):
@@ -1236,12 +1261,17 @@ class RelationMap(dict[K, T], Association[T]):
         return wrapper
 
     def _load(self):
+        # already loaded
+        if self.__loaded__:
+            return self
+
         # maybe during deepcopy from field default
         if not self.__instance__:
             return self
 
-        # or the relationship is already loaded
-        if self.__loaded__:
+        # no backing provider (NoOpMateria / not-yet-persisted): nothing to load
+        if self.__instance_provider__ is None:
+            self.__loaded__ = True
             return self
 
         active_materia.get().load_association(self)
@@ -1266,12 +1296,17 @@ class RelationMap(dict[K, T], Association[T]):
         return self
 
     async def _aload(self):
+        # already loaded
+        if self.__loaded__:
+            return self
+
         # maybe during deepcopy from field default
         if not self.__instance__:
             return self
 
-        # or the relationship is already loaded
-        if self.__loaded__:
+        # no backing provider: nothing to load
+        if self.__instance_provider__ is None:
+            self.__loaded__ = True
             return self
 
         # A: No provided, None
@@ -1618,18 +1653,34 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
 
     def bless_key(self, key: Any) -> K:
         """Validate and coerce a key into the key type."""
+        target = self.__args__[0]
+        if isinstance(target, type) and isinstance(key, target):
+            return key
         return self.__key_validator__.validate_python(key)
 
     def bless_value(self, value: Any) -> T:
         """Validate and coerce a single value into the value type."""
+        target = self.__args__[1]
+        if isinstance(value, target):
+            return value
         return self.__validator__.validate_python(value)
 
     def bless_values(self, values: Iterable[Any]) -> list[T]:
         """Validate and coerce a list of values into list[T]."""
+        target = self.__args__[1]
+        if all(isinstance(item, target) for item in values):
+            return list(values)
         return self.__list_validator__.validate_python(values)
 
     def bless(self, value: Mapping[K, Any]) -> dict[K, list[T]]:
         """Validate and coerce an entire mapping into dict[K, list[T]]."""
+        key_t, val_t = self.__args__[0], self.__args__[1]
+        if (
+            isinstance(key_t, type)
+            and all(isinstance(k, key_t) for k in value)
+            and all(isinstance(i, val_t) for lst in value.values() for i in lst)
+        ):
+            return {k: list(v) for k, v in value.items()}
         return self.__dict_validator__.validate_python(value)
 
     def prepare(self, instance: Transmuter, field_name: str):
@@ -1679,12 +1730,17 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         return wrapper
 
     def _load(self):
+        # already loaded
+        if self.__loaded__:
+            return self
+
         # maybe during deepcopy from field default
         if not self.__instance__:
             return self
 
-        # or the relationship is already loaded
-        if self.__loaded__:
+        # no backing provider (NoOpMateria / not-yet-persisted): nothing to load
+        if self.__instance_provider__ is None:
+            self.__loaded__ = True
             return self
 
         provided = active_materia.get().load_association(self)
@@ -1709,12 +1765,17 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         return self
 
     async def _aload(self):
+        # already loaded
+        if self.__loaded__:
+            return self
+
         # maybe during deepcopy from field default
         if not self.__instance__:
             return self
 
-        # or the relationship is already loaded
-        if self.__loaded__:
+        # no backing provider: nothing to load
+        if self.__instance_provider__ is None:
+            self.__loaded__ = True
             return self
 
         # A: No provided, None
