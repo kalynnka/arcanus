@@ -448,12 +448,20 @@ class RelationCollection(list[T], Association[T]):
         return wrapper
 
     def _load(self):
+        # already loaded
+        if self.__loaded__:
+            return self
+
         # maybe during deepcopy from field default
         if not self.__instance__:
             return self
 
-        # or the relationship is already loaded
-        if self.__loaded__:
+        # No backing provider (NoOpMateria, or a not-yet-persisted instance):
+        # nothing can be lazily loaded, so memoize to skip this work — every
+        # @ensure_loaded read/mutate (len, iter, append, …) would otherwise re-run
+        # active_materia.get() + load_association + the provider lookup each time.
+        if self.__instance_provider__ is None:
+            self.__loaded__ = True
             return self
 
         active_materia.get().load_association(self)
@@ -480,12 +488,17 @@ class RelationCollection(list[T], Association[T]):
         return self
 
     async def _aload(self):
+        # already loaded
+        if self.__loaded__:
+            return self
+
         # maybe during deepcopy from field default
         if not self.__instance__:
             return self
 
-        # or the relationship is already loaded
-        if self.__loaded__:
+        # No backing provider: nothing to lazily load — memoize (see _load).
+        if self.__instance_provider__ is None:
+            self.__loaded__ = True
             return self
 
         # A: No provided, None
