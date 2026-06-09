@@ -94,9 +94,13 @@ gap comes from. (List names with `pytest benchmark/ --collect-only -q`.)
 
 ## How CodeSpeed fits
 
-CI keeps a CodeSpeed instrumentation job for deterministic per-commit absolute
-history of every benchmark (references included, since `uv.lock` pins the deps).
-The separate `gap_gate` job runs the wall-clock comparison and fails a PR when a
-group's gap regresses more than 10% vs main. The two are complementary: CodeSpeed
-answers "what changed and by how much, precisely, over time"; the gap gate answers
-"did this PR make the relative overhead meaningfully worse than main".
+CI runs a single CodeSpeed instrumentation job for deterministic per-commit
+absolute history of every benchmark (references included, since `uv.lock` pins the
+deps). CodeSpeed's GitHub check is the merge gate — it blocks a PR when a benchmark
+regresses beyond the configured threshold vs main.
+
+The wall-clock gap-ratio comparison (`scripts/benchmark.py compare --gate`) is a
+local-only tool: instrumentation isn't available off-Linux (no Valgrind), so on a
+laptop `--codspeed` falls back to walltime and the gap tables come from
+pytest-benchmark instead. Use it to answer "did this change make the relative
+overhead worse than main" before pushing.
