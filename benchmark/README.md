@@ -46,11 +46,17 @@ pytest-benchmark also works: `uv run pytest benchmark/ --benchmark-enable`.
 
 ## Reading the gap report
 
-Columns: group, reference µs, candidate µs (plus context µs for Axis B), and the
-**gap** (the ratio). `1.00×` is parity; `2.00×` means arcanus is twice as slow as
-the reference. Rows are sorted worst-gap first, with a per-axis median and max.
-The gap is colored green (≤1.5×) / yellow (≤3×) / red (>3×) as a soft cue — it is
-**not** a pass/fail; the report only measures.
+Columns: group, reference µs, candidate µs (plus context µs for Axis B), **Δ µs**
+(candidate − reference, the absolute cost arcanus adds), and the **gap** (the
+ratio). `1.00×` is parity; `2.00×` means arcanus is twice as slow as the
+reference. Rows are sorted worst-gap first, with a per-axis median/max gap plus
+a **max Δ** — the worst *absolute* overhead, which is a different group than the
+worst gap whenever the reference is tiny. That gap/Δ split is the point: a
+near-zero-reference group (e.g. `noop-mutation-groupmap`) shows a huge ratio but
+a trivial Δ, while a DB-path group shows a small ratio but a large Δ. The gap is
+colored green (≤1.5×) / yellow (≤3×) / red (>3×) as a soft cue; Δ µs is left
+uncolored on purpose (an absolute-µs threshold would itself be misleading across
+the two axes' scales). The report only measures — neither column is a pass/fail.
 
 ## The gate: gap drift vs main (10%)
 

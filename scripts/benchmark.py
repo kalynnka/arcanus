@@ -33,6 +33,7 @@ from typing import Optional
 import typer
 from rich.box import SIMPLE_HEAVY
 from rich.console import Console
+from rich.markup import escape
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -57,7 +58,9 @@ AXIS_TITLES = {
     "B": "Axis B — Pydantic+SQLAlchemy (ref) vs arcanus materia (cand)",
 }
 
-console = Console()
+# When stdout is not a TTY (CI logs, tee, pipes), rich falls back to an 80-col
+# width that crops the 6-column Axis B table; give piped output room instead.
+console = Console(width=None if sys.stdout.isatty() else 200)
 app = typer.Typer(
     help=__doc__,
     add_completion=False,
@@ -98,6 +101,16 @@ class GapRow:
     @property
     def ratio(self) -> float:
         return self.candidate / self.reference if self.reference else float("nan")
+
+    @property
+    def delta(self) -> float:
+        """Absolute time the candidate adds over the reference (seconds).
+
+        Always finite — compute_gaps only builds a row once both sides exist.
+        Complements ``ratio``: for a near-zero reference the ratio explodes while
+        the real added cost stays tiny (and the DB path is the inverse).
+        """
+        return self.candidate - self.reference
 
 
 # ── parsing & gap math ────────────────────────────────────────────────────────
@@ -280,6 +293,17 @@ def _us(seconds: float) -> str:
     return f"{seconds * 1e6:,.1f}"
 
 
+def _delta_us(seconds: float) -> str:
+    """Signed µs for the candidate−reference delta.
+
+    Forces a sign so the column reads as added cost (+) vs a faster candidate
+    (−), and collapses anything that rounds to zero to a plain "0.0" so float
+    noise never renders as a "-0.0" that looks like a glitch.
+    """
+    micros = seconds * 1e6
+    return "0.0" if abs(micros) < 0.05 else f"{micros:+,.1f}"
+
+
 def _ratio_markup(ratio: float) -> str:
     color = "green" if ratio <= 1.5 else "yellow" if ratio <= 3.0 else "red"
     return f"[{color}]{ratio:.2f}×[/{color}]"
@@ -298,19 +322,30 @@ def _render_report(rows: list[GapRow], axis: str) -> None:
         table.add_column("cand µs", justify="right")
         if ax == "B":
             table.add_column("ctx µs", justify="right", style="dim")
+        # Δ µs is left uncolored on purpose: an absolute-µs threshold is
+        # scale-dependent (+5µs is huge on a 0.1µs group, invisible on a 600µs
+        # one), so it would re-import the very distortion the gap ratio has. The
+        # gap column owns the green/yellow/red verdict; Δ µs is the neutral
+        # ground truth the reader cross-references against it.
+        table.add_column("Δ µs", justify="right")
         table.add_column("gap", justify="right")
         for row in ax_rows:
-            cells = [row.key, _us(row.reference), _us(row.candidate)]
+            cells = [escape(row.key), _us(row.reference), _us(row.candidate)]
             if ax == "B":
                 cells.append(_us(row.context) if row.context is not None else "—")
+            cells.append(_delta_us(row.delta))
             cells.append(_ratio_markup(row.ratio))
             table.add_row(*cells)
         console.print(table)
         ratios = [r.ratio for r in ax_rows]
         worst = max(ax_rows, key=lambda r: r.ratio)
+        # max Δ names the worst absolute overhead — a different group than the
+        # worst ratio (that mismatch is the point of the column).
+        widest = max(ax_rows, key=lambda r: r.delta)
         console.print(
             f"  [bold]median gap[/bold] {statistics.median(ratios):.2f}×   "
-            f"[bold]max gap[/bold] {worst.ratio:.2f}× ({worst.key})\n"
+            f"[bold]max gap[/bold] {worst.ratio:.2f}× ({escape(worst.key)})   "
+            f"[bold]max Δ[/bold] {_delta_us(widest.delta)}µs ({escape(widest.key)})\n"
         )
 
 
@@ -343,19 +378,19 @@ def _render_compare(
             before = baseline.get((row.axis, row.key))
             if before is None:
                 table.add_row(
-                    row.key, "—", f"{row.ratio:.2f}×", "—", "[blue]new[/blue]"
+                    escape(row.key), "—", f"{row.ratio:.2f}×", "—", "[blue]new[/blue]"
                 )
                 continue
             drift = row.ratio / before - 1 if before else 0.0
             if drift > max_regression:
                 status = "[red]REGRESSED[/red]"
-                regressions.append(f"{row.axis}/{row.key}: +{drift * 100:.1f}%")
+                regressions.append(f"{row.axis}/{escape(row.key)}: +{drift * 100:.1f}%")
             elif drift < -0.02:
                 status = "[green]improved[/green]"
             else:
                 status = "[dim]ok[/dim]"
             table.add_row(
-                row.key,
+                escape(row.key),
                 f"{before:.2f}×",
                 f"{row.ratio:.2f}×",
                 f"{drift * 100:+.1f}%",
@@ -389,7 +424,9 @@ AxisOpt = Annotated[Axis, typer.Option(help="Which axis to show (A=schema, B=ORM
 FilterOpt = Annotated[
     Optional[str],
     typer.Option(
-        "--filter", "-k", help="pytest -k pattern to restrict which groups run."
+        "--filter",
+        "-k",
+        help="pytest -k pattern matching TEST NAMES (not group labels) to restrict which benchmarks run.",
     ),
 ]
 RoundsOpt = Annotated[
@@ -428,8 +465,8 @@ def report(
 ):
     """Run the suite and print the gap (candidate/reference) per group, worst first.
 
-    Always saved to ./.bench/last.json; pass --save main to also keep it as the
-    comparison baseline.
+    Saved to ./.bench/last.json by default, or ./.bench/<name>.json with
+    --save <name> (use --save main to snapshot the comparison baseline).
     """
     out = BENCH_DIR / (f"{save}.json" if save else "last.json")
     payload = _measure(k, rounds, warmup, max_time, out)
@@ -523,12 +560,10 @@ def profile(
     with console.status("[bold cyan]profiling…[/bold cyan]", spinner="dots"):
         proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
     out = proc.stdout or ""
-    if (
-        proc.returncode == 5
-        or "no tests ran" in out
-        or " deselected" in out
-        and "passed" not in out
-    ):
+    # returncode 5 (EXIT_NOTESTSCOLLECTED) is exactly "nothing matched / all
+    # deselected"; don't infer no-match from " deselected", which also appears
+    # when matched tests merely fail — that must fall through and surface.
+    if proc.returncode == 5 or "no tests ran" in out:
         console.print(
             f"[yellow]nothing matched -k '{target}'.[/yellow] TARGET is a test-name "
             "pattern, not a group label — e.g. use [bold]mutate_collection[/bold] "
