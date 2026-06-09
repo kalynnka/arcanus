@@ -57,5 +57,7 @@ so they must follow [Conventional Commits](https://www.conventionalcommits.org/)
 ### Squash merges use the PR title
 
 This repo merges PRs by **squash**, so the squashed commit subject is the **PR title**.
-Make the PR title a valid Conventional Commit (e.g. `feat: add cursor pagination`). The
-[`PR Title` check](.github/workflows/pr-title-lint.yml) enforces this on every PR.
+Prefer a valid Conventional Commit (e.g. `feat: add cursor pagination`) — release-please
+only bumps the version and writes a changelog entry for titles it can parse. The
+[`PR Title` check](.github/workflows/pr-title-lint.yml) posts a warning on a non-conventional
+title but **does not block the merge**, so such a PR simply won't appear in the changelog.

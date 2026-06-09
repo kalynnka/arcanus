@@ -16,8 +16,10 @@ jobs:
         name: Validate Conventional Commit title
         runs-on: ubuntu-latest
         steps:
-            # The PR title becomes the squash-merge commit subject that release-please reads,
-            # so it must be a valid Conventional Commit.
+            # Advisory only: the squash-merge subject is the PR title, so release-please reads
+            # it for the version bump + changelog. A non-conventional title still merges — it
+            # just won't be picked up by release-please — so this warns but never blocks.
             - uses: amannn/action-semantic-pull-request@v6
+              continue-on-error: true
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
