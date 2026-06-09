@@ -37,6 +37,23 @@ class TestRelationGroupMapBasics:
         assert len(catalog.tags) == 1
         assert catalog.tags["lang"][0] is t
 
+    def test_setitem_copies_list_so_caller_list_is_not_aliased(self):
+        # bless_values copies the assigned list, so the stored group is
+        # independent of the caller's list. The convenience mutators (append /
+        # extend) mutate the stored list in place, so without the copy a later
+        # group append would corrupt the caller's external list — and mutating
+        # the external list would corrupt the group. Guard both directions so a
+        # future "optimization" that drops the copy in bless_values fails here.
+        catalog = GroupedCatalog(id=1, title="Test")
+        external = [GroupedTag(id=1, name="python")]
+        catalog.tags["lang"] = external
+
+        catalog.tags.append("lang", GroupedTag(id=2, name="rust"))
+        assert len(external) == 1  # group append must not grow the caller's list
+
+        external.append(GroupedTag(id=3, name="go"))
+        assert len(catalog.tags["lang"]) == 2  # caller append must not grow the group
+
     def test_getitem(self):
         catalog = GroupedCatalog(id=1, title="Test")
         t = GroupedTag(id=1, name="python")
