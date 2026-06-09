@@ -35,8 +35,6 @@ from arcanus.materia.base import active_materia
 from arcanus.utils import get_cached_adapter
 
 if TYPE_CHECKING:
-    from _typeshed import SupportsRichComparison
-
     from arcanus.base import Transmuter
 
 A = TypeVar("A")
@@ -76,7 +74,9 @@ class Association(Generic[A]):
     __args__: tuple[type, ...]
     __instance__: Transmuter | None
     __loaded__: bool
-    __payloads__: A | None
+    # Each concrete association narrows this to its container type (list[T],
+    # set[T], dict[K, T], …); the base only promises "some payload store".
+    __payloads__: Any
 
     field_name: str
 
@@ -153,8 +153,12 @@ class Association(Generic[A]):
     @property
     def __instance_provider__(self) -> Optional[Any]:
         """Owner instance' provider, owner of this association's provider."""
-        if self.__instance__ is not None:
-            return self.__instance__.__transmuter_provided__
+        instance = self.__instance__
+        if instance is not None:
+            # Bypass Transmuter.__getattribute__'s per-access isinstance(Association)
+            # check: __transmuter_provided__ is always a plain instance attribute set
+            # via object.__setattr__, never an Association, so prepare() is irrelevant.
+            return object.__getattribute__(instance, "__transmuter_provided__")
         return None
 
     @property
@@ -181,12 +185,12 @@ class Association(Generic[A]):
     def __await__(self):
         raise NotImplementedError("This association is not awaitable.")
 
-    def _load(self) -> Self:
+    def _load(self) -> Any:
         raise NotImplementedError(
             "This association does not support synchronous loading."
         )
 
-    def _aload(self) -> Self:
+    async def _aload(self) -> Any:
         raise NotImplementedError(
             "This association does not support asynchronous loading."
         )
@@ -400,18 +404,28 @@ class RelationCollection(list[T], Association[T]):
     def bless(self, value: T) -> T: ...
     @overload
     def bless(self, value: Iterable[Any]) -> list[T]: ...
-    @overload
-    def bless(self, value: Any) -> T: ...
     def bless(self, value: Any | Iterable[Any]) -> T | Iterable[T]:
-        """Bless the value into the generic type."""
+        """Bless the value into the generic type.
+
+        Items that are already the target type skip pydantic entirely. Pydantic
+        does fast-path instances (``revalidate_instances='never'``), but it still
+        dispatches the per-item ``model_formulate`` wrap-validator and the
+        TypeAdapter/list-schema machinery (~13µs for 50 valid items vs ~1µs for a
+        plain isinstance sweep). The element type is always a concrete class, so
+        the isinstance check needs no guard.
+        """
+        target = self.__args__[0]
         is_iterable = isinstance(value, Iterable) and not isinstance(
-            value, get_origin(self.__args__[0]) or self.__args__[0]
+            value, get_origin(target) or target
         )
 
         if is_iterable:
+            if all(isinstance(item, target) for item in value):
+                return value
             return self.__list_validator__.validate_python(value)
-        else:
-            return self.__validator__.validate_python(value)
+        if isinstance(value, target):
+            return value
+        return self.__validator__.validate_python(value)
 
     def prepare(self, instance: Transmuter, field_name: str):
         super().prepare(instance, field_name)
@@ -436,12 +450,20 @@ class RelationCollection(list[T], Association[T]):
         return wrapper
 
     def _load(self):
+        # already loaded
+        if self.__loaded__:
+            return self
+
         # maybe during deepcopy from field default
         if not self.__instance__:
             return self
 
-        # or the relationship is already loaded
-        if self.__loaded__:
+        # No backing provider (NoOpMateria, or a not-yet-persisted instance):
+        # nothing can be lazily loaded, so memoize to skip this work — every
+        # @ensure_loaded read/mutate (len, iter, append, …) would otherwise re-run
+        # active_materia.get() + load_association + the provider lookup each time.
+        if self.__instance_provider__ is None:
+            self.__loaded__ = True
             return self
 
         active_materia.get().load_association(self)
@@ -468,12 +490,17 @@ class RelationCollection(list[T], Association[T]):
         return self
 
     async def _aload(self):
+        # already loaded
+        if self.__loaded__:
+            return self
+
         # maybe during deepcopy from field default
         if not self.__instance__:
             return self
 
-        # or the relationship is already loaded
-        if self.__loaded__:
+        # No backing provider: nothing to lazily load — memoize (see _load).
+        if self.__instance_provider__ is None:
+            self.__loaded__ = True
             return self
 
         # A: No provided, None
@@ -517,7 +544,7 @@ class RelationCollection(list[T], Association[T]):
         return super().__len__()
 
     @ensure_loaded
-    def __contains__(self, key: T) -> bool:
+    def __contains__(self, key: object) -> bool:
         return super().__contains__(key)
 
     @ensure_loaded
@@ -530,29 +557,29 @@ class RelationCollection(list[T], Association[T]):
     def __setitem__(self, key: slice, value: Iterable[T]) -> None: ...
     @ensure_loaded
     def __setitem__(self, key: SupportsIndex | slice, value: T | Iterable[T]):
+        provided = self.__provided__
         if isinstance(value, Iterable):
             items = self.bless(value)
             slc = cast(slice, key)
-            if self.__provided__ is not None:
-                self.__provided__[slc] = [
-                    item.__transmuter_provided__ for item in items
-                ]
+            if provided is not None:
+                provided[slc] = [item.__transmuter_provided__ for item in items]
             super().__setitem__(slc, items)
         else:
             item = self.bless(value)
             idx = cast(SupportsIndex, key)
-            if self.__provided__ is not None:
-                self.__provided__[idx] = item.__transmuter_provided__
+            if provided is not None:
+                provided[idx] = item.__transmuter_provided__
             super().__setitem__(idx, item)
 
     @ensure_loaded
-    def __delitem__(self, key: slice):
-        if self.__provided__ is not None:
-            self.__provided__.__delitem__(key)
+    def __delitem__(self, key: SupportsIndex | slice):
+        provided = self.__provided__
+        if provided is not None:
+            provided.__delitem__(key)
         super().__delitem__(key)
 
     @ensure_loaded
-    def __add__(self, other: Iterable[T]):
+    def __add__(self, other: list[Any]):
         return self.copy() + self.bless(other)
 
     @ensure_loaded
@@ -576,11 +603,11 @@ class RelationCollection(list[T], Association[T]):
         )
 
     @ensure_loaded
-    def __eq__(self, other: list[T]):
+    def __eq__(self, other: object):
         return super().__eq__(other)
 
     @ensure_loaded
-    def __ne__(self, other: list[T]):
+    def __ne__(self, other: object):
         return super().__ne__(other)
 
     @ensure_loaded
@@ -621,23 +648,24 @@ class RelationCollection(list[T], Association[T]):
     @ensure_loaded
     def append(self, value: T):
         value = self.bless(value)
-        if self.__provided__ is not None:
-            self.__provided__.append(value.__transmuter_provided__)
+        provided = self.__provided__
+        if provided is not None:
+            provided.append(value.__transmuter_provided__)
         super().append(value)
 
     @ensure_loaded
     def extend(self, iterable: Iterable[T]):
         iterable = self.bless(iterable)
-        if self.__provided__ is not None:
-            self.__provided__.extend(
-                (item.__transmuter_provided__ for item in iterable)
-            )
+        provided = self.__provided__
+        if provided is not None:
+            provided.extend((item.__transmuter_provided__ for item in iterable))
         super().extend(iterable)
 
     @ensure_loaded
     def clear(self):
-        if self.__provided__ is not None:
-            self.__provided__.clear()
+        provided = self.__provided__
+        if provided is not None:
+            provided.clear()
         super().clear()
 
     @ensure_loaded
@@ -649,7 +677,9 @@ class RelationCollection(list[T], Association[T]):
         return super().count(value)
 
     @ensure_loaded
-    def index(self, value, start=0, stop=None):
+    def index(
+        self, value: T, start: SupportsIndex = 0, stop: SupportsIndex | None = None
+    ) -> int:
         if stop is None:
             return super().index(value, start)
         return super().index(value, start, stop)
@@ -657,22 +687,26 @@ class RelationCollection(list[T], Association[T]):
     @ensure_loaded
     def insert(self, index: SupportsIndex, object: T):
         object = self.bless(object)
-        if self.__provided__ is not None:
-            self.__provided__.insert(index, object.__transmuter_provided__)
+        provided = self.__provided__
+        if provided is not None:
+            provided.insert(index, object.__transmuter_provided__)
         super().insert(index, object)
 
     @ensure_loaded
     def pop(self, index: SupportsIndex = -1):
         item = super().pop(index)
-        if self.__provided__ is not None:
-            self.__provided__.remove(item.__transmuter_provided__)
+        provided = self.__provided__
+        if provided is not None:
+            provided.remove(item.__transmuter_provided__)
         return item
 
     @ensure_loaded
     def remove(self, value: T):
-        item: T = self.bless(value)
-        if self.__provided__ is not None:
-            self.__provided__.remove(item.__transmuter_provided__)
+        # bless() is only needed to locate the value on the provider side; under
+        # a no-op/absent provider it would be discarded, so skip it entirely.
+        provided = self.__provided__
+        if provided is not None:
+            provided.remove(self.bless(value).__transmuter_provided__)
         super().remove(value)
 
     @ensure_loaded
@@ -683,7 +717,7 @@ class RelationCollection(list[T], Association[T]):
     def sort(
         self,
         *,
-        key: Callable[[T], SupportsRichComparison],
+        key: Any = None,
         reverse: bool = False,
     ):
         super().sort(key=key, reverse=reverse)
@@ -742,18 +776,20 @@ class RelationSet(set[T], Association[T]):
     def bless(self, value: T) -> T: ...
     @overload
     def bless(self, value: Iterable[Any]) -> set[T]: ...
-    @overload
-    def bless(self, value: Any) -> T: ...
     def bless(self, value: Any | Iterable[Any]) -> T | set[T]:
         """Bless the value into the generic type."""
+        target: type[T] = self.__args__[0]
         is_iterable = isinstance(value, Iterable) and not isinstance(
-            value, get_origin(self.__args__[0]) or self.__args__[0]
+            value, get_origin(target) or target
         )
 
         if is_iterable:
+            if all(isinstance(item, target) for item in value):
+                return set(value)
             return self.__set_validator__.validate_python(value)
-        else:
-            return self.__validator__.validate_python(value)
+        if isinstance(value, target):
+            return value
+        return self.__validator__.validate_python(value)
 
     def prepare(self, instance: Transmuter, field_name: str):
         super().prepare(instance, field_name)
@@ -776,12 +812,17 @@ class RelationSet(set[T], Association[T]):
         return wrapper
 
     def _load(self):
+        # already loaded
+        if self.__loaded__:
+            return self
+
         # maybe during deepcopy from field default
         if not self.__instance__:
             return self
 
-        # or the relationship is already loaded
-        if self.__loaded__:
+        # no backing provider (NoOpMateria / not-yet-persisted): nothing to load
+        if self.__instance_provider__ is None:
+            self.__loaded__ = True
             return self
 
         active_materia.get().load_association(self)
@@ -809,12 +850,17 @@ class RelationSet(set[T], Association[T]):
         return self
 
     async def _aload(self):
+        # already loaded
+        if self.__loaded__:
+            return self
+
         # maybe during deepcopy from field default
         if not self.__instance__:
             return self
 
-        # or the relationship is already loaded
-        if self.__loaded__:
+        # no backing provider: nothing to load
+        if self.__instance_provider__ is None:
+            self.__loaded__ = True
             return self
 
         # A: No provided, None
@@ -877,9 +923,9 @@ class RelationSet(set[T], Association[T]):
         item = self.bless(item)
         if item in self:
             return
-        if self.__provided__ is not None:
-            provided = item.__transmuter_provided__
-            self.__provided__.add(provided)
+        provided = self.__provided__
+        if provided is not None:
+            provided.add(item.__transmuter_provided__)
         super().add(item)
 
     @ensure_loaded
@@ -887,23 +933,26 @@ class RelationSet(set[T], Association[T]):
         """Remove an element if present."""
         if item not in self:
             return
-        if self.__provided__ is not None:
-            self.__provided__.discard(item.__transmuter_provided__)
+        provided = self.__provided__
+        if provided is not None:
+            provided.discard(item.__transmuter_provided__)
         super().discard(item)
 
     @ensure_loaded
     def remove(self, item: T) -> None:
         """Remove an element. Raises KeyError if not present."""
-        if self.__provided__ is not None:
-            self.__provided__.discard(item.__transmuter_provided__)
+        provided = self.__provided__
+        if provided is not None:
+            provided.discard(item.__transmuter_provided__)
         super().remove(item)
 
     @ensure_loaded
     def pop(self) -> T:
         """Remove and return an arbitrary element. Raises KeyError if empty."""
         item = super().pop()
-        if self.__provided__ is not None:
-            self.__provided__.discard(item.__transmuter_provided__)
+        provided = self.__provided__
+        if provided is not None:
+            provided.discard(item.__transmuter_provided__)
         return item
 
     @ensure_loaded
@@ -917,8 +966,9 @@ class RelationSet(set[T], Association[T]):
     @ensure_loaded
     def clear(self) -> None:
         """Remove all elements."""
-        if self.__provided__ is not None:
-            self.__provided__.clear()
+        provided = self.__provided__
+        if provided is not None:
+            provided.clear()
         super().clear()
 
     @ensure_loaded
@@ -1162,14 +1212,25 @@ class RelationMap(dict[K, T], Association[T]):
 
     def bless_key(self, key: Any) -> K:
         """Validate and coerce a key into the key type."""
+        target = self.__args__[0]
+        if isinstance(target, type) and isinstance(key, target):
+            return key
         return self.__key_validator__.validate_python(key)
 
     def bless_value(self, value: Any) -> T:
         """Validate and coerce a single value into the value type."""
+        target = self.__args__[1]
+        if isinstance(value, target):
+            return value
         return self.__validator__.validate_python(value)
 
     def bless(self, value: Mapping[K, Any]) -> dict[K, T]:
         """Validate and coerce an entire dict/mapping into dict[K, T]."""
+        key_t, val_t = self.__args__[0], self.__args__[1]
+        if isinstance(key_t, type) and all(
+            isinstance(k, key_t) and isinstance(v, val_t) for k, v in value.items()
+        ):
+            return dict(value)
         return self.__dict_validator__.validate_python(value)
 
     def prepare(self, instance: Transmuter, field_name: str):
@@ -1210,12 +1271,17 @@ class RelationMap(dict[K, T], Association[T]):
         return wrapper
 
     def _load(self):
+        # already loaded
+        if self.__loaded__:
+            return self
+
         # maybe during deepcopy from field default
         if not self.__instance__:
             return self
 
-        # or the relationship is already loaded
-        if self.__loaded__:
+        # no backing provider (NoOpMateria / not-yet-persisted): nothing to load
+        if self.__instance_provider__ is None:
+            self.__loaded__ = True
             return self
 
         active_materia.get().load_association(self)
@@ -1240,12 +1306,17 @@ class RelationMap(dict[K, T], Association[T]):
         return self
 
     async def _aload(self):
+        # already loaded
+        if self.__loaded__:
+            return self
+
         # maybe during deepcopy from field default
         if not self.__instance__:
             return self
 
-        # or the relationship is already loaded
-        if self.__loaded__:
+        # no backing provider: nothing to load
+        if self.__instance_provider__ is None:
+            self.__loaded__ = True
             return self
 
         # A: No provided, None
@@ -1296,15 +1367,17 @@ class RelationMap(dict[K, T], Association[T]):
     def __setitem__(self, key: K, value: T) -> None:
         key = self.bless_key(key)
         value = self.bless_value(value)
-        if self.__provided__ is not None:
-            self.__provided__[key] = value.__transmuter_provided__
+        provided = self.__provided__
+        if provided is not None:
+            provided[key] = value.__transmuter_provided__
         super().__setitem__(key, value)
 
     @ensure_loaded
     def __delitem__(self, key: K) -> None:
         key = self.bless_key(key)
-        if self.__provided__ is not None:
-            del self.__provided__[key]
+        provided = self.__provided__
+        if provided is not None:
+            del provided[key]
         super().__delitem__(key)
 
     def __repr__(self):
@@ -1377,16 +1450,18 @@ class RelationMap(dict[K, T], Association[T]):
         """Remove specified key and return the corresponding value."""
         key = self.bless_key(key)
         item = super().pop(key, *args)
-        if self.__provided__ is not None and key in self.__provided__:
-            del self.__provided__[key]
+        provided = self.__provided__
+        if provided is not None and key in provided:
+            del provided[key]
         return item
 
     @ensure_loaded
     def popitem(self) -> tuple[K, T]:
         """Remove and return an arbitrary (key, value) pair. Raises KeyError if empty."""
         key, item = super().popitem()
-        if self.__provided__ is not None:
-            del self.__provided__[key]
+        provided = self.__provided__
+        if provided is not None:
+            del provided[key]
         return key, item
 
     @overload
@@ -1416,8 +1491,9 @@ class RelationMap(dict[K, T], Association[T]):
             return
 
         blessed = self.bless(merged)
-        if self.__provided__ is not None:
-            self.__provided__.update(
+        provided = self.__provided__
+        if provided is not None:
+            provided.update(
                 {key: value.__transmuter_provided__ for key, value in blessed.items()}
             )
         super().update(blessed)
@@ -1439,8 +1515,9 @@ class RelationMap(dict[K, T], Association[T]):
     @ensure_loaded
     def clear(self) -> None:
         """Remove all items."""
-        if self.__provided__ is not None:
-            self.__provided__.clear()
+        provided = self.__provided__
+        if provided is not None:
+            provided.clear()
         super().clear()
 
     @ensure_loaded
@@ -1592,18 +1669,34 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
 
     def bless_key(self, key: Any) -> K:
         """Validate and coerce a key into the key type."""
+        target = self.__args__[0]
+        if isinstance(target, type) and isinstance(key, target):
+            return key
         return self.__key_validator__.validate_python(key)
 
     def bless_value(self, value: Any) -> T:
         """Validate and coerce a single value into the value type."""
+        target = self.__args__[1]
+        if isinstance(value, target):
+            return value
         return self.__validator__.validate_python(value)
 
     def bless_values(self, values: Iterable[Any]) -> list[T]:
         """Validate and coerce a list of values into list[T]."""
+        target = self.__args__[1]
+        if all(isinstance(item, target) for item in values):
+            return list(values)
         return self.__list_validator__.validate_python(values)
 
     def bless(self, value: Mapping[K, Any]) -> dict[K, list[T]]:
         """Validate and coerce an entire mapping into dict[K, list[T]]."""
+        key_t, val_t = self.__args__[0], self.__args__[1]
+        if (
+            isinstance(key_t, type)
+            and all(isinstance(k, key_t) for k in value)
+            and all(isinstance(i, val_t) for lst in value.values() for i in lst)
+        ):
+            return {k: list(v) for k, v in value.items()}
         return self.__dict_validator__.validate_python(value)
 
     def prepare(self, instance: Transmuter, field_name: str):
@@ -1653,12 +1746,17 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         return wrapper
 
     def _load(self):
+        # already loaded
+        if self.__loaded__:
+            return self
+
         # maybe during deepcopy from field default
         if not self.__instance__:
             return self
 
-        # or the relationship is already loaded
-        if self.__loaded__:
+        # no backing provider (NoOpMateria / not-yet-persisted): nothing to load
+        if self.__instance_provider__ is None:
+            self.__loaded__ = True
             return self
 
         provided = active_materia.get().load_association(self)
@@ -1683,12 +1781,17 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         return self
 
     async def _aload(self):
+        # already loaded
+        if self.__loaded__:
+            return self
+
         # maybe during deepcopy from field default
         if not self.__instance__:
             return self
 
-        # or the relationship is already loaded
-        if self.__loaded__:
+        # no backing provider: nothing to load
+        if self.__instance_provider__ is None:
+            self.__loaded__ = True
             return self
 
         # A: No provided, None
@@ -1738,23 +1841,25 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
     def __setitem__(self, key: K, value: list[T]) -> None:
         key = self.bless_key(key)
         value = self.bless_values(value)
-        if self.__provided__ is not None:
+        provided = self.__provided__
+        if provided is not None:
             # Remove old items from provider, then add new ones
-            if key in self.__provided__:
-                old_items = list(dict.__getitem__(self.__provided__, key))
+            if key in provided:
+                old_items = list(dict.__getitem__(provided, key))
                 for item in old_items:
-                    self.__provided__.remove(item)
+                    provided.remove(item)
             for item in value:
-                self.__provided__.set(item.__transmuter_provided__)
+                provided.set(item.__transmuter_provided__)
         super().__setitem__(key, value)
 
     @ensure_loaded
     def __delitem__(self, key: K) -> None:
         key = self.bless_key(key)
-        if self.__provided__ is not None and key in self.__provided__:
-            old_items = list(dict.__getitem__(self.__provided__, key))
+        provided = self.__provided__
+        if provided is not None and key in provided:
+            old_items = list(dict.__getitem__(provided, key))
             for item in old_items:
-                self.__provided__.remove(item)
+                provided.remove(item)
         super().__delitem__(key)
 
     def __repr__(self):
@@ -1827,20 +1932,22 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         """Remove specified key and return the corresponding list."""
         key = self.bless_key(key)
         item = super().pop(key, *args)
-        if self.__provided__ is not None and key in self.__provided__:
-            old_items = list(dict.__getitem__(self.__provided__, key))
+        provided = self.__provided__
+        if provided is not None and key in provided:
+            old_items = list(dict.__getitem__(provided, key))
             for old in old_items:
-                self.__provided__.remove(old)
+                provided.remove(old)
         return item
 
     @ensure_loaded
     def popitem(self) -> tuple[K, list[T]]:
         """Remove and return an arbitrary (key, list) pair."""
         key, items = super().popitem()
-        if self.__provided__ is not None and key in self.__provided__:
-            old_items = list(dict.__getitem__(self.__provided__, key))
+        provided = self.__provided__
+        if provided is not None and key in provided:
+            old_items = list(dict.__getitem__(provided, key))
             for old in old_items:
-                self.__provided__.remove(old)
+                provided.remove(old)
         return key, items
 
     @overload
@@ -1870,16 +1977,17 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
             return
 
         blessed = self.bless(merged)
-        if self.__provided__ is not None:
+        provided = self.__provided__
+        if provided is not None:
             for key, items in blessed.items():
                 # Remove old items at this key from provider
-                if key in self.__provided__:
-                    old_items = list(dict.__getitem__(self.__provided__, key))
+                if key in provided:
+                    old_items = list(dict.__getitem__(provided, key))
                     for old in old_items:
-                        self.__provided__.remove(old)
+                        provided.remove(old)
                 # Add new items
                 for item in items:
-                    self.__provided__.set(item.__transmuter_provided__)
+                    provided.set(item.__transmuter_provided__)
         super().update(blessed)
 
     @overload
@@ -1901,12 +2009,13 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
     @ensure_loaded
     def clear(self) -> None:
         """Remove all items."""
-        if self.__provided__ is not None:
+        provided = self.__provided__
+        if provided is not None:
             # Remove each item individually so SQLAlchemy fires proper remove events
-            for key in list(dict.keys(self.__provided__)):
-                items = list(dict.__getitem__(self.__provided__, key))
+            for key in list(dict.keys(provided)):
+                items = list(dict.__getitem__(provided, key))
                 for item in items:
-                    self.__provided__.remove(item)
+                    provided.remove(item)
         super().clear()
 
     @ensure_loaded
@@ -1923,8 +2032,9 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         if key not in self:
             super().__setitem__(key, [])
         super().__getitem__(key).append(value)
-        if self.__provided__ is not None:
-            self.__provided__.set(value.__transmuter_provided__)
+        provided = self.__provided__
+        if provided is not None:
+            provided.set(value.__transmuter_provided__)
 
     @ensure_loaded
     def extend(self, key: K, values: Iterable[T]) -> None:
@@ -1934,9 +2044,10 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         if key not in self:
             super().__setitem__(key, [])
         super().__getitem__(key).extend(values)
-        if self.__provided__ is not None:
+        provided = self.__provided__
+        if provided is not None:
             for item in values:
-                self.__provided__.set(item.__transmuter_provided__)
+                provided.set(item.__transmuter_provided__)
 
     @ensure_loaded
     def discard(self, key: K, value: T) -> None:
@@ -1947,8 +2058,9 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         key = self.bless_key(key)
         lst = super().__getitem__(key)
         lst.remove(value)
-        if self.__provided__ is not None:
-            self.__provided__.remove(value.__transmuter_provided__)
+        provided = self.__provided__
+        if provided is not None:
+            provided.remove(value.__transmuter_provided__)
         if not lst:
             super().__delitem__(key)
 
@@ -2227,14 +2339,16 @@ class TypedRelationMap(dict, Association[TD]):
     @ensure_loaded
     def __setitem__(self, key: str, value: Any) -> None:
         value = self.bless_value(key, value)
-        if self.__provided__ is not None:
-            self.__provided__[key] = value.__transmuter_provided__
+        provided = self.__provided__
+        if provided is not None:
+            provided[key] = value.__transmuter_provided__
         super().__setitem__(key, value)
 
     @ensure_loaded
     def __delitem__(self, key: str) -> None:
-        if self.__provided__ is not None:
-            del self.__provided__[key]
+        provided = self.__provided__
+        if provided is not None:
+            del provided[key]
         super().__delitem__(key)
 
     def __repr__(self):
@@ -2295,16 +2409,18 @@ class TypedRelationMap(dict, Association[TD]):
     def pop(self, key: str, *args: Any) -> Any:
         """Remove specified key and return the corresponding value."""
         item = super().pop(key, *args)
-        if self.__provided__ is not None and key in self.__provided__:
-            del self.__provided__[key]
+        provided = self.__provided__
+        if provided is not None and key in provided:
+            del provided[key]
         return item
 
     @ensure_loaded
     def popitem(self) -> tuple[str, Any]:
         """Remove and return an arbitrary (key, value) pair."""
         key, item = super().popitem()
-        if self.__provided__ is not None:
-            del self.__provided__[key]
+        provided = self.__provided__
+        if provided is not None:
+            del provided[key]
         return key, item
 
     @ensure_loaded
@@ -2330,8 +2446,9 @@ class TypedRelationMap(dict, Association[TD]):
         blessed: dict[str, Any] = {}
         for key, value in merged.items():
             blessed[key] = self.bless_value(key, value)
-        if self.__provided__ is not None:
-            self.__provided__.update(
+        provided = self.__provided__
+        if provided is not None:
+            provided.update(
                 {key: value.__transmuter_provided__ for key, value in blessed.items()}
             )
         super().update(blessed)
@@ -2347,8 +2464,9 @@ class TypedRelationMap(dict, Association[TD]):
     @ensure_loaded
     def clear(self) -> None:
         """Remove all items."""
-        if self.__provided__ is not None:
-            self.__provided__.clear()
+        provided = self.__provided__
+        if provided is not None:
+            provided.clear()
         super().clear()
 
     @ensure_loaded

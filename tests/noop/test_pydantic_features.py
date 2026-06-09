@@ -1575,12 +1575,19 @@ class TestModelComparison:
     """Test model equality and comparison operations."""
 
     def test_model_equality(self):
-        """Test that models with same data are equal."""
+        """Transmuters compare by identity, matching their identity __hash__.
+
+        Transmuters are mutable, provider-backed proxies, so equality is identity
+        rather than pydantic's structural value-equality: two distinct instances
+        holding the same data are NOT equal. This keeps __eq__ consistent with
+        __hash__ (id-based) so they behave correctly in sets/dicts.
+        """
         author1 = Author(id=1, name="Test Author", field="Physics")
         author2 = Author(id=1, name="Test Author", field="Physics")
 
-        # Pydantic models are equal if their fields are equal
-        assert author1 == author2
+        assert author1 == author1
+        assert author1 != author2  # same data, different instance
+        assert {author1, author2, author1} == {author1, author2}
 
     def test_model_inequality_different_values(self):
         """Test that models with different data are not equal."""

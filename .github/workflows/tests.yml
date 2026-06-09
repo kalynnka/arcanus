@@ -109,5 +109,7 @@ jobs:
         uses: CodSpeedHQ/action@v4
         with:
           mode: ${{ matrix.mode }}
-          # Exclude baseline tests (pure sqlalchemy/pydantic) from regression tracking
-          run: uv run pytest benchmark/ --codspeed --benchmark-warmup-iterations=5 -m "not baseline"
+          # Record baselines too (pure Pydantic / Pydantic+SQLAlchemy): deps are
+          # pinned by uv.lock so reference instruction counts are deterministic,
+          # which makes the gap (candidate vs reference) visible on the dashboard.
+          run: uv run pytest benchmark/ --codspeed --benchmark-warmup-iterations=5
