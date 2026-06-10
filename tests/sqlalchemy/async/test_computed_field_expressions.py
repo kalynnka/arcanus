@@ -19,6 +19,7 @@ from uuid import uuid4
 
 import pytest
 from pydantic import ConfigDict, Field, ValidationError, computed_field
+from pydantic_core import PydanticCustomError
 from sqlalchemy import ForeignKey, String, Text, func, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -26,6 +27,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from arcanus import Criteria, Cursor, Relation, Relationship, provided
 from arcanus.base import BaseTransmuter, Identity
+from arcanus.materia.base import BaseMateria
 from arcanus.materia.sqlalchemy import AsyncSession, selectinload
 from tests.models import Base
 from tests.transmuters import sqlalchemy_materia
@@ -480,3 +482,22 @@ class TestNullableCursorPagination:
                     },
                 ]
             }
+
+
+class TestAssociationLoadedHook:
+    def test_base_materia_treats_associations_as_loaded(self):
+        relation: Relation[SourceSchema] = Relation()
+        assert BaseMateria().association_loaded(relation) is True
+
+    def test_sqlalchemy_materia_without_provider_is_loaded(self):
+        # Unprepared relation: no owner instance, so no provider to inspect.
+        relation: Relation[SourceSchema] = Relation()
+        assert sqlalchemy_materia.association_loaded(relation) is True
+
+
+@pytest.mark.asyncio
+async def test_all_null_bookmark_without_tiebreak_raises(async_engine: AsyncEngine):
+    async with AsyncSession(async_engine) as session:
+        memo = await _seed_memo(session, None)
+        with pytest.raises(PydanticCustomError, match="non-null unique tiebreak"):
+            Cursor[MemoSchema].bookmark_from_item(memo, (MemoSchema["title"].asc(),))
