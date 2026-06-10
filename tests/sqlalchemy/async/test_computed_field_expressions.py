@@ -18,13 +18,13 @@ from typing import Annotated, Optional
 from uuid import uuid4
 
 import pytest
-from pydantic import ConfigDict, Field, computed_field
+from pydantic import ConfigDict, Field, ValidationError, computed_field
 from sqlalchemy import ForeignKey, String, Text, func, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from arcanus import Criteria, Cursor, Relation, Relationship
+from arcanus import Criteria, Cursor, Relation, Relationship, provided
 from arcanus.base import BaseTransmuter, Identity
 from arcanus.materia.sqlalchemy import AsyncSession, selectinload
 from tests.models import Base
@@ -91,6 +91,7 @@ class MemoSchema(BaseTransmuter):
     source: Relation[Optional[SourceSchema]] = Relationship()
 
     @computed_field
+    @provided
     @property
     def title(self) -> Optional[str]:
         if self.title_override is not None:
@@ -102,9 +103,16 @@ class MemoSchema(BaseTransmuter):
     def title(self, value: Optional[str]) -> None:
         self.title_override = value
 
+    # Display-only computed field: serialized, but NOT @provided — it must
+    # stay invisible to criteria, Schema[name], and ordering.
+    @computed_field
+    @property
+    def label(self) -> str:
+        return f"memo:{self.title_override or 'untitled'}"
+
 
 async def _seed_memo(
-    session: AsyncSession, source_title: str, override: Optional[str] = None
+    session: AsyncSession, source_title: Optional[str], override: Optional[str] = None
 ) -> MemoSchema:
     source = SourceSchema(title=source_title, summary=f"About {source_title}")
     session.add(source)
@@ -227,10 +235,16 @@ class TestComputedFieldQuerying:
             # The bookmark must carry the REAL computed value through the
             # encode/decode round trip — an unpopulated value would be
             # silently dropped by exclude_none and the cursor would never
-            # advance.
+            # advance. Ascending keys also cover the trailing NULLS LAST
+            # region.
             assert decoded.bookmark.model_dump(
                 mode="json", by_alias=True, exclude_none=True
-            ) == {"title": {"gt": f"{marker} Beta"}}
+            ) == {
+                "or": [
+                    {"title": {"gt": f"{marker} Beta"}},
+                    {"title": {"is_null": True}},
+                ]
+            }
             bookmark_expression = decoded.bookmark.expression
             assert bookmark_expression is not None
             second_items = await session.list(
@@ -308,3 +322,161 @@ class TestComputedFieldReads:
             reloaded = await session.get_one(MemoSchema, memo.id)
             assert reloaded.title_override == f"Edited {marker}"
             assert reloaded.title == f"Edited {marker}"
+
+
+class TestProvidedGate:
+    """Only @provided computed fields join the expression layer."""
+
+    def test_unmarked_computed_field_rejected_as_criteria(self):
+        with pytest.raises(ValidationError):
+            Criteria[MemoSchema].model_validate({"label": {"eq": "memo:x"}})
+
+    def test_unmarked_computed_field_has_no_column(self):
+        with pytest.raises(KeyError):
+            MemoSchema["label"]
+
+    @pytest.mark.asyncio
+    async def test_unmarked_computed_field_still_serializes(
+        self, async_engine: AsyncEngine
+    ):
+        marker = uuid4().hex[:8]
+        async with AsyncSession(async_engine) as session:
+            memo = await _seed_memo(session, f"Quantum {marker}", override=marker)
+            assert memo.model_dump()["label"] == f"memo:{marker}"
+
+
+class TestIsNullOperator:
+    def test_is_null_true_compiles_to_is_null(self):
+        criteria = Criteria[MemoSchema].model_validate(
+            {"title_override": {"is_null": True}}
+        )
+        (expression,) = criteria.expressions
+        sql = str(select(ComputedMemo).where(expression))
+        assert "is null" in sql.lower()
+
+    def test_is_null_false_compiles_to_is_not_null(self):
+        criteria = Criteria[MemoSchema].model_validate(
+            {"title_override": {"is_null": False}}
+        )
+        (expression,) = criteria.expressions
+        sql = str(select(ComputedMemo).where(expression))
+        assert "is not null" in sql.lower()
+
+    @pytest.mark.asyncio
+    async def test_is_null_on_computed_field_filters_rows(
+        self, async_engine: AsyncEngine
+    ):
+        marker = uuid4().hex[:8]
+        async with AsyncSession(async_engine) as session:
+            titled = await _seed_memo(session, f"Quantum {marker}")
+            untitled = await _seed_memo(session, None)
+
+            scope = MemoSchema["id"].in_([titled.id, untitled.id])
+            null_titled = await session.list(
+                MemoSchema,
+                expressions=(scope, MemoSchema["title"].operate("is_null", True)),
+            )
+            assert [memo.id for memo in null_titled] == [untitled.id]
+
+
+class TestNullableCursorPagination:
+    """Cursor pagination over a nullable order key (ASC NULLS LAST / DESC
+    NULLS FIRST), with the null region reached and crossed via bookmarks."""
+
+    async def _seed(self, session: AsyncSession, marker: str) -> list[MemoSchema]:
+        memos = [
+            await _seed_memo(session, f"{marker} Alpha"),
+            await _seed_memo(session, f"{marker} Beta"),
+            await _seed_memo(session, None, override=None),
+            await _seed_memo(session, None, override=None),
+        ]
+        return memos
+
+    async def _walk(
+        self,
+        session: AsyncSession,
+        expressions: tuple,
+        orders: tuple,
+    ) -> list[int | None]:
+        options = (selectinload(MemoSchema["source"]),)
+        collected: list[int | None] = []
+        bookmark_expression = None
+        for _ in range(8):
+            page_expressions = expressions + (
+                (bookmark_expression,) if bookmark_expression is not None else ()
+            )
+            items = await session.list(
+                MemoSchema,
+                limit=1,
+                order_bys=orders,
+                options=options,
+                expressions=page_expressions,
+            )
+            if not items:
+                break
+            collected.append(items[-1].id)
+            bookmark = Cursor[MemoSchema].bookmark_from_item(items[-1], orders)
+            cursor = Cursor[MemoSchema].from_expressions(
+                expressions=expressions,
+                bookmark=bookmark,
+                order_bys=orders,
+                limit=1,
+            )
+            decoded = Cursor[MemoSchema](str(cursor))
+            bookmark_expression = decoded.bookmark.expression
+            assert bookmark_expression is not None
+        return collected
+
+    @pytest.mark.asyncio
+    async def test_ascending_nulls_last_walk(self, async_engine: AsyncEngine):
+        marker = uuid4().hex[:8]
+        async with AsyncSession(async_engine) as session:
+            memos = await self._seed(session, marker)
+            scope = (MemoSchema["id"].in_([memo.id for memo in memos]),)
+            orders = (MemoSchema["title"].asc(), MemoSchema["id"].asc())
+
+            collected = await self._walk(session, scope, orders)
+            assert collected == [memos[0].id, memos[1].id, memos[2].id, memos[3].id]
+
+    @pytest.mark.asyncio
+    async def test_descending_nulls_first_walk(self, async_engine: AsyncEngine):
+        marker = uuid4().hex[:8]
+        async with AsyncSession(async_engine) as session:
+            memos = await self._seed(session, marker)
+            scope = (MemoSchema["id"].in_([memo.id for memo in memos]),)
+            orders = (MemoSchema["title"].desc(), MemoSchema["id"].desc())
+
+            collected = await self._walk(session, scope, orders)
+            assert collected == [memos[3].id, memos[2].id, memos[1].id, memos[0].id]
+
+    @pytest.mark.asyncio
+    async def test_null_bookmark_round_trips_via_is_null(
+        self, async_engine: AsyncEngine
+    ):
+        marker = uuid4().hex[:8]
+        async with AsyncSession(async_engine) as session:
+            memos = await self._seed(session, marker)
+            orders = (MemoSchema["title"].asc(), MemoSchema["id"].asc())
+
+            bookmark = Cursor[MemoSchema].bookmark_from_item(memos[2], orders)
+            cursor = Cursor[MemoSchema].from_expressions(
+                expressions=(MemoSchema["id"].in_([memo.id for memo in memos]),),
+                bookmark=bookmark,
+                order_bys=orders,
+                limit=1,
+            )
+            decoded = Cursor[MemoSchema](str(cursor))
+            dumped = decoded.bookmark.model_dump(
+                mode="json", by_alias=True, exclude_none=True
+            )
+            assert dumped == {
+                "and": [
+                    {"title": {"is_null": True}},
+                    {
+                        "or": [
+                            {"id": {"gt": memos[2].id}},
+                            {"id": {"is_null": True}},
+                        ]
+                    },
+                ]
+            }

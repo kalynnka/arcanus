@@ -71,6 +71,11 @@ class SqlalchemyExpressionCompiler(
             return cast(SQLCoreOperations[bool], native.is_(unwrap(value)))
         if operator == "is_not":
             return cast(SQLCoreOperations[bool], native.is_not(unwrap(value)))
+        if operator == "is_null":
+            return cast(
+                SQLCoreOperations[bool],
+                native.is_(None) if unwrap(value) else native.is_not(None),
+            )
         if operator == "between":
             left, right = cast(tuple[object, object], unwrap(value))
             return cast(SQLCoreOperations[bool], native.between(left, right))
@@ -138,8 +143,13 @@ class SqlalchemyExpressionCompiler(
         )
 
     def order(self, order: Order[Any]) -> SQLCoreOperations[CriteriaValue]:
+        # Null placement is emitted explicitly so every database agrees with
+        # the PostgreSQL defaults (ASC NULLS LAST / DESC NULLS FIRST) — cursor
+        # bookmark comparisons for nullable order keys assume exactly this.
         native = cast(SQLCoreOperations[CriteriaValue], order.column.native)
-        return native.desc() if order.descending else native.asc()
+        if order.descending:
+            return cast(SQLCoreOperations[CriteriaValue], native.desc().nulls_first())
+        return cast(SQLCoreOperations[CriteriaValue], native.asc().nulls_last())
 
 
 class SqlalchemyMateria(BaseMateria):
