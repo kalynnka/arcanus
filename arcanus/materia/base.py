@@ -177,6 +177,14 @@ class BaseMateria:
     async def aload_association(self, association: Association) -> Any:
         raise NotImplementedError()
 
+    def association_loaded(self, association: Association) -> bool:
+        """Whether reading *association* from its provider cannot fire a load.
+
+        Materias with lazy loading (e.g. SQLAlchemy) override this; for
+        everything else provider data is always in memory.
+        """
+        return True
+
 
 class NoOpMateria(BaseMateria):
     _instance: ClassVar[Optional[NoOpMateria]] = None

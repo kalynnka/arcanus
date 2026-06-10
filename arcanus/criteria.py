@@ -309,16 +309,38 @@ class ScalarCriteria(ModelGeneric[P]):
     }
 
     @classmethod
+    def __get_generic_model_value_annotations__(
+        cls, generic_model: TransmuterType
+    ) -> dict[str, Any]:
+        """Names and value annotations of criteria-eligible attributes.
+
+        Regular scalar fields plus computed fields (keyed by return type).
+        Computed fields are included so that schemas pairing a pydantic
+        ``@computed_field`` with a provider-side expression (e.g. a SQLAlchemy
+        ``hybrid_property``) are filterable and orderable like plain columns.
+        """
+        annotations = {
+            name: info.annotation
+            for name, info in generic_model.__pydantic_fields__.items()
+            if name not in generic_model.model_associations
+        }
+        computed_fields: dict[str, Any] = getattr(
+            generic_model, "__pydantic_computed_fields__", {}
+        )
+        for name, computed in computed_fields.items():
+            annotations.setdefault(name, computed.return_type)
+        return annotations
+
+    @classmethod
     def __get_generic_model_field_definitions__(
         cls, generic_model: TransmuterType
     ) -> dict[str, Any]:
         scalar_fields: dict[str, Any] = {}
 
-        for name, info in generic_model.__pydantic_fields__.items():
-            if name in generic_model.model_associations:
-                continue
+        for name, annotation in cls.__get_generic_model_value_annotations__(
+            generic_model
+        ).items():
             # Normalize scalar field annotations before mapping them to criteria types.
-            annotation = info.annotation
             origin = get_origin(annotation)
             if origin is UnionType or str(origin) == "typing.Union":
                 annotation = next(
@@ -388,10 +410,9 @@ class ScalarCriteria(ModelGeneric[P]):
                 for attribute, _ in criteria_type.criteria_operators
             }
 
-        for name, info in generic_model.__pydantic_fields__.items():
-            if name in generic_model.model_associations:
-                continue
-            annotation = info.annotation
+        for name, annotation in cls.__get_generic_model_value_annotations__(
+            generic_model
+        ).items():
             origin = get_origin(annotation)
             if origin is UnionType or str(origin) == "typing.Union":
                 annotation = next(

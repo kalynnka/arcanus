@@ -188,7 +188,10 @@ class Transmuter(metaclass=TransmuterTypingMetaclass):
         if (
             isinstance(name, str)
             and isinstance(cls, TransmuterMetaclass)
-            and name in cls.__pydantic_fields__
+            and (
+                name in cls.__pydantic_fields__
+                or name in getattr(cls, "__pydantic_computed_fields__", {})
+            )
         ):
             return cls._column(name)
         return BaseModel.__class_getitem__.__func__(cls, name)
@@ -542,7 +545,16 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
             ) from e
 
     def _column(self, name: str) -> Column[Any]:
-        if info := self.__pydantic_fields__.get(name):
+        info = self.__pydantic_fields__.get(name)
+        if info is None and (
+            computed := getattr(self, "__pydantic_computed_fields__", {}).get(name)
+        ):
+            # Computed fields carry no FieldInfo; synthesize one so the Column
+            # keeps the same metadata shape as regular fields. The provider is
+            # expected to expose a same-named expression-capable attribute
+            # (e.g. a SQLAlchemy hybrid_property) for filtering/ordering.
+            info = FieldInfo(annotation=computed.return_type, alias=computed.alias)
+        if info:
             if provider := self.__transmuter_provider__:
                 try:
                     used_name = info.alias or name
@@ -580,7 +592,10 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
     def __getitem__(self, name: object) -> Any: ...
 
     def __getitem__(self, name: object) -> Column[Any] | Any:
-        if isinstance(name, str) and name in self.__pydantic_fields__:
+        if isinstance(name, str) and (
+            name in self.__pydantic_fields__
+            or name in getattr(self, "__pydantic_computed_fields__", {})
+        ):
             return self._column(name)
         return self.__class_getitem__(name)
 

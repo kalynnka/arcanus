@@ -289,3 +289,10 @@ class SqlalchemyMateria(BaseMateria):
 
     def aload_association(self, association: Association) -> Any:
         return greenlet_spawn(self.load_association, association)
+
+    def association_loaded(self, association: Association) -> bool:
+        owner = association.__instance_provider__
+        if owner is None:
+            return True
+        state = inspect(cast(Inspectable[InstanceState[Any]], owner))
+        return association.used_name not in state.unloaded
