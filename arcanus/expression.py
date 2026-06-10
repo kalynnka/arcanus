@@ -51,6 +51,8 @@ class NativeExpressionCompiler(ExpressionCompiler[Any, Any]):
             return native.is_(unwrap(value))
         if operator == "is_not":
             return native.is_not(unwrap(value))
+        if operator == "is_null":
+            return native.is_(None) if unwrap(value) else native.is_not(None)
         if operator == "between":
             left, right = cast(tuple[object, object], unwrap(value))
             return native.between(left, right)

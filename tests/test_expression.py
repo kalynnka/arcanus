@@ -311,6 +311,8 @@ def test_native_expression_compiler_operator_branches():
 
     assert compiler.apply(column, "is_", None) == ("is", None)
     assert compiler.apply(column, "is_not", None) == ("is_not", None)
+    assert compiler.apply(column, "is_null", True) == ("is", None)
+    assert compiler.apply(column, "is_null", False) == ("is_not", None)
     assert compiler.apply(column, "between", (1, 2)) == ("between", 1, 2)
     assert compiler.apply(column, "eq", "Ada") == ("eq", "Ada")
     assert compiler.apply(column, "not_contains", "bot") == ("not",)

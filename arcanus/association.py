@@ -216,6 +216,23 @@ class Association(Generic[A]):
         """Bless the value into the generic type."""
         return self.__validator__.validate_python(value)
 
+    @property
+    def loaded(self) -> bool:
+        """Whether reading this association cannot fire a provider load."""
+        if self.__loaded__ or self.__instance__ is None:
+            return True
+        return active_materia.get().association_loaded(self)
+
+    def peek(self) -> A | None:
+        """Return the association value without ever firing a load.
+
+        Resolves normally when the value is already loaded (or loading is
+        free for the active materia); returns ``None`` when resolving would
+        require provider IO. Safe to call from synchronous code such as
+        pydantic computed fields, serializers, and validators.
+        """
+        return self._load() if self.loaded else None
+
 
 class Relation(Association[Optional_T]):
     # new item and loaded item are shared the __payloads__ here

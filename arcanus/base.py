@@ -131,6 +131,51 @@ class Identity:
     """Marker class for identity fields that could not be set in creation and immutable."""
 
 
+PROVIDED_FIELD_MARK = "__transmuter_provided_field__"
+
+F = TypeVar("F")
+
+
+def provided(target: F) -> F:
+    """Mark a computed field as backed by a same-named provider attribute.
+
+    Only marked computed fields join the expression layer — ``Schema[name]``
+    resolution, criteria query params, ordering, and cursor bookmarks — by
+    compiling through the provider's attribute (e.g. a SQLAlchemy
+    ``hybrid_property``). Unmarked computed fields stay serialization-only.
+
+    Stacks anywhere around pydantic's ``computed_field``/``property`` pair::
+
+        @computed_field
+        @provided
+        @property
+        def title(self) -> str | None: ...
+
+    The mark lives on the getter function, so ``@title.setter`` rebinds
+    (which reuse the getter) keep it.
+    """
+    wrapped = getattr(target, "wrapped", target)  # pydantic descriptor proxy
+    getter = (
+        getattr(wrapped, "fget", None)  # property
+        or getattr(wrapped, "func", None)  # functools.cached_property
+        or wrapped
+    )
+    setattr(getter, PROVIDED_FIELD_MARK, True)
+    return target
+
+
+def provided_computed_fields(owner: type[Any] | Any) -> dict[str, Any]:
+    """Computed fields of *owner* marked with :func:`provided`, by name."""
+    computed_fields: dict[str, Any] = getattr(owner, "__pydantic_computed_fields__", {})
+    provided_fields: dict[str, Any] = {}
+    for name, computed in computed_fields.items():
+        prop = computed.wrapped_property
+        getter = getattr(prop, "fget", None) or getattr(prop, "func", None) or prop
+        if getattr(getter, PROVIDED_FIELD_MARK, False):
+            provided_fields[name] = computed
+    return provided_fields
+
+
 class Transmuter(metaclass=TransmuterTypingMetaclass):
     """
     A mixin base providing common transmuter instance methods.
@@ -188,9 +233,19 @@ class Transmuter(metaclass=TransmuterTypingMetaclass):
         if (
             isinstance(name, str)
             and isinstance(cls, TransmuterMetaclass)
-            and name in cls.__pydantic_fields__
+            and (
+                name in cls.__pydantic_fields__ or name in provided_computed_fields(cls)
+            )
         ):
             return cls._column(name)
+        if isinstance(name, str) and name in getattr(
+            cls, "__pydantic_computed_fields__", {}
+        ):
+            raise KeyError(
+                f"Computed field '{name}' of {cls.__name__} is not marked with "
+                "@provided; only provided computed fields resolve to provider "
+                "expressions."
+            )
         return BaseModel.__class_getitem__.__func__(cls, name)
 
     def __hash__(self) -> int:
@@ -542,7 +597,15 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
             ) from e
 
     def _column(self, name: str) -> Column[Any]:
-        if info := self.__pydantic_fields__.get(name):
+        info = self.__pydantic_fields__.get(name)
+        if info is None and (computed := provided_computed_fields(self).get(name)):
+            # @provided computed fields carry no FieldInfo; synthesize one so
+            # the Column keeps the same metadata shape as regular fields. The
+            # provider is expected to expose a same-named expression-capable
+            # attribute (e.g. a SQLAlchemy hybrid_property) for
+            # filtering/ordering.
+            info = FieldInfo(annotation=computed.return_type, alias=computed.alias)
+        if info:
             if provider := self.__transmuter_provider__:
                 try:
                     used_name = info.alias or name
@@ -580,7 +643,9 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
     def __getitem__(self, name: object) -> Any: ...
 
     def __getitem__(self, name: object) -> Column[Any] | Any:
-        if isinstance(name, str) and name in self.__pydantic_fields__:
+        if isinstance(name, str) and (
+            name in self.__pydantic_fields__ or name in provided_computed_fields(self)
+        ):
             return self._column(name)
         return self.__class_getitem__(name)
 

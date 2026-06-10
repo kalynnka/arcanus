@@ -38,7 +38,7 @@ from pydantic.errors import PydanticUndefinedAnnotation, PydanticUserError
 from pydantic_core import PydanticCustomError
 
 from arcanus.association import is_association
-from arcanus.base import TransmuterType, transmuter_type
+from arcanus.base import TransmuterType, provided_computed_fields, transmuter_type
 from arcanus.expression import Column, Expression, Order, and_, or_
 
 P = TypeVar("P")
@@ -73,8 +73,12 @@ class BaseCriteria(BaseModel, Generic[T]):
     )
 
     eq: T | None = None
+    is_null: bool | None = None
 
-    criteria_operators: ClassVar[tuple[tuple[str, str], ...]] = (("eq", "eq"),)
+    criteria_operators: ClassVar[tuple[tuple[str, str], ...]] = (
+        ("eq", "eq"),
+        ("is_null", "is_null"),
+    )
 
 
 class ExactCriteria(BaseCriteria[T]):
@@ -309,16 +313,36 @@ class ScalarCriteria(ModelGeneric[P]):
     }
 
     @classmethod
+    def __get_generic_model_value_annotations__(
+        cls, generic_model: TransmuterType
+    ) -> dict[str, Any]:
+        """Names and value annotations of criteria-eligible attributes.
+
+        Regular scalar fields plus ``@provided`` computed fields (keyed by
+        return type). Marking a computed field with :func:`arcanus.provided`
+        declares it is backed by a provider-side expression (e.g. a SQLAlchemy
+        ``hybrid_property``), making it filterable and orderable like a plain
+        column; unmarked computed fields stay serialization-only.
+        """
+        annotations = {
+            name: info.annotation
+            for name, info in generic_model.__pydantic_fields__.items()
+            if name not in generic_model.model_associations
+        }
+        for name, computed in provided_computed_fields(generic_model).items():
+            annotations.setdefault(name, computed.return_type)
+        return annotations
+
+    @classmethod
     def __get_generic_model_field_definitions__(
         cls, generic_model: TransmuterType
     ) -> dict[str, Any]:
         scalar_fields: dict[str, Any] = {}
 
-        for name, info in generic_model.__pydantic_fields__.items():
-            if name in generic_model.model_associations:
-                continue
+        for name, annotation in cls.__get_generic_model_value_annotations__(
+            generic_model
+        ).items():
             # Normalize scalar field annotations before mapping them to criteria types.
-            annotation = info.annotation
             origin = get_origin(annotation)
             if origin is UnionType or str(origin) == "typing.Union":
                 annotation = next(
@@ -381,17 +405,23 @@ class ScalarCriteria(ModelGeneric[P]):
         def criteria_example(
             criteria_type: type[BaseCriteria[Any]], value: CriteriaExampleValue
         ) -> CriteriaExample:
+            def attribute_example(attribute: str) -> Any:
+                if attribute in {"in_", "not_in"}:
+                    return [value]
+                if attribute == "is_null":
+                    return True
+                return value
+
             return {
-                (criteria_type.model_fields[attribute].alias or attribute): [value]
-                if attribute in {"in_", "not_in"}
-                else value
+                (criteria_type.model_fields[attribute].alias or attribute): (
+                    attribute_example(attribute)
+                )
                 for attribute, _ in criteria_type.criteria_operators
             }
 
-        for name, info in generic_model.__pydantic_fields__.items():
-            if name in generic_model.model_associations:
-                continue
-            annotation = info.annotation
+        for name, annotation in cls.__get_generic_model_value_annotations__(
+            generic_model
+        ).items():
             origin = get_origin(annotation)
             if origin is UnionType or str(origin) == "typing.Union":
                 annotation = next(
@@ -774,6 +804,27 @@ class BookmarkCriteria(ScalarCriteria[P]):
         return expressions[0] if len(expressions) == 1 else and_(expressions)
 
 
+def _bookmark_after(
+    column: Column[CriteriaValue], value: CriteriaValue | None, descending: bool
+) -> Expression[bool] | None:
+    """Strictly-after comparison for one order key of a cursor bookmark.
+
+    Ordering is normalized to ASC NULLS LAST / DESC NULLS FIRST (the
+    PostgreSQL defaults), so:
+    - ascending, after a value: greater values, then the trailing null region;
+    - ascending, after a null: nothing at this level (deeper keys tiebreak);
+    - descending, after a value: smaller values only (nulls already passed);
+    - descending, after a null: the entire non-null region.
+    """
+    if value is None:
+        if descending:
+            return column.operate("is_null", False)
+        return None
+    if descending:
+        return column < value
+    return or_((column > value, column.operate("is_null", True)))
+
+
 def bookmark_criteria_fields(bookmark: BookmarkCriteria[Any]) -> set[str]:
     fields: set[str] = set()
     for name, value in bookmark:
@@ -964,11 +1015,19 @@ class Cursor(RootModel[str], Generic[P]):
         for order_by in order_bys:
             column = order_by.column
             value = getattr(item, column.field_name)
-            comparison = column < value if order_by.descending else column > value
-            clauses.append(
-                comparison if not equalities else and_((*equalities, comparison))
+            comparison = _bookmark_after(column, value, order_by.descending)
+            if comparison is not None:
+                clauses.append(
+                    comparison if not equalities else and_((*equalities, comparison))
+                )
+            equalities.append(
+                column.operate("is_null", True) if value is None else column == value
             )
-            equalities.append(column == value)
+        if not clauses:
+            raise PydanticCustomError(
+                "invalid_cursor",
+                "Cursor bookmark requires a non-null unique tiebreak order key",
+            )
         return clauses[0] if len(clauses) == 1 else or_(clauses)
 
     @property

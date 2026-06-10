@@ -317,18 +317,20 @@ def _render_report(rows: list[GapRow], axis: str) -> None:
         if not ax_rows:
             continue
         table = Table(title=AXIS_TITLES[ax], box=SIMPLE_HEAVY, header_style="bold")
-        table.add_column("group", style="cyan", no_wrap=True)
-        table.add_column("ref µs", justify="right")
-        table.add_column("cand µs", justify="right")
+        # Numeric columns are no_wrap so a narrow terminal never ellipsis-truncates
+        # a figure; the group column folds instead, absorbing the width pressure.
+        table.add_column("group", style="cyan", overflow="fold")
+        table.add_column("ref µs", justify="right", no_wrap=True)
+        table.add_column("cand µs", justify="right", no_wrap=True)
         if ax == "B":
-            table.add_column("ctx µs", justify="right", style="dim")
+            table.add_column("orm µs", justify="right", style="dim", no_wrap=True)
         # Δ µs is left uncolored on purpose: an absolute-µs threshold is
         # scale-dependent (+5µs is huge on a 0.1µs group, invisible on a 600µs
         # one), so it would re-import the very distortion the gap ratio has. The
         # gap column owns the green/yellow/red verdict; Δ µs is the neutral
         # ground truth the reader cross-references against it.
-        table.add_column("Δ µs", justify="right")
-        table.add_column("gap", justify="right")
+        table.add_column("Δ µs", justify="right", no_wrap=True)
+        table.add_column("gap", justify="right", no_wrap=True)
         for row in ax_rows:
             cells = [escape(row.key), _us(row.reference), _us(row.candidate)]
             if ax == "B":

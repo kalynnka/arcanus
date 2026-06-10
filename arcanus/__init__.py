@@ -18,6 +18,7 @@ from arcanus.base import (
     BaseTransmuter,
     Transmuter,
     TransmuterType,
+    provided,
 )
 from arcanus.criteria import (
     BookmarkCriteria,
@@ -37,6 +38,7 @@ __all__ = [
     "BaseTransmuter",
     "Transmuter",
     "TransmuterType",
+    "provided",
     "Criteria",
     "BookmarkCriteria",
     "Cursor",

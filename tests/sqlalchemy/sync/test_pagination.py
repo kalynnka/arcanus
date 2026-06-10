@@ -99,9 +99,15 @@ class TestCursorPagination:
                 "Cursor Manual Page B",
             ]
             assert decoded.order_by == ("+id",)
+            # Ascending keys cover the trailing NULLS LAST region too.
             assert decoded.bookmark.model_dump(
                 mode="json", by_alias=True, exclude_none=True
-            ) == {"id": {"gt": authors[1].id}}
+            ) == {
+                "or": [
+                    {"id": {"gt": authors[1].id}},
+                    {"id": {"is_null": True}},
+                ]
+            }
             assert second_page.has_more is False
             assert second_page.next_cursor is not None
             assert [author.name for author in second_page] == [
