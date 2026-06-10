@@ -19,9 +19,16 @@ jobs:
             release_created: ${{ steps.release.outputs.release_created }}
             tag_name: ${{ steps.release.outputs.tag_name }}
         steps:
+            # Events created with the default GITHUB_TOKEN never trigger other
+            # workflows, so release PRs opened with it get no CI runs and stay
+            # blocked on required checks. RELEASE_PLEASE_TOKEN must be a
+            # fine-grained PAT (contents + pull-requests: write); until the
+            # secret exists this falls back to the old behavior, where the
+            # release PR needs a manual close/reopen to start its checks.
             - uses: googleapis/release-please-action@v4
               id: release
               with:
+                  token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
                   config-file: release-please-config.json
                   manifest-file: .release-please-manifest.json
 
