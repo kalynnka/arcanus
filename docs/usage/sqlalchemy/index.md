@@ -122,7 +122,7 @@ and the row is owned by the SQLAlchemy session:
 
 There is no separate "save the Pydantic object" step — manage the `Session`, and the transmuters
 follow. The full design is in
-[object lifecycle under the SQLAlchemy materia](../../concepts/materia.md#lifecycle-under-the-sqlalchemy-materia).
+[object lifecycle under the SQLAlchemy materia](../../concepts/lifecycle.md#lifecycle-under-the-sqlalchemy-materia).
 
 ## In this section
 
@@ -132,5 +132,7 @@ follow. The full design is in
 - :material-function-variant: **[Session Helpers](session.md)** — the typed query helpers added to the session: `one`, `first`, `list`, `bulk`, `count`, `partitions`.
 - :material-download-network: **[Loading Strategies](loading.md)** — `lazy`, `selectin`, `joined`, `raise`, per-query options, and async awaiting.
 - :material-filter: **[Querying](querying.md)** — typed columns, expressions, criteria, and cursor pagination against the database.
+- :material-code-braces: **[SQL Statements](statements.md)** — fully-typed `select` / `update` / `delete`, and the typed loader-option & polymorphic wrappers.
+- :material-api: **[Working with FastAPI](fastapi.md)** — CRUD with partial schemas, `Criteria` filtering, and `Page` pagination, end to end.
 
 </div>

@@ -10,13 +10,13 @@ the same object you query.
     Under the SQLAlchemy materia, a transmuter's lifecycle **is** its ORM row's lifecycle: it
     becomes pending on `add`, persistent on `flush`/`commit`, and is detached/expired exactly when
     the session says so. There is no separate "save the Pydantic object" step. See
-    [object lifecycle](../../concepts/materia.md#lifecycle-under-the-sqlalchemy-materia).
+    [object lifecycle](../../concepts/lifecycle.md#lifecycle-under-the-sqlalchemy-materia).
 
 ## Create
 
 Construct a transmuter, `add` it, and `flush` to hit the database. Server-generated values (such as
-an autoincrement `id`) land on the row at flush time; `revalidate()` pulls them back into the
-transmuter.
+an autoincrement `id`) land on the row at flush time; for now you call `revalidate()` to pull them
+back into the transmuter.
 
 ```python
 with Session(engine) as session:
@@ -28,11 +28,18 @@ with Session(engine) as session:
     session.commit()
 ```
 
+!!! warning "Manual `revalidate()` for now — auto sync-back is in progress"
+    Today you must call `revalidate()` yourself after a flush to see server-side values on the
+    transmuter. Doing this **automatically** (so flushed/expired values flow back without the manual
+    step) is on the roadmap but genuinely tricky — it means tracking the provider's expiry/refresh
+    events and re-validating at the right moment without re-triggering relationship loads. Until
+    that lands, treat `revalidate()` as the explicit sync step.
+
 !!! info "`revalidate()` vs `refresh()`"
     On PostgreSQL/SQLite (RETURNING support), `revalidate()` pulls flushed values **without** an
-    extra query. On a backend without RETURNING, use `session.refresh(author)` to issue a `SELECT`
-    first. `revalidate()` is the transmuter-aware sync step; reach for it after every `flush` whose
-    server-side values you want to read.
+    extra query. On a backend that still can't do `INSERT ... RETURNING` (MySQL 🙄) you first need `session.refresh(author)` to issue a separate `SELECT` just to learn
+    the id your database already generated. `revalidate()` is the transmuter-aware sync step; reach
+    for it after every `flush` whose server-side values you want to read.
 
 ## Read
 
@@ -134,7 +141,7 @@ session.commit()
 
 Relationships are first-class transmuter fields. You assign and mutate them with the same objects
 you query, and Arcanus cascades them into the session the way SQLAlchemy does. See
-[Relationships](../../concepts/relationships.md) for every association type.
+[Relationships](../noop/relationships.md) for every association type.
 
 ### Many-to-one — assign a parent
 
@@ -195,7 +202,8 @@ with Session(engine) as session:
 
 Every transmuter exposes generated `Create` and `Update` partials, plus `shell()` and `absorb()` to
 move between a partial and a full transmuter. These are ideal at HTTP boundaries where you accept
-untrusted, incomplete payloads.
+untrusted, incomplete payloads. For a full FastAPI walkthrough — CRUD, filtering, and pagination —
+see [Working with FastAPI](fastapi.md).
 
 ```python
 # Create: excludes identity fields (the server assigns them)

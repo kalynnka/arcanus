@@ -31,8 +31,12 @@ class BookModel(Base):
     # "joined": load via an outer JOIN in the same query
     # author: Mapped[AuthorModel] = relationship(lazy="joined", back_populates="books")
 
-    # "raise": forbid loading — accessing the relationship raises instead of querying
+    # "raise": forbid loading — any access raises instead of querying
     # author: Mapped[AuthorModel] = relationship(lazy="raise", back_populates="books")
+
+    # "raise_on_sql": like "raise", but only when a load would emit SQL
+    # (already-loaded access is allowed)
+    # author: Mapped[AuthorModel] = relationship(lazy="raise_on_sql", back_populates="books")
 ```
 
 | `lazy=` | When related rows load | Good for |
@@ -41,11 +45,19 @@ class BookModel(Base):
 | `"selectin"` | up front, one batched `IN` query per level | collections you'll iterate |
 | `"joined"` | up front, via outer join in the same query | many-to-one you always need |
 | `"subquery"` | up front, via a correlated subquery | legacy alternative to `selectin` |
-| `"raise"` | never — raises on access | catching unintended lazy loads |
+| `"raise"` | never — raises on **any** access | catching unintended lazy loads |
+| `"raise_on_sql"` | never — raises only if a load would emit SQL | allow already-loaded access, forbid new queries |
 
 The strategy chosen on the model is the *default*; any query can override it per-statement.
 
 ## Strategy per query
+
+!!! note "Recall the example relationships"
+    The [setup](index.md#setup) models declare their relationships **without an explicit `lazy=`**, so
+    `Author.books`, `Book.author`, `Book.categories`, and `Category.books` all use SQLAlchemy's
+    default `"select"` — each loads on first access. The per-query options below override that default
+    for a single query, without changing the models.
+
 
 Arcanus re-exports SQLAlchemy's loader options from `arcanus.materia.sqlalchemy`, wrapped so they
 accept Arcanus's typed `Column` references (e.g. `Author["books"]`) in addition to native attributes.
@@ -123,10 +135,20 @@ async with AsyncSession(async_engine) as session:
 ```
 
 !!! warning "Lazy access without `await` is a hard error under async"
-    With the default `lazy="select"`, touching a relationship **without** awaiting it emits SQL
-    outside the greenlet and raises a `MissingGreenlet` error — it does not silently block. For
-    eager strategies (`selectin`, `joined`) the data is already loaded so no I/O happens, but
+    With the default `lazy="select"`, touching a relationship **without** awaiting it would emit SQL
+    outside the greenlet — Arcanus catches that and raises a `MissingGreenlet` with a pointed hint
+    rather than letting it fail obscurely:
+
+    ```
+    sqlalchemy.exc.MissingGreenlet: Failed to load relation 'books' of Author for a greenlet
+    is expected. Are you trying to get the relation in a sync context ? Await the Author.books
+    instance to trigger the sqlalchemy async IO first.
+    ```
+
+    For eager strategies (`selectin`, `joined`) the data is already loaded so no I/O happens, but
     keeping the `await` is recommended for consistency across strategies.
 
-The fix for an unexpected greenlet error is almost always to eager-load with `selectinload` /
-`joinedload` on the query, or to `await` the access.
+The fix is in the message: `await` the access, or eager-load it on the query with `selectinload` /
+`joinedload`. A relationship pinned to `lazy="raise"` raises a similar guided error instead — an
+`InvalidRequestError` telling you to add `selectinload` or switch the strategy to `select` /
+`selectin`.

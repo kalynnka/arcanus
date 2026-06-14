@@ -45,7 +45,7 @@ uses to manage records:
   moves it through *pending → persistent → expired/detached*; the transmuter rides along. The
   Transmuter Context (a weak-keyed cache scoped to the session) keeps a transmuter alive only as long
   as its provided instance lives in the session. You manage the session; the transmuters follow. See
-  [object lifecycle under the SQLAlchemy materia](../concepts/materia.md#lifecycle-under-the-sqlalchemy-materia).
+  [object lifecycle under the SQLAlchemy materia](../concepts/lifecycle.md#lifecycle-under-the-sqlalchemy-materia).
 
 Because the lifecycle is the backend's, so are the boundaries where server-generated values appear
 (after a `flush`/`commit`) — which is why `revalidate()` exists to sync them back into the

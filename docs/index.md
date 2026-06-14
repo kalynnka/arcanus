@@ -191,7 +191,7 @@ data. The query fires only when you actually access `author.books`, and only the
 loading strategy (`selectinload`, `joinedload`, `lazy="select"`, …) you configured on the ORM model.
 No accidental N+1, no surprise traversal, and async stays safe.
 
-See [Relationships](concepts/relationships.md).
+See [Relationships](usage/noop/relationships.md).
 
 ## Async support
 

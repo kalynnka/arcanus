@@ -90,5 +90,39 @@ def update_author(author: Author, body: dict) -> Author:
     return author.absorb(Author.Update.model_validate(body))  # only provided fields change
 ```
 
-Because `.Create` / `.Update` are real Pydantic models, `model_json_schema()` works on them too, so
-they slot directly into OpenAPI request bodies.
+## With FastAPI
+
+Because `.Create` / `.Update` are real Pydantic models, you type them directly as request bodies —
+no hand-written `AuthorCreate` / `AuthorUpdate` classes to keep in sync. FastAPI validates the body
+against the generated schema (rejecting bad input with a 422) and documents it in OpenAPI; `shell()`
+and `absorb()` bridge to the transmuter:
+
+```python
+from fastapi import FastAPI
+from sqlalchemy import select
+from arcanus.materia.sqlalchemy import Session     # SQLAlchemy materia persists the result
+
+app = FastAPI()
+
+@app.post("/authors")
+def create_author(body: Author.Create) -> Author:
+    author = Author.shell(body)                    # Create excludes the id; body is validated
+    with Session(engine) as session:
+        session.add(author)
+        session.flush()
+        author.revalidate()
+        session.commit()
+    return author
+
+@app.patch("/authors/{author_id}")
+def update_author(author_id: int, body: Author.Update) -> Author:
+    with Session(engine) as session:
+        author = session.get_one(Author, author_id)
+        author.absorb(body)                        # applies only the fields the client sent
+        session.commit()
+        return author
+```
+
+The response model is the transmuter itself (`-> Author`), so one definition drives the create body,
+the update body, **and** the response — the `xxxCreate` / `xxxUpdate` / `xxxResponse` trio collapses
+into a single source of truth.

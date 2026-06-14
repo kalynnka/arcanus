@@ -93,13 +93,27 @@ materia later.
 
 ### Computed columns
 
-A Pydantic `@computed_field` marked with `@provided` is backed by a provider-side expression (e.g. a
-SQLAlchemy `hybrid_property`) and behaves like a plain column end to end — filterable, orderable, and
-usable in cursors:
+[`@provided`](../noop/querying.md#computed-fields-with-provided) marks a `@computed_field` as part of
+the query layer. Under SQLAlchemy, "provider-backed" means a **same-named `hybrid_property` on the ORM
+model** supplies the SQL expression — so the field is filterable, orderable, and usable in cursors,
+and `Book["slug"]` compiles to that `hybrid_property`'s SQL:
 
 ```python
-from pydantic import computed_field
-from arcanus import provided
+from sqlalchemy.ext.hybrid import hybrid_property
+
+class BookModel(Base):
+    __tablename__ = "books"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column()
+
+    @hybrid_property
+    def slug(self) -> str:                       # Python-side value
+        return self.title.lower().replace(" ", "-")
+
+    @slug.inplace.expression
+    @classmethod
+    def _slug_expr(cls):                          # SQL-side expression
+        return func.replace(func.lower(cls.title), " ", "-")
 
 @materia.bless(BookModel)
 class Book(BaseTransmuter):
@@ -107,16 +121,17 @@ class Book(BaseTransmuter):
     title: str
 
     @computed_field
-    @provided                       # ← declares a backing provider expression
+    @provided                                     # ← declares the hybrid_property backing
     @property
     def slug(self) -> str:
         return self.title.lower().replace(" ", "-")
 
-Book["slug"] == "foundation"         # usable in expressions / criteria / order_by
+with materia:
+    Book["slug"] == "foundation"                  # compiles to the hybrid_property's SQL
 ```
 
-A computed field *without* `@provided` stays serialization-only and is invisible to criteria,
-`Book["…"]`, and ordering.
+A computed field *without* `@provided` stays serialization-only — invisible to `Book["…"]`, criteria,
+and ordering — as covered in the [NoOp introduction](../noop/querying.md#computed-fields-with-provided).
 
 ## Criteria
 
@@ -178,35 +193,21 @@ with Session(engine) as session:
     ).scalars().all()
 ```
 
-### The two-way conversion
+### Accepting JSON filters
 
-Expressions and criteria are the same information in two forms, and `dump()` / `model_validate()`
-bridge them. This lets you build a query in code, ship it as JSON, and rebuild it on the other side —
-or accept JSON and turn it into native SQL.
+The expression ⇄ criteria ⇄ JSON round-trip is explained in
+[NoOp → the two-way conversion](../noop/querying.md#the-two-way-conversion). Against a database the
+practical use is: take an untrusted JSON filter (say, from an API), validate it into a `Criteria`,
+and run it — bad operators or value types are rejected before any SQL is built.
 
 ```python
-import json
 from arcanus import Criteria
 
-with Session(engine):
-    expr = (Author["name"].contains("Ada") & (Author["field"] == "Physics"))
-
-    payload = expr.dump()                              # Expression → plain dict/JSON
-    # {"and": [{"name": {"contains": "Ada"}}, {"field": {"eq": "Physics"}}]}
-
-    criteria = Criteria[Author].model_validate(payload)  # JSON → validated Criteria
-    rebuilt = criteria.expressions                       # Criteria → Expression tuple
-    # rebuilt[…]() would compile back to native SQLAlchemy
-```
-
-So the full loop is:
-
-```
-Expression  ──expr.dump()──▶  JSON  ──Criteria.model_validate()──▶  Criteria
-   ▲                                                                    │
-   └──────────────────────  criteria.expressions  ◀─────────────────────┘
-                                     │
-                                     └── expr() ──▶  native SQLAlchemy clause
+with Session(engine) as session:
+    criteria = Criteria[Author].model_validate(payload)   # validated JSON → Criteria
+    authors = session.execute(
+        select(Author).where(*criteria.expressions)
+    ).scalars().all()
 ```
 
 ## Cursor pagination

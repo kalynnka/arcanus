@@ -53,11 +53,12 @@ nav:
           - Session Helpers: usage/sqlalchemy/session.md
           - Loading Strategies: usage/sqlalchemy/loading.md
           - Querying: usage/sqlalchemy/querying.md
+          - SQL Statements: usage/sqlalchemy/statements.md
+          - Working with FastAPI: usage/sqlalchemy/fastapi.md
       - Redis Materia (WIP): usage/redis.md
   - Concepts:
       - The Materia System: concepts/materia.md
       - Transmuters & Providers: concepts/transmuters.md
-      - Relationships: concepts/relationships.md
       - Lifecycle & Async: concepts/lifecycle.md
   - API Reference:
       - Overview: api/index.md
@@ -67,6 +68,9 @@ nav:
       - arcanus.expression: api/expression.md
       - arcanus.materia: api/materia.md
       - arcanus.materia.sqlalchemy: api/sqlalchemy.md
+
+extra_css:
+  - stylesheets/code.css
 
 markdown_extensions:
   - admonition

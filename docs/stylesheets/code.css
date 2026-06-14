@@ -1,0 +1,50 @@
+/*
+ * Richer code syntax highlighting.
+ *
+ * Limitation worth knowing: Pygments' Python lexer tags class references,
+ * method calls, and variables all as a plain `Name` (.n) — it can't tell a call
+ * from a class reference (that needs semantic/LSP highlighting, which this
+ * pipeline doesn't do). So those three share ONE color. What we can separate:
+ * names/calls/refs (.n) get their own hue, class & function *definitions*
+ * (.nc/.nf/.nn) get another, decorators/attrs (.nd/.na) another, and the rest
+ * (keywords, strings, numbers, builtins, operators, comments) each their own.
+ */
+
+/* Light scheme (Catppuccin Latte-ish) */
+[data-md-color-scheme="default"] {
+  --md-code-hl-name-color: #0b7285;        /* names, calls, refs — teal */
+  --md-code-hl-function-color: #1e66f5;    /* class / function definitions — blue */
+  --md-code-hl-keyword-color: #8839ef;     /* def, class, with, import — purple */
+  --md-code-hl-string-color: #40a02b;      /* strings — green */
+  --md-code-hl-number-color: #fe640b;      /* numbers — orange */
+  --md-code-hl-constant-color: #df8e1d;    /* builtins, True/False/None — gold */
+  --md-code-hl-special-color: #d20f39;     /* escapes, f-string parts — red */
+  --md-code-hl-operator-color: #5c5f66;    /* = == & | ~ — muted grey */
+  --md-code-hl-punctuation-color: #7c7f93; /* ()[]{}., — muted */
+  --md-code-hl-comment-color: #9ca0b0;     /* comments — muted */
+  --md-code-hl-variable-color: #c2255c;    /* decorators, attribute names — pink */
+}
+
+/* Dark scheme (Tokyo Night-ish) */
+[data-md-color-scheme="slate"] {
+  --md-code-hl-name-color: #7dcfff;        /* names, calls, refs — cyan */
+  --md-code-hl-function-color: #82aaff;    /* class / function definitions — blue */
+  --md-code-hl-keyword-color: #c099ff;     /* purple */
+  --md-code-hl-string-color: #c3e88d;      /* green */
+  --md-code-hl-number-color: #ff966c;      /* orange */
+  --md-code-hl-constant-color: #ffc777;    /* gold */
+  --md-code-hl-special-color: #ff757f;     /* red */
+  --md-code-hl-operator-color: #a9b1d6;    /* muted slate */
+  --md-code-hl-punctuation-color: #828bb8; /* muted */
+  --md-code-hl-comment-color: #636da6;     /* muted */
+  --md-code-hl-variable-color: #fca7ea;    /* decorators, attribute names — pink */
+}
+
+/* Comments read better as italic, like most editor themes. */
+.highlight .c,
+.highlight .c1,
+.highlight .ch,
+.highlight .cm,
+.highlight .cs {
+  font-style: italic;
+}

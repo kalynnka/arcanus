@@ -197,6 +197,42 @@ Author["id"].desc()            # authors.id DESC
 See [SQLAlchemy → Querying](../sqlalchemy/querying.md) for compiling and executing these against a
 database.
 
+## Computed fields with `@provided`
+
+A Pydantic `@computed_field` is **serialization-only by default** — it appears in `model_dump()` but
+not in the query layer. Mark it with `@provided` to declare it's backed by a provider-side
+expression, and it joins everything a stored column does: `Schema["name"]`, expressions, criteria,
+ordering, and cursor bookmarks.
+
+```python
+from pydantic import computed_field
+from arcanus import provided
+
+class Book(BaseTransmuter):
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    title: str
+
+    @computed_field
+    @provided                          # ← joins the query layer
+    @property
+    def slug(self) -> str:
+        return self.title.lower().replace(" ", "-")
+
+    @computed_field                    # no @provided → serialization-only
+    @property
+    def label(self) -> str:
+        return f"book:{self.title}"
+
+Book["slug"]                            # a Column — usable in expressions / criteria / ordering
+(Book["slug"] == "foundation").dump()   # {"slug": {"eq": "foundation"}}
+"slug" in Criteria[Book].model_fields   # True
+Book["label"]                           # KeyError — label is serialization-only
+```
+
+`@provided` only *declares* that the field is provider-backed; what actually backs it is the
+materia's job. Under SQLAlchemy that's a same-named `hybrid_property` that compiles to SQL — see
+[SQLAlchemy → Querying → Computed columns](../sqlalchemy/querying.md#computed-columns).
+
 ## Criteria — the declarative, validated shape
 
 `Criteria[Author]` is a Pydantic model **generated from a transmuter's fields**. It validates
@@ -331,3 +367,54 @@ decoded.criteria.model_dump(mode="json", by_alias=True, exclude_none=True)
 Only *running* a cursor's query against data needs a backend; the full paginate-and-follow flow is
 shown with the SQLAlchemy materia in
 [SQLAlchemy → Querying → Cursor pagination](../sqlalchemy/querying.md#cursor-pagination).
+
+### With FastAPI
+
+The same pairing pays off at an API boundary: accept a validated `Criteria` plus an opaque cursor
+token, and return a `Page[Author]` — `items` together with `total`, `has_more`, and the
+`next_cursor` to fetch the following page. The client filters once and pages by echoing back
+`next_cursor`; the criteria, ordering, and limit ride inside the token.
+
+```python
+from fastapi import FastAPI
+from sqlalchemy import func, select
+from arcanus import Criteria, Cursor, Page
+from arcanus.materia.sqlalchemy import Session     # SQLAlchemy materia runs the query
+
+app = FastAPI()
+PAGE = 20
+
+@app.post("/authors/page")
+def page_authors(where: Criteria[Author], cursor: str | None = None) -> Page[Author]:
+    # First call uses `where`; later calls just echo back the previous next_cursor.
+    if cursor:
+        token = Cursor[Author](cursor)                      # validates the opaque token
+        filters = token.criteria.expressions if token.criteria else ()
+        orders, bookmark = token.order_by.orders, token.bookmark.expression
+    else:
+        filters, orders, bookmark = where.expressions, (Author["id"].asc(),), None
+
+    with Session(engine) as session:
+        rows = session.execute(
+            select(Author)
+            .where(*filters, *((bookmark,) if bookmark is not None else ()))
+            .order_by(*orders)
+            .limit(PAGE + 1)                                # +1 row reveals whether more exist
+        ).scalars().all()
+        items, has_more = tuple(rows[:PAGE]), len(rows) > PAGE
+        total = session.execute(
+            select(func.count()).select_from(Author).where(*filters)
+        ).scalar_one()
+
+    next_cursor = Cursor[Author].from_expressions(
+        expressions=filters,
+        bookmark=Cursor[Author].bookmark_from_item(items[-1], orders) if items else bookmark,
+        order_bys=orders,
+        limit=PAGE,
+    )
+    return Page(items=items, total=total, next_cursor=str(next_cursor), has_more=has_more)
+```
+
+`Page[Author]` is the response model, so FastAPI serializes `{items, total, next_cursor, has_more}`
+and documents it in OpenAPI — and because the cursor is opaque and self-validating, an out-of-shape
+token is rejected before any query runs.

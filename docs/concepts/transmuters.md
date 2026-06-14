@@ -2,17 +2,15 @@
 
 A **transmuter** is a Pydantic object that wraps a *provided* instance — a backend object whose class
 (the **provider**) the transmuter is bound to. It is how Arcanus collapses the usual two object
-worlds — validation schema and storage model — into one.
+worlds — validation schema and storage model — into one. The vocabulary and the binding mechanics
+live in [The Materia System](materia.md); this page is about the transmuter object itself.
 
-!!! note "This page is being expanded"
-    A fuller guide is on the way. For now, see the summary below and the
-    [Materia System](materia.md) page for the underlying architecture.
+## The forms a transmuter takes
 
-## What you get today
-
-- **`BaseTransmuter`** — the `BaseModel`-derived base class for transmuters.
+- **`BaseTransmuter`** — the `BaseModel`-derived base class; what you subclass most of the time.
 - **`Transmuter`** — the protocol/mixin carrying the transmuter methods (`revalidate()`, `shell()`,
-  `absorb()`, partial `Create`/`Update` models, …).
+  `absorb()`, and the generated `Create` / `Update` partials — see
+  [Partial Schemas](../usage/noop/schemas.md)).
 - **`@dataclass`** — a lightweight transmuter built on Pydantic dataclasses, for when a full
   `BaseModel` is more than you need:
 

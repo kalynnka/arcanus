@@ -2,7 +2,8 @@
 
 A **Materia** is the plugin that connects transmuters to a concrete backend. It is the layer that
 makes "one object, not two" possible: it knows how to turn a backend record (a *provided* instance)
-into a validated transmuter and how to keep the two in sync.
+into a validated transmuter and how to keep the two in sync. This page is the design; to *use* a
+materia, start at [Usage](../usage/index.md).
 
 ## Core vocabulary
 
@@ -32,8 +33,92 @@ class Author(BaseTransmuter):
     ...
 ```
 
-The default `NoOpMateria` needs no blessing at all — it is active automatically, which is why
-transmuters behave like plain Pydantic models out of the box.
+### The registry
+
+The mapping lives on the **materia instance**, in a `formulars` registry — a *bidirectional* dict
+(`BidirectonDict`) keyed by transmuter class with provider class as the value. It is two-way because
+both directions are needed at runtime:
+
+- **transmuter → provider** drives validation and querying: when you build `Author["name"]` or
+  validate a transmuter, the materia looks up `Author`'s provider class to resolve columns and
+  expressions. `materia[Author]` returns that provider class (and `Author in materia` tests
+  membership).
+- **provider → transmuter** drives blessing on the way out: when a `Session` hands back an
+  `AuthorModel` row, the materia uses `formulars.reverse` to find the matching transmuter class and
+  wrap the row.
+
+```python
+materia[Author]                      # → AuthorModel        (transmuter → provider)
+materia.formulars.reverse[AuthorModel]  # → Author          (provider → reverse lookup)
+Author in materia                    # → True
+```
+
+Because the registry is per-instance, **the same transmuter class can be blessed by more than one
+materia** — e.g. a `RedisMateria` and a `SqlalchemyMateria` each holding their own mapping for
+`Author`. Which one is in effect is decided by *activation* (below), not by the class.
+
+The default `NoOpMateria` needs no blessing at all — its `bless()` is a no-op and it is active
+automatically, which is why transmuters behave like plain Pydantic models out of the box.
+
+## Activating a materia
+
+A materia only takes effect while it is the **active** one. Activation is a context manager backed by
+a `ContextVar`, so it is scoped, thread/async-safe, and nestable:
+
+```python
+materia = SqlalchemyMateria()
+
+with materia:                        # activate for this block
+    author = session.get_one(Author, 1)
+    Author["name"] == "Ada"          # resolves against `materia`'s registry
+# outside the block, the previous materia (NoOpMateria by default) is active again
+```
+
+`with materia:` activates the instance directly and raises if it is *already* active. To **nest** or
+re-enter, call it — `with materia():` yields a shallow copy that shares the same `formulars` registry
+but gets its own activation token:
+
+```python
+with outer_materia:
+    ...
+    with inner_materia():            # nested activation — note the ()
+        ...                          # inner_materia is active here
+    ...                              # back to outer_materia
+```
+
+### Switching materia at runtime
+
+Because activation is just a context stack, you can switch backends mid-flow — the canonical example
+being a **cache → database** read: try a fast cache materia first, fall back to the database, then
+populate the cache. (Pseudo-code; `RedisMateria` is [work in progress](../usage/redis.md).)
+
+```python
+db = SqlalchemyMateria()
+cache = RedisMateria()
+
+@cache.bless("author")               # same transmuter, two materias
+@db.bless(AuthorModel)
+class Author(BaseTransmuter):
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    name: str
+
+def read_author(author_id: int) -> Author | None:
+    with cache:                                  # 1. try the cache backend
+        hit = redis.get(Author, author_id)       # pseudo: read-through cache
+        if hit is not None:
+            return hit
+
+    with db, Session(engine) as session:         # 2. miss → read the database
+        author = session.get_one(Author, author_id)
+
+    with cache:                                  # 3. populate the cache for next time
+        redis.set(author)
+    return author
+```
+
+Each `with` block decides which registry — and which expression compiler, identity rules, and
+loading semantics — is in effect for the code inside it. The transmuter class is the same throughout;
+only the active materia changes.
 
 ## Design philosophy: respect the backend
 
@@ -50,119 +135,91 @@ transaction semantics** — it cooperates with them:
 
 A new backend is "correct" precisely when it upholds these guarantees.
 
-## The reference architecture
-
-The hard part of wrapping a *provided* instance in a Transmuter is maintaining a two-way link
-**without**:
-
-1. leaking memory through reference cycles,
-2. losing a Transmuter prematurely mid-validation, or
-3. recursing infinitely on circular relationships (Author → Book → Author).
-
-The solution is a careful mix of strong and weak references, coordinated by the session-scoped
-**Transmuter Context**.
-
-```mermaid
-flowchart TB
-    subgraph Session["Session / Lifecycle Manager"]
-        IdentityMap["Identity Map<br/>(Provided Storage)"]
-        TransmuterContext["Transmuter Context<br/>WeakKeyDict[Provided → Transmuter]"]
-    end
-
-    subgraph Provided["Provided Object (instance)"]
-        ProviderData["Data Fields"]
-        TransmuterProxy["_transmuter_proxy<br/>(weakref)"]
-    end
-
-    subgraph Transmuter["Transmuter"]
-        TransmuterFields["Validated Fields"]
-        TransmuterProvided["__transmuter_provided__"]
-        Associations["Associations"]
-    end
-
-    IdentityMap -->|"STRONG"| Provided
-    TransmuterContext -.->|"weak key"| Provided
-    TransmuterContext -->|"STRONG value"| Transmuter
-    TransmuterProvided -->|"STRONG"| Provided
-    TransmuterProxy -.->|"weakref"| Transmuter
-    Associations -->|"STRONG"| ChildTransmuter["Child Transmuter"]
-
-    style TransmuterProxy stroke-dasharray: 5 5
-    style TransmuterContext stroke:#0a0,stroke-width:2px
-```
-
-These references are between **instances** — a *provided* object and its transmuter:
-
-| From | To | Type | Why |
-|------|----|------|-----|
-| `Session` / identity map | Provided | **strong** | The session owns the provided instance's lifecycle. |
-| `TransmuterContext` key | Provided | **weak** | Auto-cleanup when the provided instance is collected. |
-| `TransmuterContext` value | Transmuter | **strong** | Keeps the transmuter alive while its provided instance lives. |
-| `Transmuter.__transmuter_provided__` | Provided | **strong** | The transmuter wraps the provided instance. |
-| `Provided._transmuter_proxy` | Transmuter | **weak** | Breaks the otherwise-circular strong reference. |
-
-Because the Provided → Transmuter link is weak, a transmuter is collected once nothing else holds
-it — but while a session is open, the Transmuter Context keeps it alive, so you always get the *same*
-transmuter back for the same row.
-
-### Lifecycle under the SQLAlchemy materia
-
-The Transmuter Context (the session-scoped validation context above) is what ties the two object
-worlds' lifecycles together. With the SQLAlchemy materia this has a concrete and important
-consequence:
-
-!!! important "A transmuter's lifecycle follows SQLAlchemy, controlled by the session"
-    Under the SQLAlchemy materia, a transmuter does **not** have a lifecycle of its own — it follows
-    its provided instance's, and that instance is owned by the **SQLAlchemy session**. The session
-    moves the ORM row through *pending → persistent → expired/detached*, and the transmuter rides
-    along:
-
-    - It becomes pending on `add`, persistent on `flush`/`commit`.
-    - The validation context (a `WeakKeyDictionary` keyed on the provided instance) keeps the
-      transmuter alive **only as long as its provided instance lives in the session**. When the
-      session expires, expunges, or is closed, that instance is released and the transmuter is
-      collected with it.
-    - Server-generated values are SQLAlchemy's to produce; `revalidate()` is just the step that
-      syncs them into the transmuter after a flush.
-
-    So there is no separate "save the Pydantic object" or "close the transmuter" step. Manage the
-    SQLAlchemy `Session` and the transmuters follow. (Under `NoOpMateria` there is no session at all,
-    so transmuters simply live and die as ordinary Python objects.)
-
-## The circular-validation problem
-
-Validating a bidirectional relationship would recurse forever without caching: validating the
-Author reaches a Book, which reaches the Author again. The Transmuter Context breaks the cycle — the
-second time a provided instance is seen, its already-built Transmuter is returned from the cache
-instead of being re-created.
-
-```mermaid
-flowchart LR
-    A1[Author ORM] -->|validate| A2[Author Transmuter]
-    A2 -->|access books| B1[Book ORM]
-    B1 -->|validate| B2[Book Transmuter]
-    B2 -->|access author| A1
-    A1 -->|"lookup in context"| Cache{Context Cache}
-    Cache -->|"return cached"| A2
-    style Cache fill:#0a0
-```
-
 ## Implementing a new Materia
 
-Building a backend means upholding the guarantees above. In short:
+Building a backend means upholding the lifecycle guarantees — the strong/weak reference design in
+[Lifecycle & Async → the reference architecture](lifecycle.md#the-reference-architecture). There are
+three required components.
 
-1. **Provided mixin** — provided objects (instances) implement `TransmuterProxiedMixin`, which
-   supplies the weak `_transmuter_proxy` back-reference.
-2. **Session / context manager** — own a `WeakKeyDictionary[Provided, Transmuter]` and activate it
-   as the validation context for the session's lifetime.
-3. **Registration** — `bless()` records the transmuter-class ↔ provider-class mapping on the materia.
+### 1. Provider mixin
+
+Provider objects must carry the weak back-reference to their transmuter. Mix in
+`TransmuterProxiedMixin`, which supplies `_transmuter_proxy` and the `transmuter_proxy` weakref
+property:
+
+```python
+from arcanus.base import TransmuterProxiedMixin
+
+class YourProviderBase(TransmuterProxiedMixin):
+    """Base class for your backend's provider objects."""
+    # provides: _transmuter_proxy + transmuter_proxy (weakref getter/setter)
+```
+
+### 2. Session / context manager
+
+Own a `WeakKeyDictionary[provided, transmuter]` and activate it as the validation context for the
+session's lifetime, so validation resolves providers to the *same* transmuter:
+
+```python
+from weakref import WeakKeyDictionary
+from arcanus.base import validation_context
+
+class YourSession:
+    def __init__(self) -> None:
+        self._transmuter_context = WeakKeyDictionary()
+
+    def __enter__(self):
+        self._cm = validation_context(self._transmuter_context)
+        self._cm.__enter__()
+        return self
+
+    def __exit__(self, *exc):
+        self._cm.__exit__(*exc)
+```
+
+When you `add` a transmuter, store its provider in the context (strongly, as the dict value) and
+cascade to already-proxied related providers so they resolve to the same transmuters:
+
+```python
+def add(self, transmuter):
+    provided = transmuter.__transmuter_provided__
+    self._identity_map_add(provided)              # backend owns it strongly
+    self._transmuter_context[provided] = transmuter
+    for related in self._cascade(provided):
+        if (t := getattr(related, "transmuter_proxy", None)) is not None:
+            self._transmuter_context[related] = t
+```
+
+### 3. Registration
+
+Implement `bless()` to record the transmuter-class ↔ provider-class mapping in `formulars`:
+
+```python
+from arcanus.materia.base import BaseMateria
+
+class YourMateria(BaseMateria):
+    def bless(self, provider_cls):
+        def decorator(transmuter_cls):
+            self.formulars[transmuter_cls] = provider_cls
+            return transmuter_cls
+        return decorator
+```
 
 !!! note "Memory-safety checklist"
-    - Provided → Transmuter is a **weakref**.
-    - The context is a **`WeakKeyDictionary`** (weak keys, strong values).
+    - Provided → Transmuter is a **weakref** (prevents the strong cycle).
+    - The context is a **`WeakKeyDictionary`** (weak keys, strong values) — entries auto-clear when a
+      provided instance is collected.
     - The session holds provided instances **strongly**; the transmuter holds its provided instance
-      **strongly**.
-    - There is **no other** strong reference from the provided instance back to Transmuter.
+      **strongly** via `__transmuter_provided__`.
+    - There is **no other** strong reference from the provided instance back to the transmuter.
 
-The full reference design, lifecycle sequence, and test recipes live in
-[`arcanus/materia/README.md`](https://github.com/kalynnka/arcanus/blob/main/arcanus/materia/README.md).
+### Testing a new materia
+
+Three checks catch the common mistakes:
+
+- **Identity / no duplicates** — build many related objects in a loop, then verify each provider
+  resolves to a single transmuter (not a fresh one per access).
+- **Circular references** — set up a bidirectional relationship and assert `child.parent is parent`
+  (same instance, via the context cache).
+- **No leaks** — hold a `weakref` to a transmuter, close the session, `gc.collect()`, and assert the
+  weakref is dead — proving the context released it with its provider.
