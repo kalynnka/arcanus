@@ -4,6 +4,7 @@ import pytest
 
 from arcanus import Column, Expression, Order
 from arcanus.expression import NativeExpressionCompiler, and_, dump, not_, or_, unwrap
+from arcanus.materia.base import BaseMateria
 from tests.transmuters import Author, Book, sqlalchemy_materia
 
 
@@ -368,10 +369,13 @@ def test_unwrap_and_dump_recurse_through_containers():
     expression = column == "Ada"
     order = column.desc()
 
-    assert unwrap((column, [expression, order])) == (
-        column.native,
-        [("eq", "Ada"), ("desc",)],
-    )
+    # unwrap compiles via the active materia's compiler; activate a base materia
+    # (plain NativeExpressionCompiler) since NoOpMateria now compiles to JSON.
+    with BaseMateria():
+        assert unwrap((column, [expression, order])) == (
+            column.native,
+            [("eq", "Ada"), ("desc",)],
+        )
     assert dump((column, [expression, order])) == [
         "name",
         [{"name": {"eq": "Ada"}}, "-name"],

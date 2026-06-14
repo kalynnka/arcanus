@@ -16,6 +16,8 @@ from typing import (
 from pydantic import ValidationInfo
 from pydantic_core import core_schema
 
+from arcanus.expression import ExpressionCompiler, dump
+
 if TYPE_CHECKING:
     from arcanus.association import Association
     from arcanus.base import (
@@ -23,7 +25,7 @@ if TYPE_CHECKING:
         TransmuterMetaclass,
         TransmuterProxied,
     )
-    from arcanus.expression import Column, ExpressionCompiler
+    from arcanus.expression import Column, Expression, Order
 
 M = TypeVar("M")
 A = TypeVar("A", bound="Association")
@@ -186,6 +188,38 @@ class BaseMateria:
         return True
 
 
+class JsonExpressionCompiler(ExpressionCompiler[object, str]):
+    """Compiles expressions to their neutral JSON form.
+
+    Backends with no native query layer (e.g. :class:`NoOpMateria`) use this, so
+    ``expression()`` yields the same dict as ``expression.dump()`` instead of
+    operating on a non-existent native column. The two stay in lock-step: each
+    method mirrors the matching branch of ``Expression.dump`` / ``Order.dump``.
+    """
+
+    def apply(self, column: Column[Any], operator: str, value: object) -> object:
+        key = "in" if operator == "in_" else operator
+        return {column.used_name: {key: dump(value)}}
+
+    def and_(self, expressions: tuple[object, ...]) -> object:
+        return {"and": list(expressions)}
+
+    def or_(self, expressions: tuple[object, ...]) -> object:
+        return {"or": list(expressions)}
+
+    def not_(self, expression: object) -> object:
+        return {"not": expression}
+
+    def any_(self, column: Column[Any], value: Expression[bool] | None) -> object:
+        return {column.used_name: dump(value)}
+
+    def has(self, column: Column[Any], value: Expression[bool] | None) -> object:
+        return {column.used_name: dump(value)}
+
+    def order(self, order: Order[Any]) -> str:
+        return order.dump()
+
+
 class NoOpMateria(BaseMateria):
     _instance: ClassVar[Optional[NoOpMateria]] = None
     _initialized: ClassVar[bool] = False
@@ -198,6 +232,9 @@ class NoOpMateria(BaseMateria):
     def __init__(self) -> None:
         if not NoOpMateria._initialized:
             super().__init__()
+            # No native query layer: compile expressions to their neutral JSON
+            # form, so `expression()` matches `expression.dump()`.
+            self.expression_compiler = JsonExpressionCompiler()
             NoOpMateria._initialized = True
 
     def load_association(self, association: Association):
