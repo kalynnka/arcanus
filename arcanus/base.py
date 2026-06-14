@@ -606,31 +606,32 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
             # filtering/ordering.
             info = FieldInfo(annotation=computed.return_type, alias=computed.alias)
         if info:
-            if provider := self.__transmuter_provider__:
+            used_name = info.alias or name
+            provider = self.__transmuter_provider__
+            if provider is not None:
                 try:
-                    used_name = info.alias or name
                     native = getattr(provider, used_name)
-                    return self.__transmuter_materia__.column_type(
-                        owner=self,
-                        field_name=name,
-                        used_name=used_name,
-                        info=info,
-                        annotation=info.annotation,
-                        native=native,
-                    )
                 except AttributeError as inner:
                     raise KeyError(
-                        f"Column '{name}' (alias: '{info.alias or name}') is not defined in the materia provider for {self.__name__}. "
+                        f"Column '{name}' (alias: '{used_name}') is not defined in the materia provider for {self.__name__}. "
                         f"The provider {provider.__name__} does not have this attribute. "
                         f"Ensure the provider class includes this column definition."
                     ) from inner
             else:
-                materia = self.__transmuter_materia__
-                raise KeyError(
-                    f"Transmuter {self.__name__} has not been blessed by the active materia ({materia.__class__.__name__}). "
-                    f"Cannot access column '{name}' without a provider. "
-                    f"Use materia.bless() to register this transmuter with a provider."
-                )
+                # No provider is bound (e.g. NoOpMateria). The Column/Expression
+                # layer is backend-neutral, so the column can still be built and
+                # serialized — operators, `.dump()`, criteria.expressions. It just
+                # has no native attribute to compile against; that step needs a
+                # blessed provider.
+                native = None
+            return self.__transmuter_materia__.column_type(
+                owner=self,
+                field_name=name,
+                used_name=used_name,
+                info=info,
+                annotation=info.annotation,
+                native=native,
+            )
         raise KeyError(
             f"Field '{name}' is not defined in transmuter {self.__name__}. "
             f"Available fields: {', '.join(self.__pydantic_fields__.keys())}"

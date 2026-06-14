@@ -1,0 +1,111 @@
+site_name: Arcanus
+site_description: Bind Pydantic schemas to your datasource — without juggling two object worlds.
+site_url: https://kalynnka.github.io/arcanus/
+repo_url: https://github.com/kalynnka/arcanus
+repo_name: kalynnka/arcanus
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; Arcanus contributors
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - navigation.indexes
+    - content.code.copy
+    - content.code.annotate
+    - search.highlight
+    - search.suggest
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+
+nav:
+  - Why Arcanus: index.md
+  - Installation: install.md
+  - Quickstart: quickstart.md
+  - Usage:
+      - Overview: usage/index.md
+      - NoOp Materia:
+          - Overview: usage/noop/index.md
+          - Relationships: usage/noop/relationships.md
+          - Expressions & Cursors: usage/noop/querying.md
+          - Partial Schemas: usage/noop/schemas.md
+      - SQLAlchemy Materia:
+          - Overview: usage/sqlalchemy/index.md
+          - CRUD & Relationships: usage/sqlalchemy/crud.md
+          - Session Helpers: usage/sqlalchemy/session.md
+          - Loading Strategies: usage/sqlalchemy/loading.md
+          - Querying: usage/sqlalchemy/querying.md
+          - SQL Statements: usage/sqlalchemy/statements.md
+          - Working with FastAPI: usage/sqlalchemy/fastapi.md
+      - Redis Materia (WIP): usage/redis.md
+  - Concepts:
+      - The Materia System: concepts/materia.md
+      - Transmuters & Providers: concepts/transmuters.md
+      - Lifecycle & Async: concepts/lifecycle.md
+  - API Reference:
+      - Overview: api/index.md
+      - arcanus.base: api/base.md
+      - arcanus.association: api/association.md
+      - arcanus.criteria: api/criteria.md
+      - arcanus.expression: api/expression.md
+      - arcanus.materia: api/materia.md
+      - arcanus.materia.sqlalchemy: api/sqlalchemy.md
+
+extra_css:
+  - stylesheets/code.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_root_heading: true
+            show_source: true
+            show_signature_annotations: true
+            separate_signature: true
+            docstring_style: google
+            members_order: source
+            filters:
+              - "!^_"
