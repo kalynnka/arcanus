@@ -40,11 +40,25 @@ nav:
   - Why Arcanus: index.md
   - Installation: install.md
   - Quickstart: quickstart.md
+  - Usage:
+      - Overview: usage/index.md
+      - NoOp Materia:
+          - Overview: usage/noop/index.md
+          - Relationships: usage/noop/relationships.md
+          - Expressions & Cursors: usage/noop/querying.md
+          - Partial Schemas: usage/noop/schemas.md
+      - SQLAlchemy Materia:
+          - Overview: usage/sqlalchemy/index.md
+          - CRUD & Relationships: usage/sqlalchemy/crud.md
+          - Session Helpers: usage/sqlalchemy/session.md
+          - Loading Strategies: usage/sqlalchemy/loading.md
+          - Querying: usage/sqlalchemy/querying.md
+      - Redis Materia (WIP): usage/redis.md
   - Concepts:
       - The Materia System: concepts/materia.md
       - Transmuters & Providers: concepts/transmuters.md
       - Relationships: concepts/relationships.md
-      - Sessions & Async: concepts/sessions.md
+      - Lifecycle & Async: concepts/lifecycle.md
   - API Reference:
       - Overview: api/index.md
       - arcanus.base: api/base.md
@@ -62,6 +76,9 @@ markdown_extensions:
   - toc:
       permalink: true
   - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.inlinehilite

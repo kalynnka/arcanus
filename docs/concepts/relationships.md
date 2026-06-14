@@ -40,5 +40,5 @@ for book in author.books:            # loads on access
     assert book.author.value is author   # same instance — identity preserved
 ```
 
-For loading strategies under async, see [Sessions & Async](sessions.md). For the full API, see the
+For loading strategies under async, see [Lifecycle & Async](lifecycle.md). For the full API, see the
 [`arcanus.association` reference](../api/association.md).

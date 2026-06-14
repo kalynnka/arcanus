@@ -92,48 +92,131 @@ class Book(BaseTransmuter):
     session automatically "blesses" ORM rows into transmuters as they come out of queries.
 
 ```python
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine
 from arcanus.materia.sqlalchemy import Session
 
 engine = create_engine("sqlite://")
 Base.metadata.create_all(engine)
+```
 
+#### Create
+
+Adding the book cascades to its author. After a flush, `revalidate()` pulls the
+server-generated id back into the transmuter.
+
+```python
 with Session(engine) as session:
-    # Create — adding the book cascades to its author
     author = Author(name="Isaac Asimov")
     book = Book(title="Foundation", author=Relation(author))
-    session.add(book)
+
+    session.add(book)            # adding the book also adds its author
     session.flush()
     author.revalidate()          # sync server-generated id (RETURNING)
+    book.revalidate()
+    session.commit()
+    print(book.id)               # e.g. 1
+```
+
+#### Read
+
+Every result is a transmuter, not a raw ORM row. Reads are plain SQLAlchemy — `session.get` and
+`session.execute(select(...))` — and typed column references (`Author["name"]`) drop straight into a
+`select`.
+
+```python
+from sqlalchemy import select
+
+with Session(engine) as session:
+    author = session.get_one(Author, 1)             # by primary key (raises if missing)
+
+    author = session.execute(                        # by filter
+        select(Author).filter_by(name="Isaac Asimov")
+    ).scalar_one()
+
+    authors = session.execute(                       # many, with filter + ordering + paging
+        select(Author)
+        .where(Author["name"].like("Isaac%"))
+        .order_by(Author["name"].asc())
+        .limit(10)
+    ).scalars().all()
+
+    books = session.execute(
+        select(Book).where(Book["title"].like("Found%"))
+    ).scalars().all()
+```
+
+!!! tip "Typed shortcuts"
+    For common reads, Arcanus also adds typed helpers to the session — `one`, `first`, `list`,
+    `count`, `bulk`, `partitions` — so the above can be one-liners. See
+    [Session Helpers](usage/sqlalchemy/session.md).
+
+#### Navigate relationships
+
+Related rows load on access and keep their identity.
+
+```python
+with Session(engine) as session:
+    author = session.get_one(Author, 1)
+    for book in author.books:                # loads on access
+        assert book.author.value is author   # same instance — identity preserved
+```
+
+#### Update & delete
+
+Mutating a transmuter syncs to its ORM row in place — no `model_dump()` round-trip.
+
+```python
+with Session(engine) as session:
+    book = session.get_one(Book, 1)
+    book.title = "Foundation (Revised)"      # synced to the ORM row
     session.commit()
 
-    # Query — results are transmuters, not raw ORM objects
-    found = session.one(Author, name="Isaac Asimov")
-    assert isinstance(found, Author)
+    session.delete(book)                     # follows your ORM cascade rules
+    session.commit()
+```
 
-    stmt = select(Book).where(Book["title"].like("Found%"))
-    books = session.execute(stmt).scalars().all()
+#### Partial models at the boundary
 
-    # Mutate — changes sync to the underlying ORM object
-    found.name = "Arthur C. Clarke"
+Generated `.Create` / `.Update` models validate incomplete payloads; `shell()` / `absorb()` move
+between a partial and a full transmuter.
+
+!!! warning "Experimental — for API boundaries (e.g. FastAPI)"
+    The `.Create` / `.Update` partials are **experimental** (the generated surface may change). They
+    exist for request/response boundaries — validating untrusted, incomplete bodies in a FastAPI
+    handler and the like. If you're just working with objects in memory, you don't need them:
+    construct and mutate the transmuter directly.
+
+```python
+with Session(engine) as session:
+    author = Author.shell(Author.Create(name="New Author"))   # Create excludes the id
+    session.add(author)
+    session.flush()
+    author.revalidate()
+
+    author.absorb(Author.Update(name="Renamed"))              # applies only what's set
     session.commit()
 ```
 
 ## Async
 
-Swap `Session` for `AsyncSession` and `await` the I/O — the API is otherwise identical. See
-[Sessions & Async](concepts/sessions.md).
+Swap `Session` for `AsyncSession` and `await` the I/O — the API is otherwise identical. Awaiting a
+relationship triggers its lazy load. See [Lifecycle & Async](concepts/lifecycle.md).
 
 ```python
+from sqlalchemy.ext.asyncio import create_async_engine
 from arcanus.materia.sqlalchemy import AsyncSession
 
-async with AsyncSession(async_engine) as session:
+async with AsyncSession(create_async_engine("sqlite+aiosqlite://")) as session:
     author = await session.get_one(Author, 1)
-    books = await author.books     # awaits the lazy load
+    books = await author.books          # awaits the lazy load → list[Book]
+
+    session.add(Book(title="Async Book", author=Relation(author)))
+    await session.commit()
 ```
 
 ## Next
 
+- [Usage](usage/index.md) — the full guide, grouped by materia: relationships, loading, querying,
+  and partial schemas in depth.
 - [The Materia System](concepts/materia.md) — what `bless()` does and the design philosophy.
-- [Relationships](concepts/relationships.md) — every association type.
 - [API Reference](api/index.md).

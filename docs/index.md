@@ -1,9 +1,10 @@
 # Why Arcanus
 
-**Arcanus** binds [Pydantic](https://docs.pydantic.dev/) schemas to your datasource, so you stop
-hand-writing the templates, factories, and converters that usually sit between *validation* and
-*persistence*. You work with one set of typed, validated objects — and they are backed by your real
-backend records.
+**Arcanus** is a small library that binds [Pydantic](https://docs.pydantic.dev/) schemas to your
+datasource. The idea is to let you work with one set of typed, validated objects that are backed by
+your real backend records — so the templates, factories, and converters that usually sit between
+*validation* and *persistence* mostly fall away. If that boilerplate has bothered you too, this is
+the approach Arcanus takes to it.
 
 !!! warning "Work in progress"
     Arcanus is at an early, minimum-viable stage. Expect bugs, breaking changes, and incomplete
@@ -20,18 +21,75 @@ to remember, at every function boundary, *which* of the two you are holding. A f
 come with it.
 
 A `Transmuter` collapses the two into **one** object. It *is* a validated Pydantic object, and it
-*wraps* the backing ORM instance rather than copying out of it — so there is a single type to pass
-around, with both validation and persistence behind it.
+*wraps* the backing provided instance rather than copying out of it — so there is a single type to
+pass around, with both validation and persistence behind it.
+
+!!! info "Examples use the SQLAlchemy materia"
+    Transmuters are backend-agnostic — with the default `NoOpMateria` they behave like plain
+    Pydantic models, no backend at all. The code on this page illustrates the ideas with the
+    **SQLAlchemy materia** (and its `Session`) because that's where binding to real records pays
+    off. See [Pick a Materia](usage/index.md) for each backend's setup.
+
+**1. Start from your SQLAlchemy model — plain, untouched.**
 
 ```python
-author = session.get_one(Author, 1)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+class Base(DeclarativeBase): ...
+
+class AuthorModel(Base):
+    __tablename__ = "authors"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column()
+```
+
+**2. Bless a transmuter with the model** — the ORM model is the hat put on the transmuter.
+
+```python
+from arcanus.base import BaseTransmuter, Identity
+from arcanus.materia.sqlalchemy import SqlalchemyMateria
+from pydantic import Field
+from typing import Annotated, Optional
+
+materia = SqlalchemyMateria()
+
+@materia.bless(AuthorModel)
+class Author(BaseTransmuter):
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    name: str
+```
+
+**3. Open a session and bring objects back** with a normal `select`.
+
+!!! warning "This `Session` is arcanus's"
+    Import `Session` from `arcanus.materia.sqlalchemy`, not SQLAlchemy's own — it's what blesses ORM
+    rows into transmuters as they come out of queries.
+
+```python
+from sqlalchemy import create_engine, select
+from arcanus.materia.sqlalchemy import Session
+
+engine = create_engine("sqlite://")
+Base.metadata.create_all(engine)
+
+with Session(engine) as session:
+    session.add(Author(name="Isaac Asimov"))
+    session.commit()
+
+    author = session.execute(
+        select(Author).where(Author["name"].like("Isaac%"))   # typed column, same object
+    ).scalar_one()
+```
+
+**4. It's one object** — a validated Pydantic model *and* a transmuter wrapping the ORM row.
+
+```python
 isinstance(author, Author)          # ✅ a Pydantic model — validated, typed
 isinstance(author, BaseTransmuter)  # ✅ and a transmuter
 author.__transmuter_provided__      # the underlying AuthorModel ORM instance, if you need it
 
-author.name = "Arthur C. Clarke"    # mutate the transmuter…
-author.__transmuter_provided__.name # …and the ORM object already reflects it — no model_dump()
+author.name = "Arthur C. Clarke"     # mutate the transmuter…
+author.__transmuter_provided__.name  # …and the ORM object already reflects it — no model_dump()
 ```
 
 What this buys you:
@@ -49,7 +107,7 @@ What this buys you:
   stays on the same object: `select(Author).where(Author["name"].like("Isaac%"))` — no separate
   table/column handle to import.
 - **Attribute pass-through.** Anything not mapped as a transmuter field falls through to the wrapped
-  provider, so ORM-only attributes and methods remain reachable without unwrapping.
+  provided instance, so ORM-only attributes and methods remain reachable without unwrapping.
 - **Lightweight variant.** When a full `BaseModel` is more than you need, the
   [`@dataclass`](concepts/transmuters.md) decorator gives the same transmuter behavior on a Pydantic
   dataclass.
@@ -124,8 +182,8 @@ for a in authors:
 
 It gets worse: validation recurses, so validating each `Book` would touch `book.author`, which
 re-reads the parent, and so on — an eager traversal of data you may never use, plus a thicket of
-queries. Under async it isn't merely slow — a lazy load outside an `await` raises a greenlet error
-outright, so eager validation *breaks*.
+queries. Under async it isn't merely slow — a lazy load triggered outside a coroutine raises a
+greenlet error outright, so eager validation *breaks*.
 
 Arcanus sidesteps this by **never reading a relationship during validation**. A relationship field
 is validated into a deferred association — a placeholder that records *how* to load, not the loaded
@@ -137,21 +195,41 @@ See [Relationships](concepts/relationships.md).
 
 ## Async support
 
-Native `async`/`await` through `AsyncSession`, mirroring the synchronous API one-to-one.
+A transmuter is, for the most part, a **synchronous** object — validation, construction, field
+access, and mutation all run inline, exactly like the plain Pydantic model underneath it. There is
+nothing to `await` there.
+
+Async only enters where the **backend actually does I/O**, and that's almost entirely about
+**relationship loading**. So Arcanus makes the relationship associations *awaitable*: awaiting an
+association *ensures* its data is loaded from the backend — it loads only if not already present —
+and then hands you the result.
+
+- `await relation` → the related object (same as `relation.value`)
+- `await relation_collection` → a `list` of the related objects
 
 ```python
+# SQLAlchemy-materia example — AsyncSession is provided by the SQLAlchemy backend
 async with AsyncSession(engine) as session:
-    author = await session.get_one(Author, 1)
-    books = await author.books      # awaits lazy load, returns list[Book]
+    author = await session.get(Author, 1)   # native session.get → I/O, so await
+    books = await author.books               # awaits the lazy load → list[Book]
+
+    for book in author.books:                # already loaded → plain sync iteration
+        print(book.title)
 ```
 
-See [Sessions & Async](concepts/sessions.md).
+Whether the `await` is *required* depends on the backend's strategy (under SQLAlchemy's default
+`lazy="select"`, a lazy load triggered outside a coroutine raises a greenlet error). Backends that hold all
+data in memory — like the default `NoOpMateria` — never do I/O, so relationship access there is
+purely synchronous; the awaitable form still works for API consistency.
+
+See [Lifecycle & Async](concepts/lifecycle.md) and [Loading Strategies](usage/sqlalchemy/loading.md).
 
 ## Where to next
 
 <div class="grid cards" markdown>
 
 - :material-rocket-launch: **[Quickstart](quickstart.md)** — define your first transmuter and run CRUD in minutes.
+- :material-database-edit: **[Usage](usage/index.md)** — pick a materia, then CRUD, loading strategies, and querying in depth.
 - :material-cog: **[The Materia System](concepts/materia.md)** — how binding works and the design philosophy behind it.
 - :material-book-open-variant: **[API Reference](api/index.md)** — the full public API.
 

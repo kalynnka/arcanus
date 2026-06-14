@@ -7,15 +7,16 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Arcanus** binds [Pydantic](https://docs.pydantic.dev/) schemas to your datasource, so you stop
-hand-writing the templates, factories, and converters that usually sit between *validation* and
-*persistence*. You work with one set of typed, validated objects — backed by your real backend
-records.
+**Arcanus** is a small library that binds [Pydantic](https://docs.pydantic.dev/) schemas to your
+datasource. The idea is to let you work with one set of typed, validated objects that are backed by
+your real backend records — so the templates, factories, and converters that usually sit between
+*validation* and *persistence* mostly fall away. If that boilerplate has bothered you too, this is
+the approach Arcanus takes to it.
 
-Unlike [SQLModel](https://sqlmodel.tiangolo.com/), which *fuses* the Pydantic model and the ORM
-table into one coupled class, Arcanus keeps them separate and **binds** a schema to your existing
-ORM model with `bless()` — your SQLAlchemy models stay untouched and your validation schema stays
-your own.
+It's a different take from [SQLModel](https://sqlmodel.tiangolo.com/), which *fuses* the Pydantic
+model and the ORM table into one class. Arcanus instead keeps them separate and **binds** a schema
+to your existing ORM model with `bless()`, so your SQLAlchemy models stay untouched and your
+validation schema stays your own.
 
 > **⚠️ Work in progress.** Arcanus is at an early, minimum-viable stage — expect bugs and breaking
 > changes. SQLAlchemy is currently the only supported backend.
@@ -67,7 +68,10 @@ with Session(create_engine("sqlite://")) as session:
     session.add(Book(title="Foundation", author=Relation(author)))
     session.commit()
 
-    found = session.one(Author, name="Isaac Asimov")   # a transmuter, not a raw ORM row
+    # Plain SQLAlchemy reads — only the results come back as transmuters
+    found = session.execute(
+        select(Author).filter_by(name="Isaac Asimov")
+    ).scalar_one()                                      # a transmuter, not a raw ORM row
     for book in found.books:                            # loads on access
         print(book.title, book.author.value is found)   # identity preserved
 ```

@@ -1,7 +1,8 @@
 # Transmuters & Providers
 
-A **transmuter** is a Pydantic object that wraps a backend **provider**. It is how Arcanus collapses
-the usual two object worlds — validation schema and storage model — into one.
+A **transmuter** is a Pydantic object that wraps a *provided* instance — a backend object whose class
+(the **provider**) the transmuter is bound to. It is how Arcanus collapses the usual two object
+worlds — validation schema and storage model — into one.
 
 !!! note "This page is being expanded"
     A fuller guide is on the way. For now, see the summary below and the
@@ -41,6 +42,7 @@ the usual two object worlds — validation schema and storage model — into one
 ## Identity & proxying
 
 Transmuters use **identity equality** (`is`, `id()`-based hash) to align with the backend identity
-map, and proxy unmapped attribute access through to their provider via `__transmuter_provided__`.
+map, and proxy unmapped attribute access through to their provided instance via
+`__transmuter_provided__`.
 
 See the [API reference](../api/base.md) for the full surface.
