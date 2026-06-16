@@ -4,6 +4,7 @@ import contextlib
 from contextvars import ContextVar
 from copy import copy as shallow_copy
 from copy import deepcopy
+from dataclasses import dataclass as _dataclass
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -127,8 +128,38 @@ class TransmuterTypingMetaclass(type):
         return cast(Any, self).__class_getitem__(name)
 
 
+@_dataclass(frozen=True)
 class Identity:
-    """Marker class for identity fields that could not be set in creation and immutable."""
+    """Marker for a record's identity field(s), following SQLAlchemy's PK concept.
+
+    Usable bare (``Identity``) or instantiated (``Identity()``) — the bare class
+    takes the defaults below.
+
+    ``server_side`` (default ``True``) declares the identity server-assigned (an
+    autoincrement / IDENTITY column), so it is dropped from ``.Create``. Pass
+    ``Identity(server_side=False)`` for a *natural*/composite key the client must
+    supply, keeping it in ``.Create``. Mark identities ``frozen=True`` to keep
+    them immutable and out of ``.Update``::
+
+        id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+        book_id: Annotated[int, Identity(server_side=False)] = Field(frozen=True)
+    """
+
+    server_side: bool = True
+
+
+def identity_marker(info: FieldInfo) -> Identity | None:
+    """The ``Identity`` marker on a field as an instance, or ``None``.
+
+    A bare ``Identity`` class used as metadata is normalized to ``Identity()`` so
+    callers always work with an instance.
+    """
+    for metadata in info.metadata:
+        if isinstance(metadata, Identity):
+            return metadata
+        if isinstance(metadata, type) and issubclass(metadata, Identity):
+            return metadata()
+    return None
 
 
 PROVIDED_FIELD_MARK = "__transmuter_provided_field__"
@@ -539,13 +570,8 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
         self._ensure_associations_resolved()
 
         for name, info in self.__pydantic_fields__.items():
-            for metadata in info.metadata:
-                if isinstance(metadata, type) and issubclass(metadata, Identity):
-                    self.__transmuter_identities__[name] = info
-                    break
-                elif isinstance(metadata, Identity):
-                    self.__transmuter_identities__[name] = info
-                    break
+            if identity_marker(info) is not None:
+                self.__transmuter_identities__[name] = info
 
         self.__transmuter_complete__ = True
 
@@ -687,12 +713,22 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
 
         field_definitions = {}
         # TODO: include nested associations
-        for field_name in set(
+        # Drop server-assigned identities; natural/composite keys declared
+        # Identity(server_side=False) stay so the client supplies them.
+        server_side_ids = {
+            name
+            for name, info in self.model_identities.items()
+            if (marker := identity_marker(info)) is not None and marker.server_side
+        }
+        for field_name in (
             self.__pydantic_fields__.keys()
-            - self.model_identities.keys()
+            - server_side_ids
             - set(self.model_associations.keys())
         ):
             info = shallow_copy(self.__pydantic_fields__[field_name])
+            # `exclude` only masks the read/response side; the create body still
+            # accepts the value and must carry it through shell()'s model_dump().
+            info.exclude = None
             field_definitions[field_name] = (info.annotation, info)
 
         self.__transmuter_create_model__ = create_model(
@@ -725,6 +761,9 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
                 info = shallow_copy(info)
                 info.default = None
                 info.default_factory = None
+                # See .Create: masking is read-side only; keep the value writable
+                # so absorb()'s model_dump(exclude_unset=True) carries it through.
+                info.exclude = None
                 field_definitions[field_name] = (Optional[info.annotation], info)
 
         self.__transmuter_update_model__ = create_model(

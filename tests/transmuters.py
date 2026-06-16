@@ -35,8 +35,8 @@ class TestIdMixin(BaseModel):
 class BookCategory(TestIdMixin, BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    book_id: Annotated[int, Identity] = Field(frozen=True)
-    category_id: Annotated[int, Identity] = Field(frozen=True)
+    book_id: Annotated[int, Identity(server_side=False)] = Field(frozen=True)
+    category_id: Annotated[int, Identity(server_side=False)] = Field(frozen=True)
 
 
 # Publisher schema (1-M with Book)
@@ -324,6 +324,22 @@ class PublisherFlat(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
     country: str
+
+
+class Account(BaseTransmuter):
+    """Unblessed transmuter exercising the pydantic-native partial flags.
+
+    - ``id`` generated identity (omitted from Create, immutable)
+    - ``password`` masked (``exclude=True``): writable but hidden from model_dump()
+    - ``api_token`` write-once (``frozen=True``): in Create, not in Update
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    username: str
+    password: str = Field(exclude=True)
+    api_token: str = Field(frozen=True)
 
 
 @dataclass

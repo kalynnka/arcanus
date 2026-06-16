@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from tests.transmuters import Author, Book
+from tests.transmuters import Account, Author, Book, BookCategory
 
 """Test transmuter-specific features with NoOpMateria.
 
@@ -64,6 +64,18 @@ class TestCreateModel:
         """Test that Create model has proper naming."""
         assert Book.Create.__name__ == "BookCreate"
         assert Author.Create.__name__ == "AuthorCreate"
+
+    def test_create_model_keeps_natural_keys(self):
+        """Identity(server_side=False) keys stay in Create; server-side identities don't."""
+        # BookCategory's composite PK is declared server_side=False => client supplies it.
+        fields = BookCategory.Create.model_fields
+        assert "book_id" in fields
+        assert "category_id" in fields
+        assert fields["book_id"].is_required()
+        assert fields["category_id"].is_required()
+
+        # Author.id is a server-assigned identity => excluded regardless of shape.
+        assert "id" not in Author.Create.model_fields
 
 
 class TestUpdateModel:
@@ -274,3 +286,48 @@ class TestModelMetadata:
         """Test model configuration."""
         assert Book.model_config.get("from_attributes") is True
         assert Author.model_config.get("from_attributes") is True
+
+
+class TestWriteOnceFields:
+    """frozen=True gives write-once semantics: in Create, not in Update."""
+
+    def test_write_once_in_create_not_update(self):
+        assert "api_token" in Account.Create.model_fields
+        assert "api_token" not in Account.Update.model_fields
+
+    def test_write_once_round_trips_through_shell(self):
+        account = Account.shell(
+            Account.Create(username="neo", password="trinity", api_token="tok-123")
+        )
+        assert account.api_token == "tok-123"
+        assert account.id is None  # generated identity stays default
+
+
+class TestMaskedFields:
+    """exclude=True masks a field from the response while keeping it writable."""
+
+    def test_masked_field_present_in_partials(self):
+        assert "password" in Account.Create.model_fields
+        assert "password" in Account.Update.model_fields
+
+    def test_masked_field_written_via_shell(self):
+        account = Account.shell(
+            Account.Create(username="neo", password="trinity", api_token="tok")
+        )
+        assert account.password == "trinity"
+
+    def test_masked_field_written_via_absorb(self):
+        account = Account.shell(
+            Account.Create(username="neo", password="old", api_token="tok")
+        )
+        account.absorb(Account.Update(password="new"))
+        assert account.password == "new"
+
+    def test_masked_field_hidden_from_model_dump(self):
+        account = Account.shell(
+            Account.Create(username="neo", password="secret", api_token="tok")
+        )
+        dumped = account.model_dump()
+        assert "password" not in dumped  # hidden from the API response
+        assert dumped["username"] == "neo"
+        assert account.password == "secret"  # still functional in the backend
