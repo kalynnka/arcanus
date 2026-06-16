@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 from contextvars import ContextVar
 from copy import copy as shallow_copy
 from copy import deepcopy
-from dataclasses import dataclass as _dataclass
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -128,7 +128,7 @@ class TransmuterTypingMetaclass(type):
         return cast(Any, self).__class_getitem__(name)
 
 
-@_dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class Identity:
     """Marker for a record's identity field(s), following SQLAlchemy's PK concept.
 
