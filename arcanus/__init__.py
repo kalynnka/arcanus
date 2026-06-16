@@ -16,6 +16,7 @@ from arcanus.association import (
 )
 from arcanus.base import (
     BaseTransmuter,
+    Identity,
     Transmuter,
     TransmuterType,
     provided,
@@ -36,6 +37,7 @@ from arcanus.expression import (
 
 __all__ = [
     "BaseTransmuter",
+    "Identity",
     "Transmuter",
     "TransmuterType",
     "provided",

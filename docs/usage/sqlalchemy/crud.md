@@ -206,7 +206,8 @@ untrusted, incomplete payloads. For a full FastAPI walkthrough — CRUD, filteri
 see [Working with FastAPI](fastapi.md).
 
 ```python
-# Create: excludes identity fields (the server assigns them)
+# Create: excludes *generated* identities (the server assigns them); a natural/composite
+# key declared Identity(server_side=False) stays in Create for the client to supply.
 payload = Author.Create(name="New Author")
 author = Author.shell(payload)        # a full transmuter, not yet persisted
 
@@ -216,12 +217,17 @@ with Session(engine) as session:
     author.revalidate()
     session.commit()
 
-# Update: respects frozen fields, applies only what's set
+# Update: excludes frozen (write-once) fields, applies only what's set
 with Session(engine) as session:
     author = session.get_one(Author, 1)
     author.absorb(Author.Update(name="Renamed Author"))
     session.commit()
 ```
+
+The read/response shape is the transmuter itself — there is no separate `Read` partial. A field
+marked `Field(exclude=True)` (e.g. a password) is dropped from `model_dump()` (and any serialized
+response) while staying a real, writable, attribute-readable field in the backend. See
+[Partial Schemas](../noop/schemas.md) for the full set of pydantic-native flags.
 
 ## Async
 
