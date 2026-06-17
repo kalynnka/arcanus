@@ -18,9 +18,7 @@ from tests.transmuters import Author
 
 class TestAsyncFlushSyncsServerValues:
     @pytest.mark.asyncio
-    async def test_async_flush_syncs_id(
-        self, async_engine: AsyncEngine, test_id: UUID
-    ):
+    async def test_async_flush_syncs_id(self, async_engine: AsyncEngine, test_id: UUID):
         async with AsyncSession(async_engine) as session:
             author = Author(name="Async Sync Asimov", field="Physics", test_id=test_id)
             assert author.id is None

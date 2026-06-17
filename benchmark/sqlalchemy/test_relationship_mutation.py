@@ -52,9 +52,7 @@ class TestAppendChildren1M:
                     )
                     for i in range(N_CHILDREN)
                 ]
-                author.books.extend(
-                    models.Book(**v.model_dump()) for v in validated
-                )
+                author.books.extend(models.Book(**v.model_dump()) for v in validated)
                 session.flush()
                 session.rollback()
 
