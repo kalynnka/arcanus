@@ -130,8 +130,9 @@ transaction semantics** — it cooperates with them:
 - **Don't duplicate the identity map.** Within a session, a given provided instance always resolves
   to the *same* transmuter. Arcanus leans on the backend's identity map rather than inventing a
   second one.
-- **Sync at the backend's boundaries.** Server-generated values land after `flush`/`commit`; you
-  pull them into the transmuter with `revalidate()`. Transactions remain the backend's job.
+- **Sync at the backend's boundaries.** Server-generated values land after `flush`/`commit`; Arcanus
+  syncs them onto the transmuter automatically after each flush (`revalidate()` is the explicit full
+  re-sync). Transactions remain the backend's job.
 
 A new backend is "correct" precisely when it upholds these guarantees.
 

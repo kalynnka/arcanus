@@ -20,7 +20,8 @@ lifetime is governed by whatever the backend uses to manage records:
   the details, and [Session Helpers](../usage/sqlalchemy/session.md) for the API.
 
 Server-generated values (autoincrement ids) land at the backend's boundaries — after `flush` /
-`commit` — which is why `revalidate()` exists to pull them into the transmuter.
+`commit` — and Arcanus syncs them back onto the transmuter automatically (`revalidate()` remains for
+a full manual re-sync).
 
 ## Async is about backend I/O
 
@@ -155,8 +156,8 @@ consequence:
       transmuter alive **only as long as its provided instance lives in the session**. When the
       session expires, expunges, or is closed, that instance is released and the transmuter is
       collected with it.
-    - Server-generated values are SQLAlchemy's to produce; `revalidate()` is just the step that
-      syncs them into the transmuter after a flush.
+    - Server-generated values are SQLAlchemy's to produce; Arcanus syncs them onto the transmuter
+      automatically after a flush (`revalidate()` is the full manual re-sync).
 
     So there is no separate "save the Pydantic object" or "close the transmuter" step. Manage the
     SQLAlchemy `Session` and the transmuters follow. (Under `NoOpMateria` there is no session at all,

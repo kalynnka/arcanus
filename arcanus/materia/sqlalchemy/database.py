@@ -25,7 +25,7 @@ from typing import (
 from weakref import WeakKeyDictionary
 
 from pydantic import Discriminator, Tag
-from sqlalchemy import exc, inspect, tuple_, util
+from sqlalchemy import event, exc, inspect, tuple_, util
 from sqlalchemy.engine.cursor import CursorResult
 from sqlalchemy.engine.interfaces import _CoreAnyExecuteParams, _CoreSingleExecuteParams
 from sqlalchemy.engine.result import Result, ScalarResult
@@ -340,6 +340,10 @@ class Session(SqlalchemySession):
             return AdaptedResult(
                 real_result=result,
                 entities=tuple(entities),
+                # An UPDATE ... RETURNING refreshes the ORM row but hands back the
+                # cached (stale) transmuter — force a re-sync from the fresh row.
+                force_revalidate=isinstance(statement, Update)
+                and bool(statement._returning),
             )  # pyright: ignore[reportReturnType]
 
         return result
@@ -849,6 +853,28 @@ class Session(SqlalchemySession):
         yield from self.execute(statement).scalars().partitions(size)
 
 
+@event.listens_for(Session, "after_flush")
+def _revalidate_after_flush(session: Session, flush_context: object) -> None:
+    """Re-validate freshly inserted transmuters so server-assigned values (e.g.
+    an autoincrement ``id``) sync back from their ORM rows.
+
+    Only ``session.new`` is revalidated: an INSERT is where the server assigns
+    values the transmuter doesn't have yet. UPDATEs of user-set columns are
+    already mirrored onto the transmuter by write-through ``__setattr__``, so
+    re-validating them would be pure overhead. (A server-side ``onupdate`` is the
+    rare exception — pull it back with ``session.refresh()`` when you need it.)
+
+    Runs for both sync and async sessions (``AsyncSession`` drives this same sync
+    ``Session``); ``session.new`` still holds the just-inserted rows here, with
+    primary keys already populated.
+    """
+    for instance in session.new:
+        if isinstance(instance, TransmuterProxied) and (
+            proxy := instance.transmuter_proxy
+        ):
+            proxy.revalidate()
+
+
 class AsyncSession(SqlalchemyAsyncSession):
     sync_session_class = Session
     sync_session: Session
@@ -933,6 +959,7 @@ class AsyncSession(SqlalchemyAsyncSession):
             return AsyncAdaptedResult(
                 result,
                 entities=result.entities,
+                force_revalidate=result._force_revalidate,
             )  # pyright: ignore[reportReturnType]
 
         return AsyncResult(result)

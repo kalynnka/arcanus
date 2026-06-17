@@ -1,9 +1,11 @@
 """Axis B — bulk relationship mutations.
 
-The reference here is plain SQLAlchemy ORM collection mutation (Pydantic adds
-nothing to mutation), the candidate is the equivalent arcanus association
-mutation. Covers 1-M append/remove, M-M associate/disassociate, RelationMap set
-and RelationGroupMap set. Every benchmark flushes then rolls back.
+Reference = Pydantic+SQLAlchemy: new child data is validated before it reaches
+the ORM (mirroring arcanus's transmuter construction), then the collection is
+mutated; existing-object mutations (associate/disassociate/remove) add no new
+data to validate. Candidate = the equivalent arcanus association mutation.
+Covers 1-M append/remove, M-M associate/disassociate, RelationMap set and
+RelationGroupMap set. Every benchmark flushes then rolls back.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from arcanus.materia.sqlalchemy import Session as ArcanusSession
-from tests import models
+from tests import models, schemas
 from tests.transmuters import (
     Author,
     Book,
@@ -44,10 +46,13 @@ class TestAppendChildren1M:
         def mutate() -> None:
             with session_factory() as session:
                 author = session.get_one(models.Author, author_id)
-                author.books.extend(
-                    models.Book(title=f"New {i}", year=2024, publisher_id=pub_id)
+                validated = [
+                    schemas.BookChildCreate.model_validate(
+                        {"title": f"New {i}", "year": 2024, "publisher_id": pub_id}
+                    )
                     for i in range(N_CHILDREN)
-                )
+                ]
+                author.books.extend(models.Book(**v.model_dump()) for v in validated)
                 session.flush()
                 session.rollback()
 
@@ -221,9 +226,10 @@ class TestSetRelMap:
             with session_factory() as session:
                 shelf = session.get_one(models.Shelf, shelf_id)
                 for i in range(N_CHILDREN):
-                    shelf.items[f"new-{i}"] = models.ShelfItem(
-                        label=f"new-{i}", description="bench"
+                    validated = schemas.ShelfItemCreate.model_validate(
+                        {"label": f"new-{i}", "description": "bench"}
                     )
+                    shelf.items[f"new-{i}"] = models.ShelfItem(**validated.model_dump())
                 session.flush()
                 session.rollback()
 
@@ -265,14 +271,15 @@ class TestSetGroupMap:
         def mutate() -> None:
             with session_factory() as session:
                 warehouse = session.get_one(models.Warehouse, warehouse_id)
-                session.add_all(
-                    models.WarehouseItem(
-                        category="fresh",
-                        name=f"item-{i}",
-                        quantity=i,
-                        warehouse_id=warehouse.id,
+                validated = [
+                    schemas.WarehouseItemCreate.model_validate(
+                        {"category": "fresh", "name": f"item-{i}", "quantity": i}
                     )
                     for i in range(N_CHILDREN)
+                ]
+                session.add_all(
+                    models.WarehouseItem(warehouse_id=warehouse.id, **v.model_dump())
+                    for v in validated
                 )
                 session.flush()
                 session.rollback()

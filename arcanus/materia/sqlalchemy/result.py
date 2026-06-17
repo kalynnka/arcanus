@@ -35,10 +35,29 @@ from sqlalchemy.engine.row import RowMapping
 from sqlalchemy.sql.base import _generative
 from sqlalchemy.util.concurrency import greenlet_spawn
 
+from arcanus.base import Transmuter
 from arcanus.utils import get_cached_adapter
 
 _T = TypeVar("_T", bound=Any)
 _TP = TypeVar("_TP", bound=tuple[Any, ...])
+
+
+def _revalidate_returned(value: Any) -> Any:
+    """Re-sync transmuters returned by an ``UPDATE ... RETURNING`` against their
+    freshly-updated rows.
+
+    SQLAlchemy refreshes the in-session ORM row from RETURNING, but the
+    validation context hands back the *cached* transmuter unchanged — so without
+    this its scalar fields would still read the pre-update values. The provider
+    is already current, so ``revalidate()`` is a cheap in-memory re-sync.
+    """
+    if isinstance(value, Transmuter):
+        value.revalidate()
+    elif isinstance(value, tuple):
+        for item in value:
+            if isinstance(item, Transmuter):
+                item.revalidate()
+    return value
 
 
 class AdaptedCommon(FilterResult[_R]):
@@ -66,13 +85,16 @@ class AdaptedResult(_WithKeys, AdaptedCommon[Row[_TP]]):
 
     _real_result: Result[_TP]
     _row_logging_fn: Optional[Callable[[Row[Any]], Row[Any]]] = None
+    _force_revalidate: bool = False
 
     def __init__(
         self,
         real_result: Result[_TP],
         entities: tuple[Any, ...] = (),
+        force_revalidate: bool = False,
     ):
         self._real_result = real_result
+        self._force_revalidate = force_revalidate
 
         self._metadata = real_result._metadata
         self._unique_filter_state = real_result._unique_filter_state
@@ -110,11 +132,13 @@ class AdaptedResult(_WithKeys, AdaptedCommon[Row[_TP]]):
 
     def _adapt(self, row: Any) -> Any:
         """Adapt a row using TypeAdapter validation."""
-        return self.adapter.validate_python(row)
+        adapted = self.adapter.validate_python(row)
+        return _revalidate_returned(adapted) if self._force_revalidate else adapted
 
     def _adapt_scalar(self, item: Any) -> Any:
         """Adapt a scalar result using TypeAdapter validation."""
-        return self.scalar_adapter.validate_python(item)
+        adapted = self.scalar_adapter.validate_python(item)
+        return _revalidate_returned(adapted) if self._force_revalidate else adapted
 
     @property
     def t(self) -> Self:
@@ -328,7 +352,12 @@ class AdaptedScalarResult(ScalarResult[_R]):
 
     def _adapt_scalar(self, item: Any) -> Any:
         """Adapt a scalar result using TypeAdapter validation."""
-        return self.scalar_adapter.validate_python(item)
+        adapted = self.scalar_adapter.validate_python(item)
+        return (
+            _revalidate_returned(adapted)
+            if self._real_result._force_revalidate
+            else adapted
+        )
 
     def unique(
         self,
@@ -503,7 +532,12 @@ class AdaptedMappingResult(_WithKeys, AdaptedCommon[RowMapping]):
 
     def _adapt(self, row: Any) -> Any:
         """Adapt a row using TypeAdapter validation."""
-        return self.adapter.validate_python(row)
+        adapted = self.adapter.validate_python(row)
+        return (
+            _revalidate_returned(adapted)
+            if self._real_result._force_revalidate
+            else adapted
+        )
 
     @_generative
     def unique(self, strategy: Optional[_UniqueFilterType] = None) -> Self:
@@ -615,13 +649,16 @@ class AsyncAdaptedResult(_WithKeys, AsyncAdaptedCommon[Row[_TP]]):
 
     entities: tuple[Any, ...]
     _real_result: Result[_TP]
+    _force_revalidate: bool = False
 
     def __init__(
         self,
         real_result: Result[_TP],
         entities: tuple[Any, ...] = (),
+        force_revalidate: bool = False,
     ):
         self._real_result = real_result
+        self._force_revalidate = force_revalidate
 
         self._metadata = real_result._metadata
         self._unique_filter_state = real_result._unique_filter_state
@@ -659,11 +696,13 @@ class AsyncAdaptedResult(_WithKeys, AsyncAdaptedCommon[Row[_TP]]):
 
     def _adapt(self, row: Any) -> Any:
         """Adapt a row using TypeAdapter validation."""
-        return self.adapter.validate_python(row)
+        adapted = self.adapter.validate_python(row)
+        return _revalidate_returned(adapted) if self._force_revalidate else adapted
 
     def _adapt_scalar(self, item: Any) -> Any:
         """Adapt a scalar result using TypeAdapter validation."""
-        return self.scalar_adapter.validate_python(item)
+        adapted = self.scalar_adapter.validate_python(item)
+        return _revalidate_returned(adapted) if self._force_revalidate else adapted
 
     @property
     def t(self) -> Self:

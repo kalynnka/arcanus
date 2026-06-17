@@ -17,7 +17,7 @@ from unittest.mock import patch
 from uuid import UUID
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -107,6 +107,28 @@ class TestAsyncCRUDOperations:
             author.revalidate()
             fetched = await session.get_one(Author, author.id)
             assert fetched.name == "Updated Async"
+
+    @pytest.mark.asyncio
+    async def test_async_update_returning_refreshes_cached_transmuter(
+        self, async_engine: AsyncEngine
+    ):
+        """Async UPDATE ... RETURNING re-syncs a transmuter cached in the session."""
+        async with AsyncSession(async_engine) as session:
+            author = Author(name="Async Returning Before", field="Physics")
+            session.add(author)
+            await session.flush()  # author cached in the validation context
+
+            result = await session.execute(
+                update(Author)
+                .where(Author["id"] == author.id)
+                .values(name="Async Returning After")
+                .returning(Author)
+            )
+            returned = result.scalar_one()
+
+            assert returned is author
+            assert returned.name == "Async Returning After"  # refreshed, not stale
+            assert author.name == "Async Returning After"
 
     @pytest.mark.asyncio
     async def test_async_delete(self, async_engine: AsyncEngine):

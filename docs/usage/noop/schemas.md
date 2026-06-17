@@ -153,8 +153,7 @@ def create_author(body: Author.Create) -> Author:
     author = Author.shell(body)                    # Create excludes the id; body is validated
     with Session(engine) as session:
         session.add(author)
-        session.flush()
-        author.revalidate()
+        session.flush()                            # server-generated id synced back automatically
         session.commit()
     return author
 

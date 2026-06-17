@@ -117,8 +117,8 @@ and the row is owned by the SQLAlchemy session:
 - The validation context (a weak-keyed `provided-instance → transmuter` cache, scoped to the session)
   keeps a transmuter alive only as long as its provided instance lives in the session. Close,
   expunge, or expire the session and the transmuter is released with its row.
-- Server-generated values (e.g. autoincrement ids) are SQLAlchemy's to produce; `revalidate()` syncs
-  them into the transmuter after a flush.
+- Server-generated values (e.g. autoincrement ids) are SQLAlchemy's to produce; Arcanus syncs them
+  onto the transmuter automatically after each flush (`revalidate()` does a full manual re-sync).
 
 There is no separate "save the Pydantic object" step — manage the `Session`, and the transmuters
 follow. The full design is in
