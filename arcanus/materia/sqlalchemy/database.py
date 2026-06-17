@@ -25,7 +25,7 @@ from typing import (
 from weakref import WeakKeyDictionary
 
 from pydantic import Discriminator, Tag
-from sqlalchemy import exc, inspect, tuple_, util
+from sqlalchemy import event, exc, inspect, tuple_, util
 from sqlalchemy.engine.cursor import CursorResult
 from sqlalchemy.engine.interfaces import _CoreAnyExecuteParams, _CoreSingleExecuteParams
 from sqlalchemy.engine.result import Result, ScalarResult
@@ -847,6 +847,22 @@ class Session(SqlalchemySession):
             statement = statement.filter_by(**filters)
 
         yield from self.execute(statement).scalars().partitions(size)
+
+
+@event.listens_for(Session, "after_flush")
+def _revalidate_after_flush(session: Session, flush_context: object) -> None:
+    """Re-validate each flushed transmuter so server-assigned values (e.g. an
+    autoincrement ``id``) sync back from its ORM row.
+
+    Runs for both sync and async sessions (``AsyncSession`` drives this same
+    sync ``Session``). ``session.new``/``session.dirty`` still hold the just
+    flushed rows here, with primary keys already populated.
+    """
+    for instance in (*session.new, *session.dirty):
+        if isinstance(instance, TransmuterProxied) and (
+            proxy := instance.transmuter_proxy
+        ):
+            proxy.revalidate()
 
 
 class AsyncSession(SqlalchemyAsyncSession):

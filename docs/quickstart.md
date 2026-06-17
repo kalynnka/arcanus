@@ -101,8 +101,8 @@ Base.metadata.create_all(engine)
 
 #### Create
 
-Adding the book cascades to its author. After a flush, `revalidate()` pulls the
-server-generated id back into the transmuter.
+Adding the book cascades to its author. After a flush, server-generated ids are
+synced back onto the transmuters automatically.
 
 ```python
 with Session(engine) as session:
@@ -110,9 +110,7 @@ with Session(engine) as session:
     book = Book(title="Foundation", author=Relation(author))
 
     session.add(book)            # adding the book also adds its author
-    session.flush()
-    author.revalidate()          # sync server-generated id (RETURNING)
-    book.revalidate()
+    session.flush()              # INSERT; server-generated ids synced to the transmuters
     session.commit()
     print(book.id)               # e.g. 1
 ```
@@ -190,8 +188,7 @@ between a partial and a full transmuter.
 with Session(engine) as session:
     author = Author.shell(Author.Create(name="New Author"))   # Create excludes the id
     session.add(author)
-    session.flush()
-    author.revalidate()
+    session.flush()                                           # id synced back automatically
 
     author.absorb(Author.Update(name="Renamed"))              # applies only what's set
     session.commit()

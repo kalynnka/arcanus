@@ -15,31 +15,29 @@ the same object you query.
 ## Create
 
 Construct a transmuter, `add` it, and `flush` to hit the database. Server-generated values (such as
-an autoincrement `id`) land on the row at flush time; for now you call `revalidate()` to pull them
-back into the transmuter.
+an autoincrement `id`) are written to the row at flush time and **synced back onto the transmuter
+automatically** — read them straight after the flush, no manual step.
 
 ```python
 with Session(engine) as session:
     author = Author(name="Isaac Asimov")
     session.add(author)
-    session.flush()             # INSERT; id now assigned on the row
-    author.revalidate()         # sync the server-generated id into the transmuter
+    session.flush()             # INSERT; id assigned on the row and synced to `author`
     print(author.id)            # e.g. 1
     session.commit()
 ```
 
-!!! warning "Manual `revalidate()` for now — auto sync-back is in progress"
-    Today you must call `revalidate()` yourself after a flush to see server-side values on the
-    transmuter. Doing this **automatically** (so flushed/expired values flow back without the manual
-    step) is on the roadmap but genuinely tricky — it means tracking the provider's expiry/refresh
-    events and re-validating at the right moment without re-triggering relationship loads. Until
-    that lands, treat `revalidate()` as the explicit sync step.
+!!! info "What syncs automatically — and what still needs `refresh()`"
+    An `after_flush` hook re-validates each flushed transmuter against its row, so the autoincrement
+    `id` (and any value the `INSERT`/`UPDATE` returns) appears without a manual step — including the
+    implicit flush inside `commit()`. Loaded relationships are re-deferred by the re-validation but
+    reload without a query, since the row stays loaded.
 
-!!! info "`revalidate()` vs `refresh()`"
-    On PostgreSQL/SQLite (RETURNING support), `revalidate()` pulls flushed values **without** an
-    extra query. On a backend that still can't do `INSERT ... RETURNING` (MySQL 🙄) you first need `session.refresh(author)` to issue a separate `SELECT` just to learn
-    the id your database already generated. `revalidate()` is the transmuter-aware sync step; reach
-    for it after every `flush` whose server-side values you want to read.
+    The autoincrement key arrives via `cursor.lastrowid` on every backend. *Other* server-side
+    columns (a `server_default`, a server `onupdate`) only ride along when the dialect fetches them
+    at flush — via `RETURNING` (PostgreSQL/SQLite) or `eager_defaults`. When it can't, or to pull a
+    value the database changed after the row was expired, fall back to `session.refresh(author)`.
+    `author.revalidate()` is the same full re-validation done by hand; you rarely need it now.
 
 ## Read
 

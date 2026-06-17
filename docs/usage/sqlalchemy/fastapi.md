@@ -41,8 +41,7 @@ body, the update body, and the response.
 def create_author(body: Author.Create, session: Session = Depends(get_session)) -> Author:
     author = Author.shell(body)             # body already validated by FastAPI/Pydantic
     session.add(author)
-    session.flush()
-    author.revalidate()                     # pull the server-generated id back in
+    session.flush()                         # server-generated id synced back automatically
     session.commit()
     return author
 

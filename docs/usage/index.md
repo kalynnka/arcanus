@@ -48,8 +48,9 @@ uses to manage records:
   [object lifecycle under the SQLAlchemy materia](../concepts/lifecycle.md#lifecycle-under-the-sqlalchemy-materia).
 
 Because the lifecycle is the backend's, so are the boundaries where server-generated values appear
-(after a `flush`/`commit`) — which is why `revalidate()` exists to sync them back into the
-transmuter. Transactions and atomicity stay the backend's job.
+(after a `flush`/`commit`) — Arcanus syncs them back onto the transmuter automatically after each
+flush (`revalidate()` remains for a full manual re-sync). Transactions and atomicity stay the
+backend's job.
 
 ## Where to next
 

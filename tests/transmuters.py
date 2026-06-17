@@ -428,6 +428,8 @@ class MediaItem(TestIdMixin, BaseTransmuter):
     media_type: str = "generic"
     gallery_id: int | None = None
 
+    gallery: Relation[Gallery] = Relationship()
+
 
 @sqlalchemy_materia.bless(models.ImageAttachment)
 class ImageMedia(MediaItem):
