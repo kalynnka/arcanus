@@ -851,14 +851,20 @@ class Session(SqlalchemySession):
 
 @event.listens_for(Session, "after_flush")
 def _revalidate_after_flush(session: Session, flush_context: object) -> None:
-    """Re-validate each flushed transmuter so server-assigned values (e.g. an
-    autoincrement ``id``) sync back from its ORM row.
+    """Re-validate freshly inserted transmuters so server-assigned values (e.g.
+    an autoincrement ``id``) sync back from their ORM rows.
 
-    Runs for both sync and async sessions (``AsyncSession`` drives this same
-    sync ``Session``). ``session.new``/``session.dirty`` still hold the just
-    flushed rows here, with primary keys already populated.
+    Only ``session.new`` is revalidated: an INSERT is where the server assigns
+    values the transmuter doesn't have yet. UPDATEs of user-set columns are
+    already mirrored onto the transmuter by write-through ``__setattr__``, so
+    re-validating them would be pure overhead. (A server-side ``onupdate`` is the
+    rare exception — pull it back with ``session.refresh()`` when you need it.)
+
+    Runs for both sync and async sessions (``AsyncSession`` drives this same sync
+    ``Session``); ``session.new`` still holds the just-inserted rows here, with
+    primary keys already populated.
     """
-    for instance in (*session.new, *session.dirty):
+    for instance in session.new:
         if isinstance(instance, TransmuterProxied) and (
             proxy := instance.transmuter_proxy
         ):

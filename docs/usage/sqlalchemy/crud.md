@@ -28,16 +28,18 @@ with Session(engine) as session:
 ```
 
 !!! info "What syncs automatically — and what still needs `refresh()`"
-    An `after_flush` hook re-validates each flushed transmuter against its row, so the autoincrement
-    `id` (and any value the `INSERT`/`UPDATE` returns) appears without a manual step — including the
-    implicit flush inside `commit()`. Loaded relationships are re-deferred by the re-validation but
-    reload without a query, since the row stays loaded.
+    An `after_flush` hook re-validates each freshly **inserted** transmuter against its row, so the
+    autoincrement `id` (and any value the `INSERT` returns) appears without a manual step — including
+    the implicit flush inside `commit()`. Updates are **not** re-validated: values you set are
+    already on the transmuter via write-through, so only an insert's server-assigned values need
+    syncing. Loaded relationships are re-deferred by the insert re-validation but reload without a
+    query, since the row stays loaded.
 
     The autoincrement key arrives via `cursor.lastrowid` on every backend. *Other* server-side
     columns (a `server_default`, a server `onupdate`) only ride along when the dialect fetches them
-    at flush — via `RETURNING` (PostgreSQL/SQLite) or `eager_defaults`. When it can't, or to pull a
-    value the database changed after the row was expired, fall back to `session.refresh(author)`.
-    `author.revalidate()` is the same full re-validation done by hand; you rarely need it now.
+    at flush — via `RETURNING` (PostgreSQL/SQLite) or `eager_defaults`. For a server-side `onupdate`,
+    or any value the database changed after the row was expired, fall back to
+    `session.refresh(author)`. `author.revalidate()` is the same full re-validation done by hand.
 
 ## Read
 
