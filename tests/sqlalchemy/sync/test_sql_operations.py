@@ -279,6 +279,30 @@ class TestUpdateDelete:
             author_retrieved = session.get_one(Author, author.id)
             assert author_retrieved.name == "After Update"
 
+    def test_update_returning_refreshes_cached_transmuter(self, engine: Engine):
+        """UPDATE ... RETURNING re-syncs a transmuter already cached in the session.
+
+        SQLAlchemy refreshes the ORM row from RETURNING, but the validation
+        context would otherwise hand back the cached (pre-update) transmuter — so
+        without the forced re-sync its scalar fields would read the old value.
+        """
+        with Session(engine) as session:
+            author = Author(name="Returning Before", field="Physics")
+            session.add(author)
+            session.flush()  # author is now cached in the validation context
+
+            returned = session.execute(
+                update(Author)
+                .where(Author["id"] == author.id)
+                .values(name="Returning After")
+                .returning(Author)
+            ).scalar_one()
+
+            assert returned is author  # same cached identity
+            assert returned.name == "Returning After"  # refreshed, not stale
+            assert author.name == "Returning After"
+            session.rollback()
+
     def test_delete_with_returning(self, engine: Engine):
         """Test DELETE with RETURNING clause."""
         with Session(engine) as session:

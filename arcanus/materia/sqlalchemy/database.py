@@ -340,6 +340,10 @@ class Session(SqlalchemySession):
             return AdaptedResult(
                 real_result=result,
                 entities=tuple(entities),
+                # An UPDATE ... RETURNING refreshes the ORM row but hands back the
+                # cached (stale) transmuter — force a re-sync from the fresh row.
+                force_revalidate=isinstance(statement, Update)
+                and bool(statement._returning),
             )  # pyright: ignore[reportReturnType]
 
         return result
@@ -955,6 +959,7 @@ class AsyncSession(SqlalchemyAsyncSession):
             return AsyncAdaptedResult(
                 result,
                 entities=result.entities,
+                force_revalidate=result._force_revalidate,
             )  # pyright: ignore[reportReturnType]
 
         return AsyncResult(result)
