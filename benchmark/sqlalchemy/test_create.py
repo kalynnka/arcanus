@@ -50,8 +50,11 @@ class TestCreateSingleAuthor:
         def create() -> None:
             with session_factory() as session:
                 validated = schemas.AuthorCreate.model_validate(data)
-                session.add(models.Author(**validated.model_dump()))
+                author = models.Author(**validated.model_dump())
+                session.add(author)
                 session.flush()
+                # sync server-generated id back, like arcanus's after-flush revalidate
+                schemas.AuthorFlat.model_validate(author)
                 session.rollback()
 
         benchmark(create)
@@ -120,6 +123,9 @@ class TestCreateNestedBook:
                 )
                 session.add(book)
                 session.flush()
+                # sync server-generated ids back (book + author + publisher),
+                # like arcanus's after-flush revalidate of the cascaded graph
+                schemas.BookFlat.model_validate(book)
                 session.rollback()
 
         benchmark(create)
@@ -179,8 +185,12 @@ class TestCreateBulkAuthors:
         def create() -> None:
             with session_factory() as session:
                 validated = [schemas.AuthorCreate.model_validate(d) for d in rows]
-                session.add_all(models.Author(**v.model_dump()) for v in validated)
+                authors = [models.Author(**v.model_dump()) for v in validated]
+                session.add_all(authors)
                 session.flush()
+                # sync server-generated ids back, like arcanus's after-flush revalidate
+                for author in authors:
+                    schemas.AuthorFlat.model_validate(author)
                 session.rollback()
 
         benchmark(create)

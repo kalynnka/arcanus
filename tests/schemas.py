@@ -292,3 +292,26 @@ class BlogPostFlat(BaseModel):
     author_id: int
     author_name: str | None = None
     tag_labels: list[str] = Field(default_factory=list)
+
+
+class BookChildCreate(BaseModel):
+    """Flat book input for 1-M append benchmarks (author comes from the parent)."""
+
+    title: str
+    year: int
+    publisher_id: int
+
+
+class ShelfItemCreate(BaseModel):
+    """Flat ShelfItem input for RelationMap-set benchmarks."""
+
+    label: str
+    description: str
+
+
+class WarehouseItemCreate(BaseModel):
+    """Flat WarehouseItem input for RelationGroupMap-set benchmarks."""
+
+    category: str
+    name: str
+    quantity: int = 0

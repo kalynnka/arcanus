@@ -211,8 +211,11 @@ class TestAsyncCreate:
                 validated = schemas.AuthorCreate.model_validate(
                     {"name": "Async New", "write_field": "Physics"}
                 )
-                session.add(models.Author(**validated.model_dump()))
+                author = models.Author(**validated.model_dump())
+                session.add(author)
                 await session.flush()
+                # sync server-generated id back, like arcanus's after-flush revalidate
+                schemas.AuthorFlat.model_validate(author)
                 await session.rollback()
 
         benchmark(lambda: bench_loop.run_until_complete(op()))
