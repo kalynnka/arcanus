@@ -76,7 +76,9 @@ def is_association(t: type) -> bool:
 # a finite JSON tree cannot represent a reference cycle). Managed by _AsAncestor; ``None``
 # means no dump is active — the top frame installs a fresh per-context set and resets back
 # to None on exit, so a later thread/task never inherits a live set.
-_dump_ancestors: ContextVar[set[int] | None] = ContextVar("_dump_ancestors", default=None)
+_dump_ancestors: ContextVar[set[int] | None] = ContextVar(
+    "_dump_ancestors", default=None
+)
 
 
 class _AsAncestor:
@@ -820,7 +822,9 @@ class RelationSet(set[T], Association[T]):
             instance = association.__instance__
             fields_set = getattr(instance, "__pydantic_fields_set__", None)
             if fields_set is None or association.field_name not in fields_set:
-                return serializer(list(set.copy(association) | association.__payloads__))
+                return serializer(
+                    list(set.copy(association) | association.__payloads__)
+                )
             with _AsAncestor(instance) as ancestors:
                 return serializer(
                     [item for item in association.copy() if id(item) not in ancestors]
@@ -2215,6 +2219,7 @@ class TypedRelationMap(dict, Association[TD]):
                         if id(value) not in ancestors
                     }
                 )
+
         # Build a union schema from the TypedDict value types for serialization.
         # Using a plain dict schema avoids the TypedDict's totality constraint
         # so partial dicts (e.g. loaded from DB) serialize correctly.
