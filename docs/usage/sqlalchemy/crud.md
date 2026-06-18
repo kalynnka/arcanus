@@ -229,6 +229,46 @@ marked `Field(exclude=True)` (e.g. a password) is dropped from `model_dump()` (a
 response) while staying a real, writable, attribute-readable field in the backend. See
 [Partial Schemas](../noop/schemas.md) for the full set of pydantic-native flags.
 
+## Serializing relationships & reference cycles
+
+`model_dump()` (and `model_dump_json()`) include whatever relationships are loaded. Bidirectional
+relationships are inherently cyclic — a parent's children point back at the parent, and a
+back-reference resolves to the *same* instance (`book.author.value is author`). After a flush the
+inserted rows are revalidated so server-assigned values sync back, which marks the relationships on
+*both* sides as loaded — and a finite JSON tree cannot represent that cycle.
+
+Arcanus handles it with **tree projection**: while dumping it tracks the transmuters on the current
+serialization stack, and when a relationship points back at one that is already an *ancestor* it cuts
+that edge instead of recursing into it.
+
+```python
+with Session(engine) as session:
+    author = Author(name="Isaac Asimov")
+    author.books.append(Book(title="Foundation"))
+    session.add(author)
+    session.flush()                       # both directions now loaded
+
+    author.model_dump()
+    # {
+    #     "id": 1, "name": "Isaac Asimov",
+    #     "books": [
+    #         {"id": 1, "title": "Foundation",
+    #          "author_id": 1,     # foreign-key scalar — kept
+    #          "author": None},    # relationship back-edge — cut
+    #     ],
+    # }
+```
+
+The cut is lossless in practice: only the relationship *object* is dropped, while the foreign-key
+scalar (`author_id`) still serializes, so the parent stays identifiable. It is ancestor-scoped, not a
+global de-duplication — an object reached twice *without* forming a cycle (a "diamond") is serialized
+in full both times; only an edge that would close a cycle is cut. For collections, the cyclic element
+is dropped from the list or dict.
+
+!!! note "Excluding a relationship explicitly"
+    To drop a relationship from the output regardless of cycles, use Pydantic's standard `exclude` —
+    `author.model_dump(exclude={"books": {"__all__": {"author"}}})`.
+
 ## Async
 
 Swap `Session` for `AsyncSession` and `await` the I/O — the API is otherwise identical. Awaiting a
