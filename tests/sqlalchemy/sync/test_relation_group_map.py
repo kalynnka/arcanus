@@ -10,7 +10,6 @@ Tests:
 
 from __future__ import annotations
 
-import pytest
 from sqlalchemy import Engine, select
 
 from arcanus.association import RelationGroupMap
@@ -249,12 +248,6 @@ class TestRelationGroupMapLoading:
 class TestRelationGroupMapSerialization:
     """Test serialization of RelationGroupMap after ORM operations."""
 
-    @pytest.mark.skip(
-        reason="Auto-revalidate on flush sets bidirectional back-references, which "
-        "trips the known circular-reference limitation in model_dump "
-        "(arcanus/association.py). Cycle-safe serialization is tracked for a "
-        "follow-up branch."
-    )
     def test_model_dump_after_create(self, engine: Engine):
         """Test model_dump after creating warehouse with grouped items."""
         with Session(engine) as session:
