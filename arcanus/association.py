@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextvars import ContextVar, Token
 from functools import cached_property, partial, wraps
 from types import UnionType
 from typing import (
@@ -70,6 +71,59 @@ def is_association(t: type) -> bool:
     return issubclass(arg, Association)
 
 
+# Ids of transmuters currently on the model_dump serialization stack, consulted by the
+# association serializers to cut a back-edge that points at an ancestor (tree projection —
+# a finite JSON tree cannot represent a reference cycle). Managed by _AsAncestor; ``None``
+# means no dump is active — the top frame installs a fresh per-context set and resets back
+# to None on exit, so a later thread/task never inherits a live set.
+_dump_ancestors: ContextVar[set[int] | None] = ContextVar(
+    "_dump_ancestors", default=None
+)
+
+
+class _AsAncestor:
+    """Mark a transmuter as an ancestor on the serialization stack while it is dumped.
+
+    Used as ``with _AsAncestor(owner) as ancestors:`` around an association's
+    recursion; the serializers drop any back-edge whose target is already in
+    ``ancestors`` (tree projection — a finite JSON tree cannot hold a cycle).
+
+    A ``__slots__`` class rather than ``@contextmanager``: this runs once per
+    serialized association on the hot path, where a generator context manager is
+    ~3x slower per enter/exit. A ContextVar isolates concurrent dumps (each
+    thread / asyncio task gets its own set); serialization is synchronous, so
+    add-on-enter / discard-on-exit gives ancestor-path semantics — true cycles
+    are cut, shared non-cyclic (diamond) refs are kept. The top frame installs a
+    fresh set and resets the ContextVar to None on exit, so a later thread/task
+    never inherits a live set.
+    """
+
+    __slots__ = ("__instance__", "__ancestors__", "__token__")
+
+    __instance__: object
+    __ancestors__: set[int]
+    __token__: Token[set[int] | None] | None
+
+    def __init__(self, instance: object) -> None:
+        self.__instance__ = instance
+
+    def __enter__(self) -> set[int]:
+        ancestors = _dump_ancestors.get()
+        if ancestors is None:  # top of a fresh serialization stack
+            ancestors = set()
+            self.__token__ = _dump_ancestors.set(ancestors)
+        else:
+            self.__token__ = None
+        ancestors.add(id(self.__instance__))
+        self.__ancestors__ = ancestors
+        return ancestors
+
+    def __exit__(self, *exc: object) -> None:
+        self.__ancestors__.discard(id(self.__instance__))
+        if self.__token__ is not None:
+            _dump_ancestors.reset(self.__token__)
+
+
 class Association(Generic[A]):
     __args__: tuple[type, ...]
     __instance__: Transmuter | None
@@ -97,10 +151,10 @@ class Association(Generic[A]):
         """
         The default serialization schema for associations is to serialize the loaded value if the association is loaded, otherwise serialize the payloads.
         """
-        # TODO: Implement automatic circular reference detection in serialization.
-        # Currently, circular references must be manually excluded using the exclude
-        # parameter. Pydantic does not provide built-in cycle detection.
-        # See: https://docs.pydantic.dev/latest/concepts/serialization/
+        # Concrete subclasses break reference cycles via ancestor-path tree projection
+        # (see _AsAncestor): a back-edge pointing at an ancestor on the current dump
+        # stack is cut, because a finite JSON tree cannot represent a cycle. This base
+        # method is abstract; every concrete association overrides it.
         raise NotImplementedError()
 
     @classmethod
@@ -261,12 +315,17 @@ class Relation(Association[Optional_T]):
         cls, generic_type: type[Optional_T], handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
         def serialize(association: Relation[Optional_T], serializer) -> Any:
-            fields_set = getattr(
-                association.__instance__, "__pydantic_fields_set__", None
-            )
-            if fields_set is not None and association.field_name in fields_set:
-                return serializer(association.value)
-            return serializer(association.__payloads__)
+            instance = association.__instance__
+            fields_set = getattr(instance, "__pydantic_fields_set__", None)
+            if fields_set is None or association.field_name not in fields_set:
+                return serializer(association.__payloads__)
+            with _AsAncestor(instance) as ancestors:
+                value = association.value
+                if value is not None and id(value) in ancestors:
+                    # Cut the back-edge that would close a cycle; the FK scalar
+                    # (e.g. ``shelf_id``) still serializes, so identity is retained.
+                    return None
+                return serializer(value)
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,
@@ -386,12 +445,14 @@ class RelationCollection(list[T], Association[T]):
         cls, generic_type: Type[T], handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
         def serialize(association: RelationCollection[T], serializer) -> Any:
-            fields_set = getattr(
-                association.__instance__, "__pydantic_fields_set__", None
-            )
-            if fields_set is not None and association.field_name in fields_set:
-                return serializer(association.copy())
-            return serializer(list.copy(association) + association.__payloads__)
+            instance = association.__instance__
+            fields_set = getattr(instance, "__pydantic_fields_set__", None)
+            if fields_set is None or association.field_name not in fields_set:
+                return serializer(list.copy(association) + association.__payloads__)
+            with _AsAncestor(instance) as ancestors:
+                return serializer(
+                    [item for item in association.copy() if id(item) not in ancestors]
+                )
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,
@@ -758,12 +819,16 @@ class RelationSet(set[T], Association[T]):
         cls, generic_type: Type[T], handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
         def serialize(association: RelationSet[T], serializer) -> Any:
-            fields_set = getattr(
-                association.__instance__, "__pydantic_fields_set__", None
-            )
-            if fields_set is not None and association.field_name in fields_set:
-                return serializer(association.copy())
-            return serializer(list(set.copy(association) | association.__payloads__))
+            instance = association.__instance__
+            fields_set = getattr(instance, "__pydantic_fields_set__", None)
+            if fields_set is None or association.field_name not in fields_set:
+                return serializer(
+                    list(set.copy(association) | association.__payloads__)
+                )
+            with _AsAncestor(instance) as ancestors:
+                return serializer(
+                    [item for item in association.copy() if id(item) not in ancestors]
+                )
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,
@@ -1141,12 +1206,18 @@ class RelationMap(dict[K, T], Association[T]):
         handler: GetCoreSchemaHandler,
     ) -> core_schema.SerSchema | None:
         def serialize(association: RelationMap[K, T], serializer) -> Any:
-            fields_set = getattr(
-                association.__instance__, "__pydantic_fields_set__", None
-            )
-            if fields_set is not None and association.field_name in fields_set:
-                return serializer(association.copy())
-            return serializer(dict.copy(association) | association.__payloads__)
+            instance = association.__instance__
+            fields_set = getattr(instance, "__pydantic_fields_set__", None)
+            if fields_set is None or association.field_name not in fields_set:
+                return serializer(dict.copy(association) | association.__payloads__)
+            with _AsAncestor(instance) as ancestors:
+                return serializer(
+                    {
+                        key: value
+                        for key, value in association.copy().items()
+                        if id(value) not in ancestors
+                    }
+                )
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,
@@ -1583,12 +1654,17 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         handler: GetCoreSchemaHandler,
     ) -> core_schema.SerSchema | None:
         def serialize(association: RelationGroupMap[K, T], serializer) -> Any:
-            fields_set = getattr(
-                association.__instance__, "__pydantic_fields_set__", None
-            )
-            if fields_set is not None and association.field_name in fields_set:
-                return serializer(association.copy())
-            return serializer(dict.copy(association) | association.__payloads__)
+            instance = association.__instance__
+            fields_set = getattr(instance, "__pydantic_fields_set__", None)
+            if fields_set is None or association.field_name not in fields_set:
+                return serializer(dict.copy(association) | association.__payloads__)
+            with _AsAncestor(instance) as ancestors:
+                return serializer(
+                    {
+                        key: [v for v in values if id(v) not in ancestors]
+                        for key, values in association.copy().items()
+                    }
+                )
 
         return core_schema.wrap_serializer_function_ser_schema(
             serialize,
@@ -2131,12 +2207,18 @@ class TypedRelationMap(dict, Association[TD]):
         handler: GetCoreSchemaHandler,
     ) -> core_schema.SerSchema | None:
         def serialize(association: TypedRelationMap, serializer) -> Any:
-            fields_set = getattr(
-                association.__instance__, "__pydantic_fields_set__", None
-            )
-            if fields_set is not None and association.field_name in fields_set:
-                return serializer(association.copy())
-            return serializer(dict.copy(association) | association.__payloads__)
+            instance = association.__instance__
+            fields_set = getattr(instance, "__pydantic_fields_set__", None)
+            if fields_set is None or association.field_name not in fields_set:
+                return serializer(dict.copy(association) | association.__payloads__)
+            with _AsAncestor(instance) as ancestors:
+                return serializer(
+                    {
+                        key: value
+                        for key, value in association.copy().items()
+                        if id(value) not in ancestors
+                    }
+                )
 
         # Build a union schema from the TypedDict value types for serialization.
         # Using a plain dict schema avoids the TypedDict's totality constraint

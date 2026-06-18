@@ -733,3 +733,82 @@ class TestModelDumpWithExcludeInclude:
                 assert "author" not in book_data
                 assert "publisher" not in book_data
                 assert "year" not in book_data
+
+
+class TestCyclicModelDumpAfterFlush:
+    """model_dump is cycle-safe after the after-flush auto-revalidate.
+
+    Revalidate marks loaded back-references as "set", so without cycle handling a
+    parent<->child pair (e.g. Author.books <-> Book.author) would recurse forever.
+    The association serializers cut a back-edge that points at an ancestor on the
+    current dump stack (tree projection); the foreign-key scalar still serializes,
+    so the parent stays identifiable.
+    """
+
+    def _author_with_two_books(self, session: Session) -> Author:
+        publisher = Publisher(name="Cycle Pub", country="USA")
+        session.add(publisher)
+        session.flush()
+
+        author = Author(name="Cycle Author", field="Physics")
+        book1 = Book(title="Cycle Book 1", year=2001)
+        book2 = Book(title="Cycle Book 2", year=2002)
+        book1.publisher.value = publisher
+        book2.publisher.value = publisher
+        author.books.append(book1)
+        author.books.append(book2)
+
+        session.add(author)
+        session.flush()  # author is new -> after_flush revalidate sets both directions
+        return author
+
+    def test_relation_collection_cycle_dumps_safely(self, engine: Engine):
+        """Author.books <-> Book.author dumps with the back-edge cut and FK retained."""
+        with Session(engine) as session:
+            author = self._author_with_two_books(session)
+
+            data = author.model_dump()
+
+            assert {b["title"] for b in data["books"]} == {
+                "Cycle Book 1",
+                "Cycle Book 2",
+            }
+            for book_data in data["books"]:
+                assert book_data["author"] is None  # cyclic back-edge cut
+                assert book_data["author_id"] == author.id  # FK retained -> lossless
+
+    def test_no_over_cut_keeps_non_ancestor_sibling(self, engine: Engine):
+        """Only the ancestor edge is cut; a shared non-ancestor sibling is kept.
+
+        Dumping a child as root: its ``author`` serializes fully, and the author's
+        ``books`` keeps the *other* book while only the ancestor (the root book) is
+        filtered out — proving ancestor-path (not global-visited) semantics.
+        """
+        with Session(engine) as session:
+            author = self._author_with_two_books(session)
+            root_book = author.books[0]
+            sibling_title = author.books[1].title
+
+            data = root_book.model_dump()
+
+            assert data["author"] is not None
+            assert data["author"]["name"] == "Cycle Author"
+            nested_titles = {b["title"] for b in data["author"]["books"]}
+            assert nested_titles == {sibling_title}
+
+    def test_model_dump_json_cycle_no_serialization_warning(self, engine: Engine):
+        """A cyclic graph serializes to JSON cleanly under ``warnings='error'``.
+
+        The cut emits a literal ``None`` rather than routing it through the
+        relation's model sub-schema, so no serialization warning is raised.
+        """
+        with Session(engine) as session:
+            author = self._author_with_two_books(session)
+
+            payload = json.loads(author.model_dump_json(warnings="error"))
+
+            assert {b["title"] for b in payload["books"]} == {
+                "Cycle Book 1",
+                "Cycle Book 2",
+            }
+            assert all(b["author"] is None for b in payload["books"])
