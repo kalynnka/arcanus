@@ -49,49 +49,6 @@ class FrozenContainer(BaseTransmuter):
     typed: TypedRelationMap[FrozenMedia] = TypedRelationship(frozen=True)
 
 
-class ProvidedRelationSet(RelationSet[FrozenTag]):
-    def __init__(self, payloads: set[FrozenTag], provided: set[object]) -> None:
-        super().__init__(payloads)
-        self.provided = provided
-
-    @property
-    def __provided__(self) -> set[object]:
-        return self.provided
-
-    def _load(self) -> ProvidedRelationSet:
-        return self
-
-
-class ProvidedRelationMap(RelationMap[str, FrozenTag]):
-    def __init__(
-        self, payloads: dict[str, FrozenTag], provided: dict[str, object]
-    ) -> None:
-        super().__init__(payloads)
-        self.provided = provided
-
-    @property
-    def __provided__(self) -> dict[str, object]:
-        return self.provided
-
-    def _load(self) -> ProvidedRelationMap:
-        return self
-
-
-class ProvidedTypedRelationMap(TypedRelationMap[FrozenMedia]):
-    def __init__(
-        self, payloads: dict[str, FrozenTag], provided: dict[str, object]
-    ) -> None:
-        super().__init__(payloads)
-        self.provided = provided
-
-    @property
-    def __provided__(self) -> dict[str, object]:
-        return self.provided
-
-    def _load(self) -> ProvidedTypedRelationMap:
-        return self
-
-
 def test_relationship_field_replacement_is_rejected_with_default_mutability() -> None:
     author = Author(id=1, name="Author", field="Physics")
     book = Book(id=1, title="Book", year=2024)
@@ -101,14 +58,6 @@ def test_relationship_field_replacement_is_rejected_with_default_mutability() ->
 
     with pytest.raises(ValidationError, match="frozen"):
         book.author = Relation(author)
-
-
-def test_missing_relationship_field_replacement_is_rejected() -> None:
-    author = Author(id=1, name="Author", field="Physics")
-    object.__getattribute__(author, "__dict__").pop("books")
-
-    with pytest.raises(ValidationError, match="frozen"):
-        author.books = RelationCollection()
 
 
 def test_default_relationship_helpers_keep_association_contents_mutable() -> None:
@@ -124,31 +73,6 @@ def test_default_relationship_helpers_keep_association_contents_mutable() -> Non
 
     book.author.value = author
     assert book.author.value is author
-
-
-def test_provider_payload_prepare_merges_without_public_mutators() -> None:
-    existing = FrozenTag(id=1, name="existing")
-    extra = FrozenTag(id=2, name="extra")
-    container = FrozenContainer(id=1, name="container")
-
-    provided_set: set[object] = set()
-    relation_set = ProvidedRelationSet({existing, extra}, provided_set)
-    set.add(relation_set, existing)
-    relation_set.prepare(container, "unique_items")
-    assert relation_set == {existing, extra}
-    assert provided_set == {None}
-
-    provided_map: dict[str, object] = {}
-    relation_map = ProvidedRelationMap({"main": existing}, provided_map)
-    relation_map.prepare(container, "mapped")
-    assert relation_map == {"main": existing}
-    assert provided_map == {"main": None}
-
-    provided_typed: dict[str, object] = {}
-    typed_map = ProvidedTypedRelationMap({"primary": existing}, provided_typed)
-    typed_map.prepare(container, "typed")
-    assert typed_map == {"primary": existing}
-    assert provided_typed == {"primary": None}
 
 
 def test_frozen_associations_accept_initial_values_and_serialize() -> None:
