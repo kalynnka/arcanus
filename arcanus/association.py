@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextvars import ContextVar, Token
-from functools import cached_property, wraps
+from functools import cached_property, partial, wraps
 from types import UnionType
 from typing import (
     TYPE_CHECKING,
@@ -2687,20 +2687,10 @@ if TYPE_CHECKING:
     )
 
 
-def Relationship(*, frozen: bool = False, **kwargs: Any) -> Any:
-    return Field(default_factory=Relation, frozen=frozen, **kwargs)
-
-
-def MappedRelationship(*, frozen: bool = False, **kwargs: Any) -> Any:
-    return Field(default_factory=RelationMap, frozen=frozen, **kwargs)
-
-
-def GroupedRelationship(*, frozen: bool = False, **kwargs: Any) -> Any:
-    return Field(default_factory=RelationGroupMap, frozen=frozen, **kwargs)
-
-
-def TypedRelationship(*, frozen: bool = False, **kwargs: Any) -> Any:
-    return Field(default_factory=TypedRelationMap, frozen=frozen, **kwargs)
+Relationship = partial(Field, default_factory=Relation, frozen=False)
+MappedRelationship = partial(Field, default_factory=RelationMap, frozen=False)
+GroupedRelationship = partial(Field, default_factory=RelationGroupMap, frozen=False)
+TypedRelationship = partial(Field, default_factory=TypedRelationMap, frozen=False)
 
 
 # Backward-compatible aliases (deprecated)
