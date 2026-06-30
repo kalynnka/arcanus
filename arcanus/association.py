@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextvars import ContextVar, Token
-from functools import cached_property, partial, wraps
+from functools import cached_property, wraps
 from types import UnionType
 from typing import (
     TYPE_CHECKING,
@@ -28,7 +28,7 @@ from typing import (
     overload,
 )
 
-from pydantic import Field, GetCoreSchemaHandler, TypeAdapter
+from pydantic import Field, GetCoreSchemaHandler, TypeAdapter, ValidationError
 from pydantic_core import core_schema
 from typing_extensions import deprecated, is_typeddict
 
@@ -47,6 +47,7 @@ Optional_T = TypeVar("Optional_T", bound="Transmuter | Optional[Transmuter]")
 
 P = ParamSpec("P")
 R = TypeVar("R")
+AM = TypeVar("AM", bound="Association[Any]")
 
 
 @final
@@ -270,6 +271,29 @@ class Association(Generic[A]):
         """Bless the value into the generic type."""
         return self.__validator__.validate_python(value)
 
+    @staticmethod
+    def ensure_mutable(
+        func: Callable[Concatenate[AM, P], R],
+    ) -> Callable[Concatenate[AM, P], R]:
+        @wraps(func)
+        def wrapper(self: AM, *args: P.args, **kwargs: P.kwargs) -> R:
+            if self.field_info.frozen:
+                raise ValidationError.from_exception_data(
+                    type(self.__instance__).__name__
+                    if self.__instance__
+                    else "Association",
+                    [
+                        {
+                            "type": "frozen_field",
+                            "loc": (self.field_name,),
+                            "input": self,
+                        }
+                    ],
+                )
+            return func(self, *args, **kwargs)
+
+        return wrapper
+
     @property
     def loaded(self) -> bool:
         """Whether reading this association cannot fire a provider load."""
@@ -418,6 +442,7 @@ class Relation(Association[Optional_T]):
 
     @value.setter
     @ensure_loaded
+    @Association.ensure_mutable
     def value(self, object: Optional_T):
         object = self.bless(object)
         if object is not None:
@@ -511,7 +536,12 @@ class RelationCollection(list[T], Association[T]):
             # manualy enforce loading first to remove duplicates in payloads
             # objects already assigned to the relationship may be add to payloads during revalidation
             self._load()
-            self.extend(self.__payloads__)
+            provided = self.__provided__
+            if provided is not None:
+                provided.extend(
+                    item.__transmuter_provided__ for item in self.__payloads__
+                )
+            super().extend(self.__payloads__)
             self.__payloads__.clear()
 
     @staticmethod
@@ -634,6 +664,7 @@ class RelationCollection(list[T], Association[T]):
     @overload
     def __setitem__(self, key: slice, value: Iterable[T]) -> None: ...
     @ensure_loaded
+    @Association.ensure_mutable
     def __setitem__(self, key: SupportsIndex | slice, value: T | Iterable[T]):
         provided = self.__provided__
         if isinstance(value, Iterable):
@@ -650,6 +681,7 @@ class RelationCollection(list[T], Association[T]):
             super().__setitem__(idx, item)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def __delitem__(self, key: SupportsIndex | slice):
         provided = self.__provided__
         if provided is not None:
@@ -661,6 +693,7 @@ class RelationCollection(list[T], Association[T]):
         return self.copy() + self.bless(other)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def __iadd__(self, other: Iterable[T]):
         self.extend(other)
         return self
@@ -724,6 +757,7 @@ class RelationCollection(list[T], Association[T]):
         return super().__reversed__()
 
     @ensure_loaded
+    @Association.ensure_mutable
     def append(self, value: T):
         value = self.bless(value)
         provided = self.__provided__
@@ -732,6 +766,7 @@ class RelationCollection(list[T], Association[T]):
         super().append(value)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def extend(self, iterable: Iterable[T]):
         iterable = self.bless(iterable)
         provided = self.__provided__
@@ -740,6 +775,7 @@ class RelationCollection(list[T], Association[T]):
         super().extend(iterable)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def clear(self):
         provided = self.__provided__
         if provided is not None:
@@ -763,6 +799,7 @@ class RelationCollection(list[T], Association[T]):
         return super().index(value, start, stop)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def insert(self, index: SupportsIndex, object: T):
         object = self.bless(object)
         provided = self.__provided__
@@ -771,6 +808,7 @@ class RelationCollection(list[T], Association[T]):
         super().insert(index, object)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def pop(self, index: SupportsIndex = -1):
         item = super().pop(index)
         provided = self.__provided__
@@ -779,6 +817,7 @@ class RelationCollection(list[T], Association[T]):
         return item
 
     @ensure_loaded
+    @Association.ensure_mutable
     def remove(self, value: T):
         # bless() is only needed to locate the value on the provider side; under
         # a no-op/absent provider it would be discarded, so skip it entirely.
@@ -788,10 +827,12 @@ class RelationCollection(list[T], Association[T]):
         super().remove(value)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def reverse(self):
         super().reverse()
 
     @ensure_loaded
+    @Association.ensure_mutable
     def sort(
         self,
         *,
@@ -879,7 +920,13 @@ class RelationSet(set[T], Association[T]):
             # manually enforce loading first to remove duplicates in payloads
             # objects already assigned to the relationship may be added to payloads during revalidation
             self._load()
-            self.update(self.__payloads__)
+            provided = self.__provided__
+            for item in self.__payloads__:
+                if item in self:
+                    continue
+                if provided is not None:
+                    provided.add(item.__transmuter_provided__)
+                super().add(item)
             self.__payloads__.clear()
 
     @staticmethod
@@ -1000,6 +1047,7 @@ class RelationSet(set[T], Association[T]):
         return super().__str__()
 
     @ensure_loaded
+    @Association.ensure_mutable
     def add(self, item: T) -> None:
         """Add an element. No effect if already present (identity-based)."""
         item = self.bless(item)
@@ -1011,6 +1059,7 @@ class RelationSet(set[T], Association[T]):
         super().add(item)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def discard(self, item: T) -> None:
         """Remove an element if present."""
         if item not in self:
@@ -1021,6 +1070,7 @@ class RelationSet(set[T], Association[T]):
         super().discard(item)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def remove(self, item: T) -> None:
         """Remove an element. Raises KeyError if not present."""
         provided = self.__provided__
@@ -1029,6 +1079,7 @@ class RelationSet(set[T], Association[T]):
         super().remove(item)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def pop(self) -> T:
         """Remove and return an arbitrary element. Raises KeyError if empty."""
         item = super().pop()
@@ -1038,6 +1089,7 @@ class RelationSet(set[T], Association[T]):
         return item
 
     @ensure_loaded
+    @Association.ensure_mutable
     def update(self, *others: Iterable[T]) -> None:
         """Add all elements from iterables."""
         for other in others:
@@ -1046,6 +1098,7 @@ class RelationSet(set[T], Association[T]):
                 self.add(item)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def clear(self) -> None:
         """Remove all elements."""
         provided = self.__provided__
@@ -1054,6 +1107,7 @@ class RelationSet(set[T], Association[T]):
         super().clear()
 
     @ensure_loaded
+    @Association.ensure_mutable
     def intersection_update(self, *others: Iterable[T]) -> None:
         """Keep only elements found in all others."""
         keep = set.intersection(self, *others)
@@ -1062,6 +1116,7 @@ class RelationSet(set[T], Association[T]):
             self.discard(item)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def difference_update(self, *others: Iterable[T]) -> None:
         """Remove all elements found in others."""
         to_remove = set.intersection(self, *others)
@@ -1069,6 +1124,7 @@ class RelationSet(set[T], Association[T]):
             self.discard(item)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def symmetric_difference_update(self, other: Iterable[T]) -> None:
         """Update to symmetric difference with other."""
         other_set = set(other)
@@ -1160,21 +1216,25 @@ class RelationSet(set[T], Association[T]):
         return super().__xor__(other)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def __ior__(self, other: Iterable[T]) -> Self:
         self.update(other)
         return self
 
     @ensure_loaded
+    @Association.ensure_mutable
     def __iand__(self, other: Iterable[T]) -> Self:
         self.intersection_update(other)
         return self
 
     @ensure_loaded
+    @Association.ensure_mutable
     def __isub__(self, other: Iterable[T]) -> Self:
         self.difference_update(other)
         return self
 
     @ensure_loaded
+    @Association.ensure_mutable
     def __ixor__(self, other: Iterable[T]) -> Self:
         self.symmetric_difference_update(other)
         return self
@@ -1344,7 +1404,15 @@ class RelationMap(dict[K, T], Association[T]):
             # manually enforce loading first to remove duplicates in payloads
             # objects already assigned to the relationship may be added to payloads during revalidation
             self._load()
-            self.update(self.__payloads__)
+            provided = self.__provided__
+            if provided is not None:
+                provided.update(
+                    {
+                        key: value.__transmuter_provided__
+                        for key, value in self.__payloads__.items()
+                    }
+                )
+            super().update(self.__payloads__)
             self.__payloads__.clear()
 
     @staticmethod
@@ -1452,6 +1520,7 @@ class RelationMap(dict[K, T], Association[T]):
         return super().__len__() > 0
 
     @ensure_loaded
+    @Association.ensure_mutable
     def __setitem__(self, key: K, value: T) -> None:
         key = self.bless_key(key)
         value = self.bless_value(value)
@@ -1461,6 +1530,7 @@ class RelationMap(dict[K, T], Association[T]):
         super().__setitem__(key, value)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def __delitem__(self, key: K) -> None:
         key = self.bless_key(key)
         provided = self.__provided__
@@ -1500,6 +1570,7 @@ class RelationMap(dict[K, T], Association[T]):
         return dict.__or__(self.copy(), dict(other))
 
     @ensure_loaded
+    @Association.ensure_mutable
     def __ior__(self, other: Mapping[K, T]) -> Self:
         self.update(other)
         return self
@@ -1534,6 +1605,7 @@ class RelationMap(dict[K, T], Association[T]):
     def pop(self, key: K, default: D) -> T | D: ...
 
     @ensure_loaded
+    @Association.ensure_mutable
     def pop(self, key: K, *args: Any) -> Any:
         """Remove specified key and return the corresponding value."""
         key = self.bless_key(key)
@@ -1544,6 +1616,7 @@ class RelationMap(dict[K, T], Association[T]):
         return item
 
     @ensure_loaded
+    @Association.ensure_mutable
     def popitem(self) -> tuple[K, T]:
         """Remove and return an arbitrary (key, value) pair. Raises KeyError if empty."""
         key, item = super().popitem()
@@ -1560,6 +1633,7 @@ class RelationMap(dict[K, T], Association[T]):
     def update(self, **kwargs: T) -> None: ...
 
     @ensure_loaded
+    @Association.ensure_mutable
     def update(
         self,
         *args: Mapping[K, T] | Iterable[tuple[K, T]],
@@ -1592,6 +1666,7 @@ class RelationMap(dict[K, T], Association[T]):
     def setdefault(self, key: K, default: T) -> T: ...
 
     @ensure_loaded
+    @Association.ensure_mutable
     def setdefault(self, key: K, default: T | None = None) -> T | None:
         """If key is not in the dict, insert key with the default value."""
         key = self.bless_key(key)
@@ -1601,6 +1676,7 @@ class RelationMap(dict[K, T], Association[T]):
         return super().get(key, default)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def clear(self) -> None:
         """Remove all items."""
         provided = self.__provided__
@@ -1931,6 +2007,7 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         return super().__len__() > 0
 
     @ensure_loaded
+    @Association.ensure_mutable
     def __setitem__(self, key: K, value: list[T]) -> None:
         key = self.bless_key(key)
         value = self.bless_values(value)
@@ -1946,6 +2023,7 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         super().__setitem__(key, value)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def __delitem__(self, key: K) -> None:
         key = self.bless_key(key)
         provided = self.__provided__
@@ -1987,6 +2065,7 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         return dict.__or__(self.copy(), dict(other))
 
     @ensure_loaded
+    @Association.ensure_mutable
     def __ior__(self, other: Mapping[K, list[T]]) -> Self:
         self.update(other)
         return self
@@ -2021,6 +2100,7 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
     def pop(self, key: K, default: D) -> list[T] | D: ...
 
     @ensure_loaded
+    @Association.ensure_mutable
     def pop(self, key: K, *args: Any) -> Any:
         """Remove specified key and return the corresponding list."""
         key = self.bless_key(key)
@@ -2033,6 +2113,7 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         return item
 
     @ensure_loaded
+    @Association.ensure_mutable
     def popitem(self) -> tuple[K, list[T]]:
         """Remove and return an arbitrary (key, list) pair."""
         key, items = super().popitem()
@@ -2051,6 +2132,7 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
     def update(self, **kwargs: list[T]) -> None: ...
 
     @ensure_loaded
+    @Association.ensure_mutable
     def update(
         self,
         *args: Mapping[K, list[T]] | Iterable[tuple[K, list[T]]],
@@ -2089,6 +2171,7 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
     def setdefault(self, key: K, default: list[T]) -> list[T]: ...
 
     @ensure_loaded
+    @Association.ensure_mutable
     def setdefault(self, key: K, default: list[T] | None = None) -> list[T]:
         """If key is not in the dict, insert key with the default list."""
         key = self.bless_key(key)
@@ -2100,6 +2183,7 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         return super().__getitem__(key)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def clear(self) -> None:
         """Remove all items."""
         provided = self.__provided__
@@ -2118,6 +2202,7 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
     # ── Convenience methods unique to grouped maps ──
 
     @ensure_loaded
+    @Association.ensure_mutable
     def append(self, key: K, value: T) -> None:
         """Append a single item to the group at *key*, creating the group if needed."""
         key = self.bless_key(key)
@@ -2130,6 +2215,7 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
             provided.set(value.__transmuter_provided__)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def extend(self, key: K, values: Iterable[T]) -> None:
         """Append multiple items to the group at *key*."""
         key = self.bless_key(key)
@@ -2143,6 +2229,7 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
                 provided.set(item.__transmuter_provided__)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def discard(self, key: K, value: T) -> None:
         """Remove a single item from the group at *key*.
 
@@ -2349,7 +2436,15 @@ class TypedRelationMap(dict, Association[TD]):
 
         if self.__payloads__:
             self._load()
-            self.update(self.__payloads__)
+            provided = self.__provided__
+            if provided is not None:
+                provided.update(
+                    {
+                        key: value.__transmuter_provided__
+                        for key, value in self.__payloads__.items()
+                    }
+                )
+            super().update(self.__payloads__)
             self.__payloads__.clear()
 
     @staticmethod
@@ -2436,6 +2531,7 @@ class TypedRelationMap(dict, Association[TD]):
         return super().__len__() > 0
 
     @ensure_loaded
+    @Association.ensure_mutable
     def __setitem__(self, key: str, value: Any) -> None:
         value = self.bless_value(key, value)
         provided = self.__provided__
@@ -2444,6 +2540,7 @@ class TypedRelationMap(dict, Association[TD]):
         super().__setitem__(key, value)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def __delitem__(self, key: str) -> None:
         provided = self.__provided__
         if provided is not None:
@@ -2480,6 +2577,7 @@ class TypedRelationMap(dict, Association[TD]):
         return dict.__or__(self.copy(), dict(other))
 
     @ensure_loaded
+    @Association.ensure_mutable
     def __ior__(self, other: Mapping[str, Any]) -> Self:
         self.update(other)
         return self
@@ -2505,6 +2603,7 @@ class TypedRelationMap(dict, Association[TD]):
         return super().items()
 
     @ensure_loaded
+    @Association.ensure_mutable
     def pop(self, key: str, *args: Any) -> Any:
         """Remove specified key and return the corresponding value."""
         item = super().pop(key, *args)
@@ -2514,6 +2613,7 @@ class TypedRelationMap(dict, Association[TD]):
         return item
 
     @ensure_loaded
+    @Association.ensure_mutable
     def popitem(self) -> tuple[str, Any]:
         """Remove and return an arbitrary (key, value) pair."""
         key, item = super().popitem()
@@ -2523,6 +2623,7 @@ class TypedRelationMap(dict, Association[TD]):
         return key, item
 
     @ensure_loaded
+    @Association.ensure_mutable
     def update(
         self,
         *args: Mapping[str, Any] | Iterable[tuple[str, Any]],
@@ -2553,6 +2654,7 @@ class TypedRelationMap(dict, Association[TD]):
         super().update(blessed)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def setdefault(self, key: str, default: Any = None) -> Any:
         """If key is not in the dict, insert key with the default value."""
         if key not in self:
@@ -2561,6 +2663,7 @@ class TypedRelationMap(dict, Association[TD]):
         return super().get(key, default)
 
     @ensure_loaded
+    @Association.ensure_mutable
     def clear(self) -> None:
         """Remove all items."""
         provided = self.__provided__
@@ -2583,10 +2686,21 @@ if TYPE_CHECKING:
         "TypedRelationMap", TD, type_params=(TD,)
     )
 
-Relationship = partial(Field, default_factory=Relation, frozen=True)
-MappedRelationship = partial(Field, default_factory=RelationMap, frozen=True)
-GroupedRelationship = partial(Field, default_factory=RelationGroupMap, frozen=True)
-TypedRelationship = partial(Field, default_factory=TypedRelationMap, frozen=True)
+
+def Relationship(*, frozen: bool = False, **kwargs: Any) -> Any:
+    return Field(default_factory=Relation, frozen=frozen, **kwargs)
+
+
+def MappedRelationship(*, frozen: bool = False, **kwargs: Any) -> Any:
+    return Field(default_factory=RelationMap, frozen=frozen, **kwargs)
+
+
+def GroupedRelationship(*, frozen: bool = False, **kwargs: Any) -> Any:
+    return Field(default_factory=RelationGroupMap, frozen=frozen, **kwargs)
+
+
+def TypedRelationship(*, frozen: bool = False, **kwargs: Any) -> Any:
+    return Field(default_factory=TypedRelationMap, frozen=frozen, **kwargs)
 
 
 # Backward-compatible aliases (deprecated)
@@ -2606,21 +2720,26 @@ def TypedRelationMaps(**kwargs: Any) -> Any:
 
 
 @overload
-def Relationships(*, unique: Literal[True], **kwargs: Any) -> Any: ...
+def Relationships(
+    *, unique: Literal[True], frozen: bool = ..., **kwargs: Any
+) -> Any: ...
 @overload
-def Relationships(*, unique: Literal[False] = ..., **kwargs: Any) -> Any: ...
+def Relationships(
+    *, unique: Literal[False] = ..., frozen: bool = ..., **kwargs: Any
+) -> Any: ...
 @overload
-def Relationships(**kwargs: Any) -> Any: ...
-def Relationships(*, unique: bool = False, **kwargs: Any) -> Any:
+def Relationships(*, frozen: bool = ..., **kwargs: Any) -> Any: ...
+def Relationships(*, unique: bool = False, frozen: bool = False, **kwargs: Any) -> Any:
     """Create a relationship field for a collection of related transmuters.
 
     Args:
         unique: If True, use a RelationSet (set semantics, no duplicates).
                 If False (default), use a RelationCollection (list semantics).
+        frozen: If True, block mutation methods on the association contents.
         **kwargs: Additional keyword arguments passed to pydantic's Field().
 
     Returns:
         A pydantic Field configured with the appropriate default_factory.
     """
     factory = RelationSet if unique else RelationCollection
-    return Field(default_factory=factory, frozen=True, **kwargs)
+    return Field(default_factory=factory, frozen=frozen, **kwargs)
