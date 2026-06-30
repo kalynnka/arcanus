@@ -26,6 +26,7 @@ from weakref import WeakKeyDictionary, ref
 from pydantic import (
     BaseModel,
     ConfigDict,
+    ValidationError,
     ValidationInfo,
     ValidatorFunctionWrapHandler,
     create_model,
@@ -315,16 +316,30 @@ class Transmuter(metaclass=TransmuterTypingMetaclass):
         )
 
     def __setattr__(self, name: str, value: Any) -> None:
+        cls = type(self)
+        model_associations = getattr(cls, "model_associations", {})
+        if name in model_associations:
+            try:
+                current_value = object.__getattribute__(self, name)
+            except AttributeError:
+                missing = object()
+                current_value = missing
+            if current_value is value:
+                return
+            raise ValidationError.from_exception_data(
+                cls.__name__,
+                [{"type": "frozen_field", "loc": (name,), "input": value}],
+            )
+
         super().__setattr__(name, value)
         try:
             provided: Any = object.__getattribute__(self, "__transmuter_provided__")
         except AttributeError:
             return
-        cls = type(self)
         if (
             provided is not None
             and name in cls.__pydantic_fields__
-            and name not in cls.model_associations
+            and name not in model_associations
         ):
             setattr(provided, name, object.__getattribute__(self, name))
 
