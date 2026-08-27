@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.0.26](https://github.com/kalynnka/arcanus/compare/v0.0.25...v0.0.26) (2026-08-27)
+
+
+### Features
+
+* hide exclude=True fields from criteria surfaces ([1c5f0c2](https://github.com/kalynnka/arcanus/commit/1c5f0c28f4fd07ec2a8be717b9174de717ce58e4))
+* hide exclude=True fields from criteria surfaces ([#54](https://github.com/kalynnka/arcanus/issues/54)) ([cbff08a](https://github.com/kalynnka/arcanus/commit/cbff08afb6f0c64b9cd6db1130608ba8de80b466))
+
+
+### Bug Fixes
+
+* freeze association mutations ([#52](https://github.com/kalynnka/arcanus/issues/52)) ([d40b06b](https://github.com/kalynnka/arcanus/commit/d40b06bc109278521155e5ec4c359f3cdd71e401))
+* preserve relationship helper typing ([0ee6a5e](https://github.com/kalynnka/arcanus/commit/0ee6a5e900aaf84d5a8f2ea4754a9ae0bf17940a))
+
 ## [0.0.25](https://github.com/kalynnka/arcanus/compare/v0.0.24...v0.0.25) (2026-06-18)
 
 

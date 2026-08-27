@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "arcanus"
-version = "0.0.25"
+version = "0.0.26"
 description = "Sticker to bind pydantic schemas with various datasources"
 authors = [
     {name = "arcanus", email = "luhui19970305@hotmail.com"},
