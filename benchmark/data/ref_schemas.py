@@ -8,8 +8,6 @@ self-contained and ``tests/`` a fixture of record.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import TypedDict
 
@@ -17,7 +15,7 @@ from typing_extensions import TypedDict
 class TagRef(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = None
+    id: int | None = None
     name: str
 
 
@@ -26,7 +24,7 @@ class CatalogRef(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = None
+    id: int | None = None
     title: str
     tags: dict[str, TagRef] = Field(default_factory=dict)
 
@@ -36,7 +34,7 @@ class GroupedCatalogRef(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = None
+    id: int | None = None
     title: str
     tags: dict[str, list[TagRef]] = Field(default_factory=dict)
 
@@ -44,7 +42,7 @@ class GroupedCatalogRef(BaseModel):
 class BookScalarRef(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = None
+    id: int | None = None
     title: str
     year: int
 
@@ -52,7 +50,7 @@ class BookScalarRef(BaseModel):
 class AuthorNameRef(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = None
+    id: int | None = None
     name: str
 
 
@@ -61,7 +59,7 @@ class AuthorWithBooksRef(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = None
+    id: int | None = None
     name: str
     field: str
     books: list[BookScalarRef] = Field(default_factory=list)
@@ -70,14 +68,14 @@ class AuthorWithBooksRef(BaseModel):
 class CategoryScalarRef(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = None
+    id: int | None = None
     name: str
 
 
 class BookWithCategoriesRef(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = None
+    id: int | None = None
     title: str
     year: int
     categories: list[CategoryScalarRef] = Field(default_factory=list)
@@ -86,7 +84,7 @@ class BookWithCategoriesRef(BaseModel):
 class ReviewScalarRef(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = None
+    id: int | None = None
     reviewer_name: str
     rating: int
     comment: str
@@ -95,7 +93,7 @@ class ReviewScalarRef(BaseModel):
 class BookWithReviewsRef(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = None
+    id: int | None = None
     title: str
     year: int
     reviews: list[ReviewScalarRef] = Field(default_factory=list)
@@ -104,14 +102,14 @@ class BookWithReviewsRef(BaseModel):
 class AuthorUpdateRef(BaseModel):
     """Partial-update reference mirroring the transmuter's generated Update model."""
 
-    name: Optional[str] = None
-    field: Optional[str] = None
+    name: str | None = None
+    field: str | None = None
 
 
 class ImageMediaRef(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = None
+    id: int | None = None
     slot: str = ""
     name: str
     media_type: str = "image"
@@ -122,7 +120,7 @@ class ImageMediaRef(BaseModel):
 class VideoMediaRef(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = None
+    id: int | None = None
     slot: str = ""
     name: str
     media_type: str = "video"
@@ -139,6 +137,6 @@ class GalleryRef(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = None
+    id: int | None = None
     name: str
     media: GalleryMediaRef

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Optional
+from typing import Annotated
 from uuid import UUID
 
 import fakeredis
@@ -25,17 +25,17 @@ redis_materia = RedisMateria()
 @redis_materia.bless()
 class Author(BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
-    books: RelationCollection["Book"] = Relationships()
+    books: RelationCollection[Book] = Relationships()
 
 
 @redis_materia.bless()
 class Book(BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     title: str
-    author: Relation[Optional[Author]] = Relationship()
+    author: Relation[Author | None] = Relationship()
 
 
 @redis_materia.bless(key_prefix="users")
@@ -58,7 +58,7 @@ class Unblessed(BaseTransmuter):
     """Has Identity but isn't blessed — used to test the unblessed-key error."""
 
     model_config = ConfigDict(from_attributes=True)
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
 
 

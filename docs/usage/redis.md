@@ -14,14 +14,17 @@ pip install "arcanus[redis]"
 ```
 
 ```python
-from arcanus.materia.redis import RedisMateria, Redis   # AsyncRedis for async
+from arcanus.materia.redis import RedisMateria, Redis  # AsyncRedis for async
 
 materia = RedisMateria()
 
-@materia.bless("author")        # key prefix; defaults to the class name if omitted
+
+@materia.bless("author")  # key prefix; defaults to the class name if omitted
 class Author(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
+
+
 # keys are stored as "author:{id}"
 ```
 

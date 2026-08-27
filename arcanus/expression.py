@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import operator as operators
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import reduce
 from typing import (
     Any,
     Generic,
-    Iterable,
     Literal,
     Protocol,
     Self,
@@ -19,10 +19,10 @@ from pydantic.fields import FieldInfo
 
 T = TypeVar("T")
 NativeExpressionT = TypeVar("NativeExpressionT")
-NativeOrderT = TypeVar("NativeOrderT", covariant=True)
+NativeOrderT_co = TypeVar("NativeOrderT_co", covariant=True)
 
 
-class ExpressionCompiler(Protocol[NativeExpressionT, NativeOrderT]):
+class ExpressionCompiler(Protocol[NativeExpressionT, NativeOrderT_co]):
     def apply(
         self, column: Column[Any], operator: str, value: object
     ) -> NativeExpressionT: ...
@@ -41,7 +41,7 @@ class ExpressionCompiler(Protocol[NativeExpressionT, NativeOrderT]):
         self, column: Column[Any], value: Expression[bool] | None
     ) -> NativeExpressionT: ...
 
-    def order(self, order: Order[Any]) -> NativeOrderT: ...
+    def order(self, order: Order[Any]) -> NativeOrderT_co: ...
 
 
 class NativeExpressionCompiler(ExpressionCompiler[Any, Any]):
@@ -303,12 +303,12 @@ class Expression(Generic[T]):
 
     @overload
     def __call__(
-        self, compiler: ExpressionCompiler[NativeExpressionT, NativeOrderT]
+        self, compiler: ExpressionCompiler[NativeExpressionT, NativeOrderT_co]
     ) -> NativeExpressionT: ...
 
     def __call__(
         self,
-        compiler: ExpressionCompiler[NativeExpressionT, NativeOrderT] | None = None,
+        compiler: ExpressionCompiler[NativeExpressionT, NativeOrderT_co] | None = None,
     ) -> NativeExpressionT | Any:
         if compiler is None:
             # Local import avoids a startup cycle while materia creates its compiler.
@@ -375,13 +375,13 @@ class Order(Generic[T]):
 
     @overload
     def __call__(
-        self, compiler: ExpressionCompiler[NativeExpressionT, NativeOrderT]
-    ) -> NativeOrderT: ...
+        self, compiler: ExpressionCompiler[NativeExpressionT, NativeOrderT_co]
+    ) -> NativeOrderT_co: ...
 
     def __call__(
         self,
-        compiler: ExpressionCompiler[NativeExpressionT, NativeOrderT] | None = None,
-    ) -> NativeOrderT | Any:
+        compiler: ExpressionCompiler[NativeExpressionT, NativeOrderT_co] | None = None,
+    ) -> NativeOrderT_co | Any:
         if compiler is None:
             # Local import avoids a startup cycle while materia creates its compiler.
             from arcanus.materia.base import active_materia

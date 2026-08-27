@@ -21,6 +21,7 @@ Set the default strategy with `lazy=` on the `relationship()`. Arcanus respects 
 ```python
 from sqlalchemy.orm import Mapped, relationship
 
+
 class BookModel(Base):
     # "select" (default): emit a SELECT on first access
     author: Mapped[AuthorModel] = relationship(lazy="select", back_populates="books")
@@ -66,16 +67,23 @@ Pass them via the `options=` argument of the session helpers, or `.options(...)`
 ```python
 from sqlalchemy import select
 from arcanus.materia.sqlalchemy import (
-    selectinload, joinedload, raiseload, load_only, defer, contains_eager,
+    selectinload,
+    joinedload,
+    raiseload,
+    load_only,
+    defer,
+    contains_eager,
 )
 
 with Session(engine) as session:
     # Eager-load a collection for the whole result set (avoids N+1 on iteration)
-    authors = session.execute(
-        select(Author).options(selectinload(Author["books"]))
-    ).scalars().all()
+    authors = (
+        session.execute(select(Author).options(selectinload(Author["books"])))
+        .scalars()
+        .all()
+    )
     for author in authors:
-        for book in author.books:        # already loaded — no extra query
+        for book in author.books:  # already loaded — no extra query
             ...
 
     # Eager-load a many-to-one via JOIN (native get accepts options=)
@@ -85,21 +93,27 @@ with Session(engine) as session:
     book = session.get_one(Book, 1, options=[raiseload(Book["categories"])])
 
     # Column-level: only fetch some columns, or defer an expensive one
-    authors = session.execute(
-        select(Author).options(load_only(Author["name"]))
-    ).scalars().all()
-    books = session.execute(
-        select(Book).options(defer(Book["title"]))
-    ).scalars().all()
+    authors = (
+        session.execute(select(Author).options(load_only(Author["name"])))
+        .scalars()
+        .all()
+    )
+    books = session.execute(select(Book).options(defer(Book["title"]))).scalars().all()
 ```
 
 Loader options chain for nested paths, exactly as in SQLAlchemy:
 
 ```python
 # Load each author's books, and each book's categories, in batched queries
-authors = session.execute(
-    select(Author).options(selectinload(Author["books"]).selectinload(Book["categories"]))
-).scalars().all()
+authors = (
+    session.execute(
+        select(Author).options(
+            selectinload(Author["books"]).selectinload(Book["categories"])
+        )
+    )
+    .scalars()
+    .all()
+)
 ```
 
 (The same `options=` also works on the [session helpers](session.md), e.g.
@@ -125,12 +139,12 @@ from arcanus.materia.sqlalchemy import AsyncSession
 async with AsyncSession(async_engine) as session:
     author = await session.get_one(Author, 1)
 
-    books = await author.books          # awaits the lazy load → list[Book]
-    for book in author.books:           # already resolved — plain iteration
+    books = await author.books  # awaits the lazy load → list[Book]
+    for book in author.books:  # already resolved — plain iteration
         ...
 
     book = await session.get_one(Book, 1)
-    parent = await book.author          # → Author
+    parent = await book.author  # → Author
     assert parent is book.author.value  # second access needs no await
 ```
 

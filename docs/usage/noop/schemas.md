@@ -45,13 +45,19 @@ from arcanus import BaseTransmuter, Identity
 from pydantic import Field
 from typing import Annotated, Optional
 
+
 class Author(BaseTransmuter):
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)  # generated
+    id: Annotated[Optional[int], Identity] = Field(
+        default=None, frozen=True
+    )  # generated
     name: str
     field: str = "Physics"
 
+
 class BookCategory(BaseTransmuter):
-    book_id: Annotated[int, Identity(server_side=False)] = Field(frozen=True)     # natural key
+    book_id: Annotated[int, Identity(server_side=False)] = Field(
+        frozen=True
+    )  # natural key
     category_id: Annotated[int, Identity(server_side=False)] = Field(frozen=True)
 ```
 
@@ -62,10 +68,10 @@ keeping every other field with its original required/optional shape. An identity
 `Identity(server_side=False)` instead **stays** in `.Create`, so the client can supply it:
 
 ```python
-list(Author.Create.model_fields)        # ['name', 'field'] — generated 'id' dropped
-Author.Create.model_fields["name"].is_required()   # True — required stays required
+list(Author.Create.model_fields)  # ['name', 'field'] — generated 'id' dropped
+Author.Create.model_fields["name"].is_required()  # True — required stays required
 
-payload = Author.Create(name="Isaac Asimov")        # validates an incoming create body
+payload = Author.Create(name="Isaac Asimov")  # validates an incoming create body
 
 # A natural/composite key stays in Create (and keeps its required shape):
 list(BookCategory.Create.model_fields)  # ['book_id', 'category_id']
@@ -74,7 +80,7 @@ list(BookCategory.Create.model_fields)  # ['book_id', 'category_id']
 `shell()` turns a validated `Create` into a full (not-yet-persisted) transmuter:
 
 ```python
-author = Author.shell(payload)           # Author(id=None, name="Isaac Asimov", field="Physics")
+author = Author.shell(payload)  # Author(id=None, name="Isaac Asimov", field="Physics")
 ```
 
 ## `.Update` — exclude frozen (write-once), all optional
@@ -84,7 +90,7 @@ Because identities are frozen they're excluded too. `frozen=True` is therefore h
 **write-once** field — settable at create, never on update:
 
 ```python
-list(Author.Update.model_fields)        # ['name', 'field'] — no 'id' (frozen)
+list(Author.Update.model_fields)  # ['name', 'field'] — no 'id' (frozen)
 
 patch = Author.Update(field="History")  # only 'field' is set
 ```
@@ -95,8 +101,8 @@ were actually set** (`exclude_unset`):
 ```python
 author = Author.shell(Author.Create(name="Isaac Asimov"))
 author.absorb(Author.Update(field="History"))
-author.field        # "History"
-author.name         # "Isaac Asimov" — untouched, because it wasn't set on the patch
+author.field  # "History"
+author.name  # "Isaac Asimov" — untouched, because it wasn't set on the patch
 ```
 
 ## Masking a field from the response
@@ -110,11 +116,12 @@ from any serialized response):
 class Account(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     username: str
-    password: str = Field(exclude=True)          # masked from responses, still writable
+    password: str = Field(exclude=True)  # masked from responses, still writable
+
 
 account = Account.shell(Account.Create(username="neo", password="trinity"))
-account.password            # "trinity" — usable in backend logic
-account.model_dump()        # {'id': None, 'username': 'neo'} — no password
+account.password  # "trinity" — usable in backend logic
+account.model_dump()  # {'id': None, 'username': 'neo'} — no password
 ```
 
 `password` still appears in `.Create` / `.Update` (the client can set and change it); only the
@@ -128,10 +135,15 @@ The pattern these enable, end to end (still no backend — swap in a real sessio
 
 ```python
 def create_author(body: dict) -> Author:
-    return Author.shell(Author.Create.model_validate(body))   # 422-style validation on bad input
+    return Author.shell(
+        Author.Create.model_validate(body)
+    )  # 422-style validation on bad input
+
 
 def update_author(author: Author, body: dict) -> Author:
-    return author.absorb(Author.Update.model_validate(body))  # only provided fields change
+    return author.absorb(
+        Author.Update.model_validate(body)
+    )  # only provided fields change
 ```
 
 ## With FastAPI
@@ -144,24 +156,26 @@ and `absorb()` bridge to the transmuter:
 ```python
 from fastapi import FastAPI
 from sqlalchemy import select
-from arcanus.materia.sqlalchemy import Session     # SQLAlchemy materia persists the result
+from arcanus.materia.sqlalchemy import Session  # SQLAlchemy materia persists the result
 
 app = FastAPI()
 
+
 @app.post("/authors")
 def create_author(body: Author.Create) -> Author:
-    author = Author.shell(body)                    # Create excludes the id; body is validated
+    author = Author.shell(body)  # Create excludes the id; body is validated
     with Session(engine) as session:
         session.add(author)
-        session.flush()                            # server-generated id synced back automatically
+        session.flush()  # server-generated id synced back automatically
         session.commit()
     return author
+
 
 @app.patch("/authors/{author_id}")
 def update_author(author_id: int, body: Author.Update) -> Author:
     with Session(engine) as session:
         author = session.get_one(Author, author_id)
-        author.absorb(body)                        # applies only the fields the client sent
+        author.absorb(body)  # applies only the fields the client sent
         session.commit()
         return author
 ```

@@ -8,7 +8,7 @@ Imported (not autoused globally) by ``benchmark/sqlalchemy/conftest.py``.
 
 from __future__ import annotations
 
-from typing import Generator
+from collections.abc import Generator
 
 import pytest
 from sqlalchemy import Engine, create_engine

@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import operator
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from functools import cached_property
 from typing import (
     Any,
-    Iterator,
     Literal,
-    Optional,
     Self,
-    Sequence,
     TypeVar,
     overload,
 )
@@ -70,7 +67,7 @@ class AdaptedCommon(FilterResult[_R]):
     # property creation. FilterResult does not inherit this from Result, so
     # we provide the same default here to prevent AttributeError on Python
     # versions that use the C extension (e.g. Python 3.13).
-    _yield_per: Optional[int] = None
+    _yield_per: int | None = None
 
     def close(self) -> None:
         self._real_result.close()
@@ -84,7 +81,7 @@ class AdaptedResult(_WithKeys, AdaptedCommon[Row[_TP]]):
     entities: tuple[Any, ...]
 
     _real_result: Result[_TP]
-    _row_logging_fn: Optional[Callable[[Row[Any]], Row[Any]]] = None
+    _row_logging_fn: Callable[[Row[Any]], Row[Any]] | None = None
     _force_revalidate: bool = False
 
     def __init__(
@@ -149,7 +146,7 @@ class AdaptedResult(_WithKeys, AdaptedCommon[Row[_TP]]):
         return self
 
     @_generative
-    def unique(self, strategy: Optional[_UniqueFilterType] = None) -> Self:
+    def unique(self, strategy: _UniqueFilterType | None = None) -> Self:
         """Apply unique filtering to the objects returned by this
         :class:`_asyncio.AsyncResult`.
 
@@ -187,7 +184,7 @@ class AdaptedResult(_WithKeys, AdaptedCommon[Row[_TP]]):
     def fetchall(self) -> Sequence[Row[_TP]]:
         return [self._adapt(row) for row in self._allrows()]
 
-    def fetchone(self) -> Optional[Row[_TP]]:
+    def fetchone(self) -> Row[_TP] | None:
         row = self._onerow_getter(self)
         if row is _NO_ROW:
             return None
@@ -200,7 +197,7 @@ class AdaptedResult(_WithKeys, AdaptedCommon[Row[_TP]]):
     def all(self) -> Sequence[Row[_TP]]:
         return [self._adapt(row) for row in self._allrows()]
 
-    def first(self) -> Optional[Row[_TP]]:
+    def first(self) -> Row[_TP] | None:
         return (
             self._adapt(row)
             if (
@@ -222,7 +219,7 @@ class AdaptedResult(_WithKeys, AdaptedCommon[Row[_TP]]):
             )
         )
 
-    def one_or_none(self) -> Optional[Row[_TP]]:
+    def one_or_none(self) -> Row[_TP] | None:
         return (
             self._adapt(row)
             if (
@@ -236,7 +233,7 @@ class AdaptedResult(_WithKeys, AdaptedCommon[Row[_TP]]):
         )
 
     @overload
-    def scalar(self: AdaptedResult[tuple[_T]]) -> Optional[_T]: ...
+    def scalar(self: AdaptedResult[tuple[_T]]) -> _T | None: ...
 
     @overload
     def scalar(self) -> Any: ...
@@ -264,12 +261,12 @@ class AdaptedResult(_WithKeys, AdaptedCommon[Row[_TP]]):
         )
 
     @overload
-    def scalar_one_or_none(self: AdaptedResult[tuple[_T]]) -> Optional[_T]: ...
+    def scalar_one_or_none(self: AdaptedResult[tuple[_T]]) -> _T | None: ...
 
     @overload
-    def scalar_one_or_none(self) -> Optional[Any]: ...
+    def scalar_one_or_none(self) -> Any | None: ...
 
-    def scalar_one_or_none(self) -> Optional[Any]:
+    def scalar_one_or_none(self) -> Any | None:
         return (
             self._adapt_scalar(row)
             if (
@@ -361,7 +358,7 @@ class AdaptedScalarResult(ScalarResult[_R]):
 
     def unique(
         self,
-        strategy: Optional[_UniqueFilterType] = None,
+        strategy: _UniqueFilterType | None = None,
     ) -> Self:
         self._unique_filter_state = (set(), strategy)
         return self
@@ -540,7 +537,7 @@ class AdaptedMappingResult(_WithKeys, AdaptedCommon[RowMapping]):
         )
 
     @_generative
-    def unique(self, strategy: Optional[_UniqueFilterType] = None) -> Self:
+    def unique(self, strategy: _UniqueFilterType | None = None) -> Self:
         self._unique_filter_state = (set(), strategy)
         return self
 
@@ -551,14 +548,14 @@ class AdaptedMappingResult(_WithKeys, AdaptedCommon[RowMapping]):
         while True:
             partition = self._manyrow_getter(self, size)
             if partition:
-                yield list(
+                yield [
                     dict(zip(row.keys(), self._adapt(row.values())))
                     for row in partition
-                )
+                ]
             else:
                 break
 
-    def fetchone(self) -> Optional[dict[str, Any]]:
+    def fetchone(self) -> dict[str, Any] | None:
         row = self._onerow_getter(self)
         if row is _NO_ROW:
             return None
@@ -566,16 +563,16 @@ class AdaptedMappingResult(_WithKeys, AdaptedCommon[RowMapping]):
             return dict(zip(row.keys(), self._adapt(row.values())))
 
     def fetchmany(self, size: int | None = None) -> Sequence[dict[str, Any]]:
-        return list(
+        return [
             dict(zip(row.keys(), self._adapt(row.values())))
             for row in self._manyrow_getter(size)
-        )
+        ]
 
     def fetchall(self) -> Sequence[dict[str, Any]]:
         """A synonym for the :meth:`AdaptedMappingResult.all` method."""
-        return list(
+        return [
             dict(zip(row.keys(), self._adapt(row.values()))) for row in self._allrows()
-        )
+        ]
 
     def first(self) -> dict[str, Any] | None:
         return (
@@ -591,9 +588,9 @@ class AdaptedMappingResult(_WithKeys, AdaptedCommon[RowMapping]):
         )
 
     def all(self) -> Sequence[dict[str, Any]]:
-        return list(
+        return [
             dict(zip(row.keys(), self._adapt(row.values()))) for row in self._allrows()
-        )
+        ]
 
     def one(self) -> dict[str, Any]:
         row = self._only_one_row(
@@ -629,7 +626,7 @@ class AsyncAdaptedCommon(FilterResult[_R]):
     # property creation. FilterResult does not inherit this from Result, so
     # we provide the same default here to prevent AttributeError on Python
     # versions that use the C extension (e.g. Python 3.13).
-    _yield_per: Optional[int] = None
+    _yield_per: int | None = None
 
     async def close(self) -> None:
         """Close this result."""
@@ -712,7 +709,7 @@ class AsyncAdaptedResult(_WithKeys, AsyncAdaptedCommon[Row[_TP]]):
         return self
 
     @_generative
-    def unique(self, strategy: Optional[_UniqueFilterType] = None) -> Self:
+    def unique(self, strategy: _UniqueFilterType | None = None) -> Self:
         """Apply unique filtering to the objects returned by this
         :class:`AsyncAdaptedResult`.
         """
@@ -741,7 +738,7 @@ class AsyncAdaptedResult(_WithKeys, AsyncAdaptedCommon[Row[_TP]]):
         rows = await greenlet_spawn(self._allrows)
         return [self._adapt(row) for row in rows]
 
-    async def fetchone(self) -> Optional[Row[_TP]]:
+    async def fetchone(self) -> Row[_TP] | None:
         """Fetch one row."""
         row = await greenlet_spawn(self._onerow_getter, self)
         if row is _NO_ROW:
@@ -769,12 +766,12 @@ class AsyncAdaptedResult(_WithKeys, AsyncAdaptedCommon[Row[_TP]]):
         else:
             return self._adapt(row)
 
-    async def first(self) -> Optional[Row[_TP]]:
+    async def first(self) -> Row[_TP] | None:
         """Fetch the first row or ``None`` if no row is present."""
         row = await greenlet_spawn(self._only_one_row, False, False, False)
         return self._adapt(row) if row else None
 
-    async def one_or_none(self) -> Optional[Row[_TP]]:
+    async def one_or_none(self) -> Row[_TP] | None:
         """Return at most one result or raise an exception."""
         row = await greenlet_spawn(self._only_one_row, True, False, False)
         return self._adapt(row) if row else None
@@ -798,18 +795,18 @@ class AsyncAdaptedResult(_WithKeys, AsyncAdaptedCommon[Row[_TP]]):
     @overload
     async def scalar_one_or_none(
         self: AsyncAdaptedResult[tuple[_T]],
-    ) -> Optional[_T]: ...
+    ) -> _T | None: ...
 
     @overload
-    async def scalar_one_or_none(self) -> Optional[Any]: ...
+    async def scalar_one_or_none(self) -> Any | None: ...
 
-    async def scalar_one_or_none(self) -> Optional[Any]:
+    async def scalar_one_or_none(self) -> Any | None:
         """Return exactly one scalar result or ``None``."""
         scalar = await greenlet_spawn(self._only_one_row, True, False, True)
         return self._adapt_scalar(scalar) if scalar else None
 
     @overload
-    async def scalar(self: AsyncAdaptedResult[tuple[_T]]) -> Optional[_T]: ...
+    async def scalar(self: AsyncAdaptedResult[tuple[_T]]) -> _T | None: ...
 
     @overload
     async def scalar(self) -> Any: ...
@@ -894,7 +891,7 @@ class AsyncAdaptedScalarResult(AsyncAdaptedCommon[_R]):
 
     def unique(
         self,
-        strategy: Optional[_UniqueFilterType] = None,
+        strategy: _UniqueFilterType | None = None,
     ) -> Self:
         """Apply unique filtering to the objects returned by this result."""
         self._unique_filter_state = (set(), strategy)
@@ -936,12 +933,12 @@ class AsyncAdaptedScalarResult(AsyncAdaptedCommon[_R]):
         else:
             return self._adapt_scalar(row)
 
-    async def first(self) -> Optional[_R]:
+    async def first(self) -> _R | None:
         """Fetch the first object or ``None`` if no object is present."""
         scalar = await greenlet_spawn(self._only_one_row, False, False, False)
         return self._adapt_scalar(scalar) if scalar else None
 
-    async def one_or_none(self) -> Optional[_R]:
+    async def one_or_none(self) -> _R | None:
         """Return at most one object or raise an exception."""
         scalar = await greenlet_spawn(self._only_one_row, True, False, False)
         return self._adapt_scalar(scalar) if scalar else None
@@ -990,7 +987,7 @@ class AsyncAdaptedMappingResult(_WithKeys, AsyncAdaptedCommon[RowMapping]):
         return self.adapter.validate_python(row)
 
     @_generative
-    def unique(self, strategy: Optional[_UniqueFilterType] = None) -> Self:
+    def unique(self, strategy: _UniqueFilterType | None = None) -> Self:
         self._unique_filter_state = (set(), strategy)
         return self
 
@@ -1006,14 +1003,14 @@ class AsyncAdaptedMappingResult(_WithKeys, AsyncAdaptedCommon[RowMapping]):
         while True:
             partition = await greenlet_spawn(getter, self, size)
             if partition:
-                yield list(
+                yield [
                     dict(zip(row.keys(), self._adapt(row.values())))
                     for row in partition
-                )
+                ]
             else:
                 break
 
-    async def fetchone(self) -> Optional[dict[str, Any]]:
+    async def fetchone(self) -> dict[str, Any] | None:
         """Fetch one object."""
         row = await greenlet_spawn(self._onerow_getter, self)
         if row is _NO_ROW:
@@ -1024,17 +1021,17 @@ class AsyncAdaptedMappingResult(_WithKeys, AsyncAdaptedCommon[RowMapping]):
     async def fetchmany(self, size: int | None = None) -> Sequence[dict[str, Any]]:
         """Fetch many rows."""
         rows = await greenlet_spawn(self._manyrow_getter, self, size)
-        return list(dict(zip(row.keys(), self._adapt(row.values()))) for row in rows)
+        return [dict(zip(row.keys(), self._adapt(row.values()))) for row in rows]
 
     async def fetchall(self) -> Sequence[dict[str, Any]]:
         """A synonym for the :meth:`AsyncAdaptedMappingResult.all` method."""
         rows = await greenlet_spawn(self._allrows)
-        return list(dict(zip(row.keys(), self._adapt(row.values()))) for row in rows)
+        return [dict(zip(row.keys(), self._adapt(row.values()))) for row in rows]
 
     async def all(self) -> Sequence[dict[str, Any]]:
         """Return all rows in a list."""
         rows = await greenlet_spawn(self._allrows)
-        return list(dict(zip(row.keys(), self._adapt(row.values()))) for row in rows)
+        return [dict(zip(row.keys(), self._adapt(row.values()))) for row in rows]
 
     def __aiter__(self) -> AsyncAdaptedMappingResult:
         return self
@@ -1046,14 +1043,14 @@ class AsyncAdaptedMappingResult(_WithKeys, AsyncAdaptedCommon[RowMapping]):
         else:
             return dict(zip(row.keys(), self._adapt(row.values())))
 
-    async def first(self) -> Optional[dict[str, Any]]:
+    async def first(self) -> dict[str, Any] | None:
         """Fetch the first object or ``None`` if no object is present."""
         row = await greenlet_spawn(self._only_one_row, False, False, False)
         if row:
             return dict(zip(row.keys(), self._adapt(row.values())))
         return None
 
-    async def one_or_none(self) -> Optional[dict[str, Any]]:
+    async def one_or_none(self) -> dict[str, Any] | None:
         """Return at most one object or raise an exception."""
         row = await greenlet_spawn(self._only_one_row, True, False, False)
         if row:

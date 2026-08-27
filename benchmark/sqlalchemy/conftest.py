@@ -7,6 +7,6 @@ read-only; write benchmarks roll back so the seeds are never polluted.
 
 from __future__ import annotations
 
-from benchmark.fixtures.db import *  # noqa: F401,F403
-from benchmark.fixtures.db_async import *  # noqa: F401,F403
-from benchmark.fixtures.seeds import *  # noqa: F401,F403
+from benchmark.fixtures.db import *
+from benchmark.fixtures.db_async import *
+from benchmark.fixtures.seeds import *

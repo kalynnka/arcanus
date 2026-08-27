@@ -19,9 +19,9 @@ Arcanus gives you three layers for building queries, each converting into the ne
 Indexing a transmuter class with a field name yields a typed `Column`:
 
 ```python
-Author["name"]      # Column[str]
-Book["title"]       # Column[str]
-Book["author"]      # Column over the relationship
+Author["name"]  # Column[str]
+Book["title"]  # Column[str]
+Book["author"]  # Column over the relationship
 ```
 
 A `Column` proxies through to the underlying ORM attribute, so it drops straight into a SQLAlchemy
@@ -40,17 +40,19 @@ Operators and methods on a `Column` build an Arcanus **`Expression`** — a type
 description of a predicate:
 
 ```python
-Author["name"] == "Ada"            # eq
-Author["id"].in_((1, 2, 3))         # in
-Author["name"].like("Isaac%")       # like / ilike / starts_with / ends_with / contains
-Author["id"] >= 100                 # lt / le / gt / ge
-Author["name"].is_(None)            # is_ / is_not
+Author["name"] == "Ada"  # eq
+Author["id"].in_((1, 2, 3))  # in
+Author["name"].like("Isaac%")  # like / ilike / starts_with / ends_with / contains
+Author["id"] >= 100  # lt / le / gt / ge
+Author["name"].is_(None)  # is_ / is_not
 ```
 
 Combine them with `&` (and), `|` (or), and `~` (not):
 
 ```python
-expr = (Author["name"].contains("Ada") & (Author["field"] == "Physics")) | ~Author["id"].in_((1, 2))
+expr = (Author["name"].contains("Ada") & (Author["field"] == "Physics")) | ~Author[
+    "id"
+].in_((1, 2))
 ```
 
 For relationship predicates, use `.any()` (collections) and `.has()` (scalars):
@@ -69,11 +71,15 @@ into a native `select`:
 ```python
 from sqlalchemy import select
 
-authors = session.execute(
-    select(Author)
-    .where(Author["field"] == "Physics")
-    .order_by(Author["name"].asc(), Author["id"].desc())
-).scalars().all()
+authors = (
+    session.execute(
+        select(Author)
+        .where(Author["field"] == "Physics")
+        .order_by(Author["name"].asc(), Author["id"].desc())
+    )
+    .scalars()
+    .all()
+)
 ```
 
 ### Expressions ⇄ native (materia) expressions
@@ -82,8 +88,8 @@ An Arcanus expression is **not** a SQLAlchemy clause until it is compiled. Calli
 materia's expression compiler to translate it into the backend's native form:
 
 ```python
-with Session(engine):                       # a materia must be active to compile
-    native = (Author["name"] == "Ada")()    # → a SQLAlchemy BinaryExpression
+with Session(engine):  # a materia must be active to compile
+    native = (Author["name"] == "Ada")()  # → a SQLAlchemy BinaryExpression
 ```
 
 You rarely call this yourself: dropping an expression into `select(...).where(...)` compiles it for
@@ -101,19 +107,21 @@ and `Book["slug"]` compiles to that `hybrid_property`'s SQL:
 ```python
 from sqlalchemy.ext.hybrid import hybrid_property
 
+
 class BookModel(Base):
     __tablename__ = "books"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column()
 
     @hybrid_property
-    def slug(self) -> str:                       # Python-side value
+    def slug(self) -> str:  # Python-side value
         return self.title.lower().replace(" ", "-")
 
     @slug.inplace.expression
     @classmethod
-    def _slug_expr(cls):                          # SQL-side expression
+    def _slug_expr(cls):  # SQL-side expression
         return func.replace(func.lower(cls.title), " ", "-")
+
 
 @materia.bless(BookModel)
 class Book(BaseTransmuter):
@@ -121,13 +129,14 @@ class Book(BaseTransmuter):
     title: str
 
     @computed_field
-    @provided                                     # ← declares the hybrid_property backing
+    @provided  # ← declares the hybrid_property backing
     @property
     def slug(self) -> str:
         return self.title.lower().replace(" ", "-")
 
+
 with materia:
-    Book["slug"] == "foundation"                  # compiles to the hybrid_property's SQL
+    Book["slug"] == "foundation"  # compiles to the hybrid_property's SQL
 ```
 
 A computed field *without* `@provided` stays serialization-only — invisible to `Book["…"]`, criteria,
@@ -162,9 +171,9 @@ active materia) and spread it into a native `select`:
 from sqlalchemy import func, select
 
 with Session(engine) as session:
-    authors = session.execute(
-        select(Author).where(*criteria.expressions)
-    ).scalars().all()
+    authors = (
+        session.execute(select(Author).where(*criteria.expressions)).scalars().all()
+    )
     total = session.execute(
         select(func.count()).select_from(Author).where(*criteria.expressions)
     ).scalar_one()
@@ -184,13 +193,13 @@ from arcanus import NestedCriteria
 criteria = NestedCriteria[Author].model_validate(
     {
         "name": {"eq": "Ada"},
-        "books": {"title": {"eq": "Notes"}},   # one layer into the relationship
+        "books": {"title": {"eq": "Notes"}},  # one layer into the relationship
     }
 )
 with Session(engine) as session:
-    authors = session.execute(
-        select(Author).where(*criteria.expressions)
-    ).scalars().all()
+    authors = (
+        session.execute(select(Author).where(*criteria.expressions)).scalars().all()
+    )
 ```
 
 ### Accepting JSON filters
@@ -204,10 +213,10 @@ and run it — bad operators or value types are rejected before any SQL is built
 from arcanus import Criteria
 
 with Session(engine) as session:
-    criteria = Criteria[Author].model_validate(payload)   # validated JSON → Criteria
-    authors = session.execute(
-        select(Author).where(*criteria.expressions)
-    ).scalars().all()
+    criteria = Criteria[Author].model_validate(payload)  # validated JSON → Criteria
+    authors = (
+        session.execute(select(Author).where(*criteria.expressions)).scalars().all()
+    )
 ```
 
 ## Cursor pagination
@@ -233,9 +242,16 @@ with Session(engine) as session:
 
     # Fetch one extra row to detect whether more pages exist.
     # Arcanus Expression/Order objects drop into native where()/order_by() directly.
-    items = session.execute(
-        select(Author).where(*criteria.expressions).order_by(*orders).limit(limit + 1)
-    ).scalars().all()
+    items = (
+        session.execute(
+            select(Author)
+            .where(*criteria.expressions)
+            .order_by(*orders)
+            .limit(limit + 1)
+        )
+        .scalars()
+        .all()
+    )
     page_items = tuple(items[:limit])
     has_more = len(items) > limit
 
@@ -268,16 +284,20 @@ the original criteria:
 with Session(engine) as session:
     decoded = Cursor[Author](page.next_cursor)
 
-    bookmark_expression = decoded.bookmark.expression       # keyset predicate, or None
-    items = session.execute(
-        select(Author)
-        .where(
-            *decoded.criteria.expressions,                  # original filter
-            *((bookmark_expression,) if bookmark_expression is not None else ()),
+    bookmark_expression = decoded.bookmark.expression  # keyset predicate, or None
+    items = (
+        session.execute(
+            select(Author)
+            .where(
+                *decoded.criteria.expressions,  # original filter
+                *((bookmark_expression,) if bookmark_expression is not None else ()),
+            )
+            .order_by(*decoded.order_by.orders)  # Ordering → Order tuple
+            .limit((decoded.limit or 0) + 1)
         )
-        .order_by(*decoded.order_by.orders)                 # Ordering → Order tuple
-        .limit((decoded.limit or 0) + 1)
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 ```
 
 The cursor's pieces are all part of the same two-way design:

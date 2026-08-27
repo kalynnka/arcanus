@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
-from typing import Annotated, Optional
+from typing import Annotated
 
 import pytest
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -30,7 +30,7 @@ from tests.transmuters import Author, Book, sqlalchemy_materia
 class VaultEntry(BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     label: str
 
 
@@ -39,7 +39,7 @@ class Vault(BaseTransmuter):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
     secret: str = Field(exclude=True)
 
@@ -123,7 +123,7 @@ def test_nested_criteria_accepts_one_layer_relationship_criteria():
             "books": {"title": {"eq": "Notes"}},
         }
     )
-    books = getattr(criteria, "books")
+    books = getattr(criteria, "books")  # noqa: B009 — generated field
 
     assert books.model_dump(mode="json", by_alias=True, exclude_none=True) == {
         "title": {"eq": "Notes"}
@@ -262,7 +262,7 @@ def test_literal_fields_use_exact_value_criteria():
     criteria = criteria_model.model_validate(
         {"field": {"eq": "Physics", "in": ["Biology", "History"]}}
     )
-    field_criteria: ExactCriteria[str] | None = getattr(criteria, "field")
+    field_criteria: ExactCriteria[str] | None = getattr(criteria, "field")  # noqa: B009
 
     assert field_criteria is not None
     assert field_criteria.eq == "Physics"
@@ -281,7 +281,7 @@ def test_text_criteria_accepts_range_operators():
     criteria = criteria_model.model_validate(
         {"name": {"lt": "Grace", "le": "Grace", "gt": "Ada", "ge": "Ada"}}
     )
-    name_criteria: TextCriteria[str] | None = getattr(criteria, "name")
+    name_criteria: TextCriteria[str] | None = getattr(criteria, "name")  # noqa: B009
 
     assert name_criteria is not None
     assert name_criteria.lt == "Grace"
@@ -312,8 +312,8 @@ def test_criteria_validation_accepts_nested_logical_fields():
     )
 
     assert criteria.or_ is not None
-    name_criteria: TextCriteria[str] | None = getattr(criteria, "name")
-    first_or_field_criteria: BaseCriteria[str] | None = getattr(
+    name_criteria: TextCriteria[str] | None = getattr(criteria, "name")  # noqa: B009
+    first_or_field_criteria: BaseCriteria[str] | None = getattr(  # noqa: B009
         criteria.or_[0], "field"
     )
 
@@ -417,7 +417,7 @@ def test_cursor_payload_bookmark_is_separate_from_paged_criteria():
 def test_upper_criteria_handles_scalar_field_expression_translation():
     criteria = Criteria[Author].model_validate({"name": {"contains": "Ada"}})
 
-    name_criteria: TextCriteria[str] | None = getattr(criteria, "name")
+    name_criteria: TextCriteria[str] | None = getattr(criteria, "name")  # noqa: B009
 
     assert name_criteria is not None
     assert name_criteria.contains == "Ada"

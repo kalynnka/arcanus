@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class TestIdMixin(BaseModel):
-    test_id: Optional[UUID] = Field(default=None, frozen=True, exclude=True)
+    test_id: UUID | None = Field(default=None, frozen=True, exclude=True)
 
 
 # BookCategory schema (M-M association with composite PK)
@@ -22,7 +22,7 @@ class BookCategory(TestIdMixin, BaseModel):
 class Publisher(TestIdMixin, BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = Field(default=None, frozen=True)
+    id: int | None = Field(default=None, frozen=True)
     name: str
     country: str
 
@@ -33,7 +33,7 @@ class Publisher(TestIdMixin, BaseModel):
 class Author(TestIdMixin, BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = Field(default=None, frozen=True)
+    id: int | None = Field(default=None, frozen=True)
     name: str
     field: Literal[
         "Physics",
@@ -48,7 +48,6 @@ class Author(TestIdMixin, BaseModel):
         "Robotics",
         "Cybernetics",
         "Xenobiology",
-        "Quantum Physics",
         "Science Fiction",
     ]
 
@@ -72,7 +71,6 @@ class AuthorCreate(BaseModel):
         "Robotics",
         "Cybernetics",
         "Xenobiology",
-        "Quantum Physics",
         "Science Fiction",
     ] = Field(alias="write_field")
 
@@ -82,7 +80,7 @@ class AuthorFlat(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = Field(default=None, frozen=True)
+    id: int | None = Field(default=None, frozen=True)
     name: str
     field: Literal[
         "Physics",
@@ -97,7 +95,6 @@ class AuthorFlat(BaseModel):
         "Robotics",
         "Cybernetics",
         "Xenobiology",
-        "Quantum Physics",
         "Science Fiction",
     ]
 
@@ -107,7 +104,7 @@ class PublisherFlat(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = Field(default=None, frozen=True)
+    id: int | None = Field(default=None, frozen=True)
     name: str
     country: str
 
@@ -117,7 +114,7 @@ class BookFlat(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = Field(default=None, frozen=True)
+    id: int | None = Field(default=None, frozen=True)
     title: str
     year: int
     author_id: int | None = None
@@ -140,7 +137,7 @@ class BookCreate(BaseModel):
 class BookDetail(TestIdMixin, BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = Field(default=None, frozen=True)
+    id: int | None = Field(default=None, frozen=True)
     isbn: str
     pages: int
     abstract: str
@@ -153,7 +150,7 @@ class BookDetail(TestIdMixin, BaseModel):
 class Book(TestIdMixin, BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = Field(default=None, frozen=True)
+    id: int | None = Field(default=None, frozen=True)
     title: str
     year: int
     author_id: int | None = None
@@ -162,8 +159,8 @@ class Book(TestIdMixin, BaseModel):
 
     author: Author
     publisher: Publisher
-    translator: Optional[Translator] = None
-    detail: Optional[BookDetail] = None
+    translator: Translator | None = None
+    detail: BookDetail | None = None
     categories: list[Category] = Field(default_factory=list)
     reviews: list[Review] = Field(default_factory=list)  # Optional 1-M
 
@@ -172,7 +169,7 @@ class Book(TestIdMixin, BaseModel):
 class Category(TestIdMixin, BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = Field(default=None, frozen=True)
+    id: int | None = Field(default=None, frozen=True)
     name: str
     description: str | None = None
 
@@ -183,24 +180,24 @@ class Category(TestIdMixin, BaseModel):
 class Translator(TestIdMixin, BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = Field(default=None, frozen=True)
+    id: int | None = Field(default=None, frozen=True)
     name: str
     language: str
 
-    book: Optional[Book] = None
+    book: Book | None = None
 
 
 # Review schema (optional M-1 with Book)
 class Review(TestIdMixin, BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = Field(default=None, frozen=True)
+    id: int | None = Field(default=None, frozen=True)
     reviewer_name: str
     rating: int = Field(ge=1, le=5)  # 1-5 stars
     comment: str
     book_id: int | None = None
 
-    book: Optional[Book] = None
+    book: Book | None = None
 
 
 class Company(TestIdMixin, BaseModel):
@@ -208,13 +205,13 @@ class Company(TestIdMixin, BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = Field(default=None, frozen=True)
+    id: int | None = Field(default=None, frozen=True)
     name: str
     industry: str
 
     departments: list[Department] = Field(default_factory=list)
     employees: list[Employee] = Field(default_factory=list)
-    ceo: Optional[Employee] = None
+    ceo: Employee | None = None
     client_projects: list[Project] = Field(default_factory=list)
 
 
@@ -223,7 +220,7 @@ class Department(TestIdMixin, BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = Field(default=None, frozen=True)
+    id: int | None = Field(default=None, frozen=True)
     name: str
     budget: int
 
@@ -238,13 +235,13 @@ class Employee(TestIdMixin, BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = Field(default=None, frozen=True)
+    id: int | None = Field(default=None, frozen=True)
     name: str
     title: str
     salary: int
 
     company: Company
-    company_as_ceo: Optional[Company] = None
+    company_as_ceo: Company | None = None
     department: Department
     led_projects: list[Project] = Field(default_factory=list)
     managed_teams: list[Team] = Field(default_factory=list)
@@ -256,15 +253,15 @@ class Project(TestIdMixin, BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = Field(default=None, frozen=True)
+    id: int | None = Field(default=None, frozen=True)
     name: str
     description: str
     status: str
 
     department: Department
     lead: Employee
-    team: Optional[Team] = None
-    client_company: Optional[Company] = None
+    team: Team | None = None
+    client_company: Company | None = None
 
 
 class Team(TestIdMixin, BaseModel):
@@ -272,7 +269,7 @@ class Team(TestIdMixin, BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = Field(default=None, frozen=True)
+    id: int | None = Field(default=None, frozen=True)
     name: str
     size: int
 
@@ -287,7 +284,7 @@ class BlogPostFlat(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Optional[int] = Field(default=None)
+    id: int | None = Field(default=None)
     title: str
     author_id: int
     author_name: str | None = None

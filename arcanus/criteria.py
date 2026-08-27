@@ -2,16 +2,14 @@ from __future__ import annotations
 
 import base64
 import sys
+from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime
 from functools import cached_property
 from types import UnionType, prepare_class
 from typing import (
     Any,
-    Callable,
     ClassVar,
     Generic,
-    Iterable,
-    Iterator,
     Literal,
     Self,
     TypeVar,
@@ -933,7 +931,8 @@ class Cursor(RootModel[str], Generic[P]):
             padded = token + "=" * (-len(token) % 4)
             decoded = base64.urlsafe_b64decode(padded.encode()).decode()
             payload = payload_model.model_validate_json(decoded)
-        except Exception as error:
+        # Any decode/validation failure means the token is invalid.
+        except Exception as error:  # noqa: BLE001
             raise PydanticCustomError(
                 "invalid_cursor",
                 "Invalid cursor token: {error}",

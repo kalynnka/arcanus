@@ -9,7 +9,8 @@ local report can derive per-object timings. Imported by the Axis B conftest.
 from __future__ import annotations
 
 import random
-from typing import Any, Generator
+from collections.abc import Generator
+from typing import Any
 
 import pytest
 from sqlalchemy.orm import Session, sessionmaker

@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from arcanus.materia.base import NoOpMateria, active_materia
-from benchmark.fixtures.noop_fixtures import *  # noqa: F401,F403
+from benchmark.fixtures.noop_fixtures import *
 
 
 @pytest.fixture(autouse=True)

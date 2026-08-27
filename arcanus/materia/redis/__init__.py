@@ -9,7 +9,7 @@ from arcanus.materia.redis.base import RedisMateria
 from arcanus.materia.redis.client import AsyncRedis, Redis
 
 __all__ = [
-    "RedisMateria",
-    "Redis",
     "AsyncRedis",
+    "Redis",
+    "RedisMateria",
 ]

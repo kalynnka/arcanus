@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+from collections.abc import Generator
 from contextvars import ContextVar
 from copy import copy as shallow_copy
 from copy import deepcopy
@@ -9,7 +10,6 @@ from typing import (
     TYPE_CHECKING,
     Any,
     ClassVar,
-    Generator,
     Optional,
     Protocol,
     Self,
@@ -61,14 +61,17 @@ ValidateContextGeneratorT = contextlib._GeneratorContextManager[
 ]
 
 
+# The shared default is deliberate: the process-wide fallback registry used
+# outside any validation_context(); contexts get fresh dicts via .set().
 validated: ContextVar[ValidationContextT] = ContextVar(
-    "validated", default=WeakKeyDictionary()
+    "validated",
+    default=WeakKeyDictionary(),  # noqa: B039
 )
 
 
 @contextlib.contextmanager
 def validation_context(
-    context: Optional[WeakKeyDictionary] = None,
+    context: WeakKeyDictionary | None = None,
 ) -> Generator[ValidationContextT, None, None]:
     validated_ = context if context is not None else WeakKeyDictionary()
     token = validated.set(validated_)
@@ -516,8 +519,8 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
     __transmuter_associations__: dict[str, FieldInfo]
     __transmuter_associations_completed__: bool
     __transmuter_identities__: dict[str, FieldInfo]
-    __transmuter_create_model__: Optional[type[BaseModel]]
-    __transmuter_update_model__: Optional[type[BaseModel]]
+    __transmuter_create_model__: type[BaseModel] | None
+    __transmuter_update_model__: type[BaseModel] | None
     __transmuter_is_dataclass__: bool
 
     if TYPE_CHECKING:
@@ -622,7 +625,7 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
             return object.__getattribute__(self, name)
         except AttributeError as e:
             if not object.__getattribute__(self, "__transmuter_complete__"):
-                raise e
+                raise
 
             fields = object.__getattribute__(self, "__pydantic_fields__")
 
@@ -779,7 +782,9 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
                 # See .Create: masking is read-side only; keep the value writable
                 # so absorb()'s model_dump(exclude_unset=True) carries it through.
                 info.exclude = None
-                field_definitions[field_name] = (Optional[info.annotation], info)
+                # Runtime type construction: `info.annotation | None` breaks on
+                # forward-ref/str annotations, which Optional[...] handles.
+                field_definitions[field_name] = (Optional[info.annotation], info)  # noqa: UP045
 
         self.__transmuter_update_model__ = create_model(
             f"{self.__name__}Update",
@@ -793,7 +798,7 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
 class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
     __slots__ = ("__transmuter_provided__", "__transmuter_revalidating__")
 
-    __transmuter_provided__: Optional[TransmuterProxied] = NoInitField(init=False)
+    __transmuter_provided__: TransmuterProxied | None = NoInitField(init=False)
     __transmuter_revalidating__: bool = NoInitField(init=False)
 
     @overload
@@ -825,9 +830,9 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
     @classmethod
     def model_construct(
         cls,
-        _fields_set: Optional[set[str]] = None,
+        _fields_set: set[str] | None = None,
         *,
-        data: Optional[object] = None,
+        data: object | None = None,
         **values: Any,
     ) -> Self:
         if isinstance(data, cls):

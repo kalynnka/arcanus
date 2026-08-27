@@ -6,7 +6,7 @@ They should NOT be passed to the provider constructor or synced via __setattr__.
 
 from __future__ import annotations
 
-from typing import Annotated, Optional
+from typing import Annotated
 
 from pydantic import ConfigDict, Field, computed_field
 
@@ -43,7 +43,7 @@ class TestComputedFieldExclusion:
         class ProductTransmuter(BaseTransmuter):
             model_config = ConfigDict(from_attributes=True)
 
-            id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+            id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
             name: str
             price: float
 
@@ -73,7 +73,7 @@ class TestComputedFieldExclusion:
         class ProductTransmuter2(BaseTransmuter):
             model_config = ConfigDict(from_attributes=True)
 
-            id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+            id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
             name: str
             price: float
 

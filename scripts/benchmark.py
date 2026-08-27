@@ -28,7 +28,7 @@ import statistics
 import subprocess
 import sys
 from enum import Enum
-from typing import Optional
+from typing import Annotated
 
 import typer
 from rich.box import SIMPLE_HEAVY
@@ -42,7 +42,6 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 from rich.table import Table
-from typing_extensions import Annotated
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 BENCHMARK_DIR = REPO_ROOT / "benchmark"
@@ -183,7 +182,7 @@ def compute_gaps(payload: dict) -> list[GapRow]:
 _OUTCOMES = (" PASSED", " FAILED", " ERROR", " SKIPPED", " XFAIL", " XPASS")
 
 
-def _count_benchmarks(k: Optional[str]) -> int:
+def _count_benchmarks(k: str | None) -> int:
     """Quick collect-only pass to size the progress bar."""
     cmd = [
         sys.executable,
@@ -197,15 +196,17 @@ def _count_benchmarks(k: Optional[str]) -> int:
     ]
     if k:
         cmd += ["-k", k]
-    proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
+    proc = subprocess.run(
+        cmd, cwd=REPO_ROOT, capture_output=True, text=True, check=False
+    )
     return sum(1 for line in proc.stdout.splitlines() if "::" in line)
 
 
 def _measure(
-    k: Optional[str],
-    rounds: Optional[int],
+    k: str | None,
+    rounds: int | None,
     warmup: int,
-    max_time: Optional[float],
+    max_time: float | None,
     out_path: pathlib.Path,
 ) -> dict:
     """Run the benchmark suite, writing JSON to out_path.
@@ -424,7 +425,7 @@ def _render_compare(
 
 AxisOpt = Annotated[Axis, typer.Option(help="Which axis to show (A=schema, B=ORM).")]
 FilterOpt = Annotated[
-    Optional[str],
+    str | None,
     typer.Option(
         "--filter",
         "-k",
@@ -432,7 +433,7 @@ FilterOpt = Annotated[
     ),
 ]
 RoundsOpt = Annotated[
-    Optional[int],
+    int | None,
     typer.Option(
         help="Min rounds per benchmark. Raise (e.g. 8) to steady the noisy DB groups."
     ),
@@ -441,7 +442,7 @@ WarmupOpt = Annotated[
     int, typer.Option(help="Warmup iterations discarded before timing.")
 ]
 MaxTimeOpt = Annotated[
-    Optional[float],
+    float | None,
     typer.Option(
         "--max-time", help="Cap wall-time (s) per benchmark to bound total runtime."
     ),
@@ -456,7 +457,7 @@ def report(
     axis: AxisOpt = Axis.both,
     k: FilterOpt = None,
     save: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             help="Persist this run as ./.bench/<name>.json (use 'main' to snapshot a baseline)."
         ),
@@ -497,7 +498,7 @@ def compare(
         float, typer.Option(help="Allowed gap drift before --gate fails (0.10 = 10%).")
     ] = 0.10,
     use: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             help="Compare a SAVED run as 'now' instead of measuring live (name or path)."
         ),
@@ -560,7 +561,9 @@ def profile(
         "no:cacheprovider",
     ]
     with console.status("[bold cyan]profiling…[/bold cyan]", spinner="dots"):
-        proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
+        proc = subprocess.run(
+            cmd, cwd=REPO_ROOT, capture_output=True, text=True, check=False
+        )
     out = proc.stdout or ""
     # returncode 5 (EXIT_NOTESTSCOLLECTED) is exactly "nothing matched / all
     # deselected"; don't infer no-match from " deselected", which also appears

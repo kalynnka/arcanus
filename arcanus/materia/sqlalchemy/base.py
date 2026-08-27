@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import operator as operators
 from collections.abc import Hashable
-from functools import lru_cache
+from functools import cache
 from typing import Any, cast
 
 from pydantic import ValidationInfo
@@ -46,7 +46,7 @@ def inspect_transmuter_class(transmuter_cls: TransmuterMetaclass) -> Any:
     return inspect(provider) if provider is not None else None
 
 
-@lru_cache(maxsize=None)
+@cache
 def extract_association_proxies(orm_class: Hashable) -> dict[str, str]:
     """Return ``{proxy_attr_name: target_relationship_name}`` for *orm_class*.
 
@@ -176,7 +176,7 @@ class SqlalchemyMateria(BaseMateria):
             def __clause_element__(cls: type[Transmuter]):
                 return inspect(cls.__transmuter_provider__)
 
-            setattr(
+            setattr(  # noqa: B010 — dynamic class-attribute injection
                 transmuter_cls,
                 "__clause_element__",
                 classmethod(__clause_element__),

@@ -9,11 +9,13 @@ from arcanus.base import BaseTransmuter, Identity
 from pydantic import Field
 from typing import Annotated, Optional
 
+
 class Author(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
 
-author = Author(name="Isaac Asimov")     # works immediately, no backend
+
+author = Author(name="Isaac Asimov")  # works immediately, no backend
 ```
 
 Because there is no backend, there is **no session and no lifecycle to manage** — a transmuter is a

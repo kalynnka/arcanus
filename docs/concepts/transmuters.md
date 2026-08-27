@@ -17,6 +17,7 @@ live in [The Materia System](materia.md); this page is about the transmuter obje
   ```python
   from arcanus.dataclass import dataclass
 
+
   @dataclass
   class SimpleTag:
       label: str
@@ -28,6 +29,7 @@ live in [The Materia System](materia.md); this page is about the transmuter obje
   ```python
   from arcanus import Transmuter
   from arcanus.dataclass import dataclass
+
 
   @dataclass
   class Tag(Transmuter):

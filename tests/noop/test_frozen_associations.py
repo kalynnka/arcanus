@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Optional
+from typing import Annotated
 
 import pytest
 from pydantic import ConfigDict, Field, ValidationError
@@ -26,7 +26,7 @@ from tests.transmuters import Author, Book
 class FrozenTag(BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None)
+    id: Annotated[int | None, Identity] = Field(default=None)
     name: str
 
 
@@ -38,7 +38,7 @@ class FrozenMedia(TypedDict, total=False):
 class FrozenContainer(BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None)
+    id: Annotated[int | None, Identity] = Field(default=None)
     name: str
 
     scalar: Relation[FrozenTag] = Relationship(frozen=True)

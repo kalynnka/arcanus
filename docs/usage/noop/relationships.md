@@ -36,20 +36,24 @@ from arcanus.association import Relation, Relationship
 from pydantic import Field
 from typing import Annotated, Optional
 
+
 class Author(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
+
 
 class Book(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     title: str
     author: Relation[Author] = Relationship()
 
+
 author = Author(id=1, name="Isaac Asimov")
 book = Book(id=1, title="Foundation", author=Relation(author))
 
-book.author.value.name              # "Isaac Asimov"
-book.author.value = Author(id=2, name="Arthur C. Clarke")   # reassign
+book.author.value.name  # "Isaac Asimov"
+book.author.value = Author(id=2, name="Arthur C. Clarke")  # reassign
+
 
 # Optional relation (defaults to None)
 class Review(BaseTransmuter):
@@ -57,7 +61,8 @@ class Review(BaseTransmuter):
     text: str
     book: Relation[Optional[Book]] = Relationship()
 
-Review(id=1, text="Great!").book.value   # None
+
+Review(id=1, text="Great!").book.value  # None
 ```
 
 ## `RelationCollection` — list
@@ -67,17 +72,19 @@ A `list`-based association for one-to-many or many-to-many.
 ```python
 from arcanus.association import RelationCollection, Relationships
 
+
 class Author(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
     books: RelationCollection["Book"] = Relationships()
 
+
 author = Author(id=1, name="Asimov")
 author.books.append(Book(id=1, title="Foundation"))
 author.books.extend([Book(id=2, title="I, Robot"), Book(id=3, title="Caves of Steel")])
 
-len(author.books)                   # 3
-author.books[0].title               # "Foundation"
+len(author.books)  # 3
+author.books[0].title  # "Foundation"
 author.books.remove(author.books[0])
 author.books.pop()
 
@@ -92,28 +99,31 @@ A `set`-based association for unique many-to-many collections.
 ```python
 from arcanus.association import RelationSet, Relationships
 
+
 class Tag(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None)
     name: str
+
 
 class Article(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None)
     title: str
     tags: RelationSet[Tag] = Relationships()
 
+
 article = Article(id=1, title="Intro")
 python = Tag(id=1, name="python")
 article.tags.add(python)
 article.tags.add(Tag(id=2, name="tutorial"))
 
-python in article.tags              # True
-article.tags.discard(python)        # no error if absent
+python in article.tags  # True
+article.tags.discard(python)  # no error if absent
 article.tags.update([Tag(id=3, name="guide")])
 
 # Set algebra works too
 other = {Tag(id=3, name="guide"), Tag(id=5, name="advanced")}
-article.tags & other                # intersection
-article.tags | other                # union
+article.tags & other  # intersection
+article.tags | other  # union
 ```
 
 ## `RelationMap` — keyed, homogeneous
@@ -123,21 +133,24 @@ A `dict`-based association where every value is the same transmuter type.
 ```python
 from arcanus.association import RelationMap, RelationMaps
 
+
 class Setting(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     value: str
+
 
 class App(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
     settings: RelationMap[str, Setting] = RelationMaps()
 
+
 app = App(id=1, name="demo")
 app.settings["theme"] = Setting(id=1, value="dark")
 app.settings["lang"] = Setting(id=2, value="en")
 
-app.settings["theme"].value         # "dark"
-"theme" in app.settings             # True
+app.settings["theme"].value  # "dark"
+"theme" in app.settings  # True
 for key, setting in app.settings.items():
     ...
 ```
@@ -147,11 +160,13 @@ for key, setting in app.settings.items():
 ```python
 from typing import Literal
 
+
 class StrictApp(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None)
     settings: RelationMap[Literal["theme", "lang"], Setting] = RelationMaps()
 
-StrictApp(id=1).settings["color"] = Setting(...)   # raises ValidationError — bad key
+
+StrictApp(id=1).settings["color"] = Setting(...)  # raises ValidationError — bad key
 ```
 
 ## `TypedRelationMap` — keyed, heterogeneous
@@ -166,32 +181,38 @@ from arcanus.base import BaseTransmuter, Identity
 from arcanus.association import TypedRelationMap, TypedRelationMaps
 from pydantic import Field
 
+
 class MediaItem(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
+
 
 class ImageMedia(MediaItem):
     width: int = 0
     height: int = 0
 
+
 class VideoMedia(MediaItem):
     duration: float = 0.0
+
 
 class GalleryMedia(TypedDict):
     image: ImageMedia
     video: VideoMedia
+
 
 class Gallery(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
     media: TypedRelationMap[GalleryMedia] = TypedRelationMaps()
 
+
 gallery = Gallery(id=1, name="My Gallery")
 gallery.media["image"] = ImageMedia(id=1, name="photo", width=1920, height=1080)
 gallery.media["video"] = VideoMedia(id=2, name="clip", duration=120.0)
 
-gallery.media["image"].width        # 1920 — typed per key
-gallery.media["video"].duration     # 120.0
+gallery.media["image"].width  # 1920 — typed per key
+gallery.media["video"].duration  # 120.0
 ```
 
 Per-key validation rejects bad keys and wrong value types, and the map round-trips through
@@ -204,7 +225,7 @@ Related objects compare by identity, and a back-reference resolves to the very s
 
 ```python
 for book in author.books:
-    assert book.author.value is author     # same object, not a copy
+    assert book.author.value is author  # same object, not a copy
 ```
 
 Under `NoOpMateria` access is immediate. Under a backend, access is what *triggers* a lazy load —

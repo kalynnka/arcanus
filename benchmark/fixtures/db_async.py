@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import random
-from typing import Generator
+from collections.abc import Generator
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Optional
+from typing import Annotated
 
 import pytest
 from pydantic import ConfigDict, Field, ValidationError
@@ -414,7 +414,7 @@ class TestRelationMapEdgeCases:
         class MultiCatalog(BaseTransmuter):
             model_config = ConfigDict(from_attributes=True)
 
-            id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+            id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
             title: str
             tags: RelationMap[str, Tag] = RelationMaps()
             labels: RelationMap[str, Tag] = RelationMaps()
@@ -481,7 +481,7 @@ class TestRelationMapLiteralKeys:
     def test_invalid_literal_key_contains_raises(self):
         cat = LabeledCatalog(id=1, title="Test")
         with pytest.raises(ValidationError):
-            "java" in cat.tags  # type: ignore[operator]
+            _ = "java" in cat.tags  # type: ignore[operator]
 
     def test_valid_literal_key_delitem(self):
         cat = LabeledCatalog(id=1, title="Test")

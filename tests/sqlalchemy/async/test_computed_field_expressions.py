@@ -14,7 +14,7 @@ article's title).
 
 from __future__ import annotations
 
-from typing import Annotated, Optional
+from typing import Annotated
 from uuid import uuid4
 
 import pytest
@@ -53,14 +53,14 @@ class ComputedMemo(Base):
     source: Mapped[ComputedSource] = relationship(uselist=False)
 
     @hybrid_property
-    def title(self) -> Optional[str]:
+    def title(self) -> str | None:
         if self.title_override is not None:
             return self.title_override
         source = self.source
         return source.title if source is not None else None
 
     @title.inplace.setter
-    def _title_setter(self, value: Optional[str]) -> None:
+    def _title_setter(self, value: str | None) -> None:
         self.title_override = value
 
     @title.inplace.expression
@@ -78,31 +78,31 @@ class ComputedMemo(Base):
 class SourceSchema(BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
-    title: Optional[str] = None
-    summary: Optional[str] = None
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
+    title: str | None = None
+    summary: str | None = None
 
 
 @sqlalchemy_materia.bless(ComputedMemo)
 class MemoSchema(BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
-    title_override: Optional[str] = None
-    source_id: Optional[int] = None
-    source: Relation[Optional[SourceSchema]] = Relationship()
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
+    title_override: str | None = None
+    source_id: int | None = None
+    source: Relation[SourceSchema | None] = Relationship()
 
     @computed_field
     @provided
     @property
-    def title(self) -> Optional[str]:
+    def title(self) -> str | None:
         if self.title_override is not None:
             return self.title_override
         source = self.source.peek()
         return source.title if source is not None else None
 
     @title.setter
-    def title(self, value: Optional[str]) -> None:
+    def title(self, value: str | None) -> None:
         self.title_override = value
 
     # Display-only computed field: serialized, but NOT @provided — it must
@@ -114,7 +114,7 @@ class MemoSchema(BaseTransmuter):
 
 
 async def _seed_memo(
-    session: AsyncSession, source_title: Optional[str], override: Optional[str] = None
+    session: AsyncSession, source_title: str | None, override: str | None = None
 ) -> MemoSchema:
     source = SourceSchema(title=source_title, summary=f"About {source_title}")
     session.add(source)

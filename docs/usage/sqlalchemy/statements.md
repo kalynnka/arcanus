@@ -12,14 +12,14 @@ and executing it yields `Author` transmuters — not `Any`, not raw ORM rows. Th
 from sqlalchemy import select
 
 stmt = select(Author).where(Author["name"].like("Isaac%")).order_by(Author["id"].desc())
-reveal_type(stmt)            # Select[tuple[Author]]
+reveal_type(stmt)  # Select[tuple[Author]]
 
 with Session(engine) as session:
     authors = session.execute(stmt).scalars().all()
-    reveal_type(authors)     # Sequence[Author]
+    reveal_type(authors)  # Sequence[Author]
 
     author = session.execute(stmt).scalar_one()
-    reveal_type(author)      # Author
+    reveal_type(author)  # Author
 ```
 
 Build the `WHERE` / `ORDER BY` with [typed columns and expressions](querying.md); the rows are
@@ -34,13 +34,13 @@ type through, so the affected rows come back as transmuters:
 from sqlalchemy import update, delete
 
 ustmt = update(Author).where(Author["id"] == 1).values(name="Renamed").returning(Author)
-reveal_type(ustmt)           # ReturningUpdate[tuple[Author]]
+reveal_type(ustmt)  # ReturningUpdate[tuple[Author]]
 
 dstmt = delete(Book).where(Book["author_id"] == 1).returning(Book)
-reveal_type(dstmt)           # ReturningDelete[tuple[Book]]
+reveal_type(dstmt)  # ReturningDelete[tuple[Book]]
 
 with Session(engine) as session:
-    renamed = session.execute(ustmt).scalars().all()   # Sequence[Author]
+    renamed = session.execute(ustmt).scalars().all()  # Sequence[Author]
     session.commit()
 ```
 
@@ -58,14 +58,22 @@ that accept these inputs and stay properly typed. Prefer the wrappers:
 
 ```python
 from arcanus.materia.sqlalchemy import (
-    selectinload, joinedload, raiseload, load_only, defer, with_polymorphic, selectin_polymorphic,
+    selectinload,
+    joinedload,
+    raiseload,
+    load_only,
+    defer,
+    with_polymorphic,
+    selectin_polymorphic,
 )
 
-opt = selectinload(Author["books"])       # LoadOption — typed (native orm.selectinload would error)
-reveal_type(opt)                           # LoadOption
+opt = selectinload(
+    Author["books"]
+)  # LoadOption — typed (native orm.selectinload would error)
+reveal_type(opt)  # LoadOption
 
-poly = with_polymorphic(Book, (Book,))     # pass the subclasses as a tuple
-reveal_type(poly)                          # AliasedClass[Book]
+poly = with_polymorphic(Book, (Book,))  # pass the subclasses as a tuple
+reveal_type(poly)  # AliasedClass[Book]
 ```
 
 `with_polymorphic` is overloaded so a tuple of subclasses yields a precise union —

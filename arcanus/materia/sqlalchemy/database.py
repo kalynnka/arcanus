@@ -1,20 +1,15 @@
 from __future__ import annotations
 
 import operator
+from collections.abc import AsyncIterator, Callable, Iterable, Iterator, Sequence
 from functools import reduce
-from types import UnionType
+from types import TracebackType, UnionType
 from typing import (
     Annotated,
     Any,
-    AsyncIterator,
-    Callable,
-    Iterable,
-    Iterator,
     Literal,
-    Optional,
     Protocol,
     Self,
-    Sequence,
     TypeVar,
     Union,
     cast,
@@ -197,19 +192,18 @@ def resolve_statement_entities(statement: Executable) -> list[Any]:
                         except NotImplementedError:
                             # NullType and other types without python_type
                             entities.append(object)
-    elif isinstance(statement, (Insert, Update, Delete)):
-        if statement._returning:
-            for item in statement._returning:
-                if transmuter := active_materia.get().formulars.reverse.get(
-                    item.entity_namespace
-                ):
-                    entities.append(transmuter)
-                else:
-                    try:
-                        entities.append(item.type.python_type)  # type: ignore[attr-defined]
-                    except NotImplementedError:
-                        # NullType and other types without python_type
-                        entities.append(object)
+    elif isinstance(statement, (Insert, Update, Delete)) and statement._returning:
+        for item in statement._returning:
+            if transmuter := active_materia.get().formulars.reverse.get(
+                item.entity_namespace
+            ):
+                entities.append(transmuter)
+            else:
+                try:
+                    entities.append(item.type.python_type)  # type: ignore[attr-defined]
+                except NotImplementedError:
+                    # NullType and other types without python_type
+                    entities.append(object)
     return entities
 
 
@@ -219,20 +213,20 @@ class Session(SqlalchemySession):
 
     def __init__(
         self,
-        bind: Optional[_SessionBind] = None,
+        bind: _SessionBind | None = None,
         *,
         autoflush: bool = True,
         future: Literal[True] = True,
         expire_on_commit: bool = True,
         autobegin: bool = True,
         twophase: bool = False,
-        binds: Optional[dict[_SessionBindKey, _SessionBind]] = None,
+        binds: dict[_SessionBindKey, _SessionBind] | None = None,
         enable_baked_queries: bool = True,
-        info: Optional[_InfoType] = None,
-        query_cls: Optional[type[Query[Any]]] = None,
+        info: _InfoType | None = None,
+        query_cls: type[Query[Any]] | None = None,
         autocommit: Literal[False] = False,
         join_transaction_mode: JoinTransactionMode = "conditional_savepoint",
-        close_resets_only: Union[bool, _NoArg] = _NoArg.NO_ARG,
+        close_resets_only: bool | _NoArg = _NoArg.NO_ARG,
     ) -> None:
         super().__init__(
             bind,
@@ -257,7 +251,7 @@ class Session(SqlalchemySession):
         self._validation_context_manager.__enter__()
         return super().__enter__()
 
-    def __exit__(self, exc_type, exc_value, traceback) -> Optional[bool]:
+    def __exit__(self, exc_type, exc_value, traceback) -> bool | None:
         if self._validation_context_manager is not None:
             self._validation_context_manager.__exit__(exc_type, exc_value, traceback)
         return super().__exit__(exc_type, exc_value, traceback)
@@ -280,45 +274,45 @@ class Session(SqlalchemySession):
     def execute(
         self,
         statement: TypedReturnsRows[_T],
-        params: Optional[_CoreAnyExecuteParams] = None,
+        params: _CoreAnyExecuteParams | None = None,
         *,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
-        bind_arguments: Optional[_BindArguments] = None,
-        _parent_execute_state: Optional[Any] = None,
-        _add_event: Optional[Any] = None,
+        bind_arguments: _BindArguments | None = None,
+        _parent_execute_state: Any | None = None,
+        _add_event: Any | None = None,
     ) -> Result[_T]: ...
 
     @overload
     def execute(
         self,
         statement: UpdateBase,
-        params: Optional[_CoreAnyExecuteParams] = None,
+        params: _CoreAnyExecuteParams | None = None,
         *,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
-        bind_arguments: Optional[_BindArguments] = None,
-        _parent_execute_state: Optional[Any] = None,
-        _add_event: Optional[Any] = None,
+        bind_arguments: _BindArguments | None = None,
+        _parent_execute_state: Any | None = None,
+        _add_event: Any | None = None,
     ) -> CursorResult[Any]: ...
     @overload
     def execute(
         self,
         statement: Executable,
-        params: Optional[_CoreAnyExecuteParams] = None,
+        params: _CoreAnyExecuteParams | None = None,
         *,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
-        bind_arguments: Optional[_BindArguments] = None,
-        _parent_execute_state: Optional[Any] = None,
-        _add_event: Optional[Any] = None,
+        bind_arguments: _BindArguments | None = None,
+        _parent_execute_state: Any | None = None,
+        _add_event: Any | None = None,
     ) -> Result[Any]: ...
     def execute(
         self,
         statement: Executable,
-        params: Optional[_CoreAnyExecuteParams] = None,
+        params: _CoreAnyExecuteParams | None = None,
         *,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
-        bind_arguments: Optional[_BindArguments] = None,
-        _parent_execute_state: Optional[Any] = None,
-        _add_event: Optional[Any] = None,
+        bind_arguments: _BindArguments | None = None,
+        _parent_execute_state: Any | None = None,
+        _add_event: Any | None = None,
     ) -> Result[Any]:
         result = super().execute(
             statement,
@@ -352,29 +346,29 @@ class Session(SqlalchemySession):
     def scalar(
         self,
         statement: TypedReturnsRows[tuple[_T]],
-        params: Optional[_CoreSingleExecuteParams] = None,
+        params: _CoreSingleExecuteParams | None = None,
         *,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
-        bind_arguments: Optional[_BindArguments] = None,
+        bind_arguments: _BindArguments | None = None,
         **kw: Any,
-    ) -> Optional[_T]: ...
+    ) -> _T | None: ...
     @overload
     def scalar(
         self,
         statement: Executable,
-        params: Optional[_CoreSingleExecuteParams] = None,
+        params: _CoreSingleExecuteParams | None = None,
         *,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
-        bind_arguments: Optional[_BindArguments] = None,
+        bind_arguments: _BindArguments | None = None,
         **kw: Any,
     ) -> Any: ...
     def scalar(
         self,
         statement: Executable,
-        params: Optional[_CoreSingleExecuteParams] = None,
+        params: _CoreSingleExecuteParams | None = None,
         *,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
-        bind_arguments: Optional[_BindArguments] = None,
+        bind_arguments: _BindArguments | None = None,
         **kw: Any,
     ) -> Any:
         return self.execute(
@@ -389,29 +383,29 @@ class Session(SqlalchemySession):
     def scalars(
         self,
         statement: TypedReturnsRows[tuple[_T]],
-        params: Optional[_CoreAnyExecuteParams] = None,
+        params: _CoreAnyExecuteParams | None = None,
         *,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
-        bind_arguments: Optional[_BindArguments] = None,
+        bind_arguments: _BindArguments | None = None,
         **kw: Any,
     ) -> ScalarResult[_T]: ...
     @overload
     def scalars(
         self,
         statement: Executable,
-        params: Optional[_CoreAnyExecuteParams] = None,
+        params: _CoreAnyExecuteParams | None = None,
         *,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
-        bind_arguments: Optional[_BindArguments] = None,
+        bind_arguments: _BindArguments | None = None,
         **kw: Any,
     ) -> ScalarResult[Any]: ...
     def scalars(
         self,
         statement: Executable,
-        params: Optional[_CoreAnyExecuteParams] = None,
+        params: _CoreAnyExecuteParams | None = None,
         *,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
-        bind_arguments: Optional[_BindArguments] = None,
+        bind_arguments: _BindArguments | None = None,
         **kw: Any,
     ) -> ScalarResult[Any]:
         return self.execute(
@@ -529,10 +523,10 @@ class Session(SqlalchemySession):
         options: Sequence[ORMOption] | None = None,
         populate_existing: bool = False,
         with_for_update: ForUpdateParameter = None,
-        identity_token: Optional[Any] = None,
+        identity_token: Any | None = None,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
-        bind_arguments: Optional[_BindArguments] = None,
-    ) -> Optional[T]: ...
+        bind_arguments: _BindArguments | None = None,
+    ) -> T | None: ...
     @overload
     def get(
         self,
@@ -542,10 +536,10 @@ class Session(SqlalchemySession):
         options: Sequence[ORMOption] | None = None,
         populate_existing: bool = False,
         with_for_update: ForUpdateParameter = None,
-        identity_token: Optional[Any] = None,
+        identity_token: Any | None = None,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
-        bind_arguments: Optional[_BindArguments] = None,
-    ) -> Optional[_O]: ...
+        bind_arguments: _BindArguments | None = None,
+    ) -> _O | None: ...
     def get(
         self,
         entity: type[T] | _EntityBindKey[_O],
@@ -554,10 +548,10 @@ class Session(SqlalchemySession):
         options: Sequence[ORMOption] | None = None,
         populate_existing: bool = False,
         with_for_update: ForUpdateParameter = None,
-        identity_token: Optional[Any] = None,
+        identity_token: Any | None = None,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
-        bind_arguments: Optional[_BindArguments] = None,
-    ) -> Optional[T] | Optional[_O]:
+        bind_arguments: _BindArguments | None = None,
+    ) -> T | None | _O:
         if isinstance(entity, type) and issubclass(entity, Transmuter):
             instance = super().get(
                 # sqlalchemy materia requires transumter to have a provider blessed
@@ -594,12 +588,12 @@ class Session(SqlalchemySession):
         entity: type[T],
         ident: _PKIdentityArgument,
         *,
-        options: Optional[Sequence[ORMOption]] = None,
+        options: Sequence[ORMOption] | None = None,
         populate_existing: bool = False,
         with_for_update: ForUpdateParameter = None,
-        identity_token: Optional[Any] = None,
+        identity_token: Any | None = None,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
-        bind_arguments: Optional[_BindArguments] = None,
+        bind_arguments: _BindArguments | None = None,
     ) -> T: ...
     @overload
     def get_one(
@@ -607,24 +601,24 @@ class Session(SqlalchemySession):
         entity: _EntityBindKey[_O],
         ident: _PKIdentityArgument,
         *,
-        options: Optional[Sequence[ORMOption]] = None,
+        options: Sequence[ORMOption] | None = None,
         populate_existing: bool = False,
         with_for_update: ForUpdateParameter = None,
-        identity_token: Optional[Any] = None,
+        identity_token: Any | None = None,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
-        bind_arguments: Optional[_BindArguments] = None,
+        bind_arguments: _BindArguments | None = None,
     ) -> _O: ...
     def get_one(
         self,
         entity: type[T] | _EntityBindKey[_O],
         ident: _PKIdentityArgument,
         *,
-        options: Optional[Sequence[ORMOption]] = None,
+        options: Sequence[ORMOption] | None = None,
         populate_existing: bool = False,
         with_for_update: ForUpdateParameter = None,
-        identity_token: Optional[Any] = None,
+        identity_token: Any | None = None,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
-        bind_arguments: Optional[_BindArguments] = None,
+        bind_arguments: _BindArguments | None = None,
     ) -> T | _O:
         instance = self.get(
             entity,
@@ -885,7 +879,12 @@ class AsyncSession(SqlalchemyAsyncSession):
         await super().__aenter__()
         return self
 
-    async def __aexit__(self, type_: Any, value: Any, traceback: Any) -> None:
+    async def __aexit__(
+        self,
+        type_: type[BaseException] | None,
+        value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
         if self._validation_context_manager is not None:
             self._validation_context_manager.__exit__(type_, value, traceback)
             self._validation_context_manager = None
@@ -988,7 +987,7 @@ class AsyncSession(SqlalchemyAsyncSession):
         expressions: Iterable[_ColumnExpressionArgument[bool]] | None = None,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
         **filters,
-    ) -> Optional[_T]:
+    ) -> _T | None:
         r = await util.greenlet_spawn(
             self.sync_session.one_or_none,
             entity,
@@ -1007,7 +1006,7 @@ class AsyncSession(SqlalchemyAsyncSession):
         expressions: Iterable[_ColumnExpressionArgument[bool]] | None = None,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
         **filters,
-    ) -> Optional[_T]:
+    ) -> _T | None:
         return await util.greenlet_spawn(
             self.sync_session.first,
             entity,
@@ -1118,7 +1117,7 @@ class AsyncSession(SqlalchemyAsyncSession):
             (
                 await self.stream(
                     statement,
-                    execution_options=dict(yield_per=size),
+                    execution_options={"yield_per": size},
                 )
             )
             .scalars()

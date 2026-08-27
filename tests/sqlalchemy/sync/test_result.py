@@ -314,7 +314,7 @@ class TestResultMappings:
             row = rows[0]
 
             # Access by column name
-            assert "Author" in row.keys()
+            assert "Author" in row
 
     def test_mappings_with_specific_columns(self, engine: Engine):
         """Test mappings() with specific column selection."""
