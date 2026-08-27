@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import base64
 import json
+from typing import Annotated, Optional
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from arcanus import (
     Criteria,
@@ -14,6 +15,8 @@ from arcanus import (
     NestedCursor,
     Page,
 )
+from arcanus.association import RelationCollection, Relationships
+from arcanus.base import BaseTransmuter, Identity
 from arcanus.criteria import (
     BaseCriteria,
     BookmarkCriteria,
@@ -24,11 +27,91 @@ from arcanus.criteria import (
 from tests.transmuters import Author, Book, sqlalchemy_materia
 
 
+class VaultEntry(BaseTransmuter):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    label: str
+
+
+class Vault(BaseTransmuter):
+    """Transmuter hiding a scalar and an association via ``exclude=True``."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    name: str
+    secret: str = Field(exclude=True)
+
+    entries: RelationCollection[VaultEntry] = Relationships()
+    hidden_entries: RelationCollection[VaultEntry] = Relationships(exclude=True)
+
+
 def test_criteria_validation_rejects_unknown_or_association_fields():
     criteria_model = Criteria[Author]
 
     with pytest.raises(ValidationError):
         criteria_model.model_validate({"books": {"eq": 1}})
+
+
+def test_criteria_hides_excluded_fields_from_all_surfaces():
+    criteria_model = Criteria[Author]
+
+    assert "id" in criteria_model.model_fields
+    assert "test_id" not in criteria_model.model_fields
+    with pytest.raises(ValidationError):
+        criteria_model.model_validate({"test_id": {"is_null": True}})
+    with pytest.raises(ValidationError):
+        criteria_model.model_validate({"and": [{"test_id": {"is_null": True}}]})
+    with pytest.raises(ValidationError):
+        criteria_model.model_validate({"not": {"test_id": {"is_null": True}}})
+
+    assert "test_id" not in BookmarkCriteria[Author].model_fields
+
+    with pytest.raises(ValidationError):
+        Ordering[Author].model_validate(["+test_id"])
+
+
+def test_nested_criteria_hides_excluded_associations():
+    criteria_model = NestedCriteria[Vault]
+
+    assert "entries" in criteria_model.model_fields
+    assert "secret" not in criteria_model.model_fields
+    assert "hidden_entries" not in criteria_model.model_fields
+    with pytest.raises(ValidationError):
+        criteria_model.model_validate({"hidden_entries": {"label": {"eq": "x"}}})
+    with pytest.raises(ValidationError):
+        criteria_model.model_validate(
+            {"not": {"hidden_entries": {"label": {"eq": "x"}}}}
+        )
+
+    criteria_model.model_validate({"entries": {"label": {"eq": "x"}}})
+
+
+def test_cursor_rejects_excluded_fields_in_payload():
+    criteria = Criteria[Author].model_validate({"name": {"eq": "Ada"}})
+    with sqlalchemy_materia:
+        cursor = Cursor[Author].from_expressions(
+            expressions=criteria.expressions,
+            bookmark=Author["id"] > 0,
+            order_bys=(Author["id"].asc(),),
+            limit=100,
+        )
+    payload = cursor.payload.model_dump(mode="json", by_alias=True)
+
+    poisons = (
+        {"criteria": {"test_id": {"is_null": True}}},
+        {"order_by": ["+test_id"]},
+        {"bookmark": {"test_id": {"gt": "3fa85f64-5717-4562-b3fc-2c963f66afa6"}}},
+    )
+    for poison in poisons:
+        token = (
+            base64.urlsafe_b64encode(json.dumps({**payload, **poison}).encode())
+            .decode()
+            .rstrip("=")
+        )
+        with pytest.raises(ValidationError, match="Invalid cursor token"):
+            Cursor[Author].model_validate(token)
 
 
 def test_nested_criteria_accepts_one_layer_relationship_criteria():
@@ -292,16 +375,16 @@ def test_criteria_json_schema_uses_recursive_objects_for_logical_fields():
     assert definition["properties"]["not"]["anyOf"][0] == {
         "$ref": "#/$defs/Criteria_Author_"
     }
-    and_example = definition["properties"]["and"]["examples"][0][0]["test_id"]
-    or_example = definition["properties"]["or"]["examples"][0][1]["id"]
-    not_example = definition["properties"]["not"]["examples"][0]["test_id"]
+    and_example = definition["properties"]["and"]["examples"][0][0]["id"]
+    or_example = definition["properties"]["or"]["examples"][0][1]["name"]
+    not_example = definition["properties"]["not"]["examples"][0]["id"]
 
-    assert and_example["eq"] == "3fa85f64-5717-4562-b3fc-2c963f66afa6"
-    assert and_example["in"] == ["3fa85f64-5717-4562-b3fc-2c963f66afa6"]
-    assert and_example["lt"] == "3fa85f64-5717-4562-b3fc-2c963f66afa6"
-    assert or_example["ne"] == 1
-    assert or_example["not_in"] == [1]
-    assert not_example["ge"] == "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+    assert and_example["eq"] == 1
+    assert and_example["in"] == [1]
+    assert and_example["lt"] == 1
+    assert or_example["ne"] == "string"
+    assert or_example["not_in"] == ["string"]
+    assert not_example["ge"] == 1
 
 
 def test_cursor_payload_bookmark_is_separate_from_paged_criteria():

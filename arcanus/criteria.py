@@ -323,11 +323,16 @@ class ScalarCriteria(ModelGeneric[P]):
         declares it is backed by a provider-side expression (e.g. a SQLAlchemy
         ``hybrid_property``), making it filterable and orderable like a plain
         column; unmarked computed fields stay serialization-only.
+
+        Fields marked ``exclude=True`` are hidden from serialization, so they
+        are hidden here too: a value a client cannot read must not be
+        filterable or orderable, or the criteria surface becomes an oracle for
+        probing it.
         """
         annotations = {
             name: info.annotation
             for name, info in generic_model.__pydantic_fields__.items()
-            if name not in generic_model.model_associations
+            if name not in generic_model.model_associations and not info.exclude
         }
         for name, computed in provided_computed_fields(generic_model).items():
             annotations.setdefault(name, computed.return_type)
@@ -585,6 +590,8 @@ class NestedCriteriaBranch(Criteria[P]):
         except (NameError, TypeError):
             annotations = {}
         for name, info in generic_model.model_associations.items():
+            if info.exclude:
+                continue
             annotation = annotations.get(name, info.annotation)
             try:
                 if not is_association(
