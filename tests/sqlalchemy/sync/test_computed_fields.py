@@ -6,7 +6,7 @@ the computed field values must NOT be passed to the ORM model constructor.
 
 from __future__ import annotations
 
-from typing import Annotated, Optional
+from typing import Annotated
 
 from pydantic import ConfigDict, Field, computed_field
 from sqlalchemy import Engine
@@ -28,7 +28,7 @@ class AuthorLikeProvider(TransmuterProxiedMixin):
         for k, v in kwargs.items():
             setattr(self, k, v)
 
-    id: Optional[int]
+    id: int | None
     name: str
     field: str
 
@@ -44,7 +44,7 @@ class TestSQLAlchemyComputedFields:
         class AuthorWithLabel(BaseTransmuter):
             model_config = ConfigDict(from_attributes=True)
 
-            id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+            id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
             name: str
             field: str
 
@@ -71,7 +71,7 @@ class TestSQLAlchemyComputedFields:
         class AuthorWithLabel2(BaseTransmuter):
             model_config = ConfigDict(from_attributes=True)
 
-            id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+            id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
             name: str
             field: str
 

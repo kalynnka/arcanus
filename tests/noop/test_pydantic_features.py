@@ -14,11 +14,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Annotated, Generic, TypeVar
+from typing import Annotated, Generic, NotRequired, TypeVar
 
 import pytest
 from pydantic import BaseModel, Field, ValidationError, field_validator
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import TypedDict
 
 from arcanus.association import (
     Relation,
@@ -1329,7 +1329,7 @@ class TestNestedTypeCompatibility:
             # Nested TypedDict
             warehouse_location: AddressDict | None = None
             # Relationship - forward reference using string
-            author: "Relation[InnerAuthor | None]" = Relationship()
+            author: Relation[InnerAuthor | None] = Relationship()
 
         class InnerAuthor(BaseTransmuter):
             id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
@@ -1585,7 +1585,7 @@ class TestModelComparison:
         author1 = Author(id=1, name="Test Author", field="Physics")
         author2 = Author(id=1, name="Test Author", field="Physics")
 
-        assert author1 == author1
+        assert author1 == author1  # noqa: PLR0124 — reflexivity is the point
         assert author1 != author2  # same data, different instance
         assert {author1, author2, author1} == {author1, author2}
 

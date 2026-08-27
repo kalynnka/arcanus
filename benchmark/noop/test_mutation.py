@@ -7,7 +7,7 @@ path versus a hand-written validate-then-setattr loop.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from pytest_benchmark.fixture import BenchmarkFixture
@@ -94,7 +94,7 @@ class TestMutateGroupMap:
 
 
 class TestAbsorbUpdate:
-    UPDATE = {"name": "Updated Name", "field": "Biology"}
+    UPDATE: ClassVar[dict[str, str]] = {"name": "Updated Name", "field": "Biology"}
 
     @pytest.mark.baseline
     @pytest.mark.benchmark(group="noop-absorb-update")

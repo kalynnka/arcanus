@@ -28,9 +28,9 @@ every ORM row a `Session` returns:
 ```python
 materia = SqlalchemyMateria()
 
-@materia.bless(AuthorModel)     # Author transmuter  <->  AuthorModel provider
-class Author(BaseTransmuter):
-    ...
+
+@materia.bless(AuthorModel)  # Author transmuter  <->  AuthorModel provider
+class Author(BaseTransmuter): ...
 ```
 
 ### The registry
@@ -48,9 +48,9 @@ both directions are needed at runtime:
   wrap the row.
 
 ```python
-materia[Author]                      # → AuthorModel        (transmuter → provider)
+materia[Author]  # → AuthorModel        (transmuter → provider)
 materia.formulars.reverse[AuthorModel]  # → Author          (provider → reverse lookup)
-Author in materia                    # → True
+Author in materia  # → True
 ```
 
 Because the registry is per-instance, **the same transmuter class can be blessed by more than one
@@ -68,9 +68,9 @@ a `ContextVar`, so it is scoped, thread/async-safe, and nestable:
 ```python
 materia = SqlalchemyMateria()
 
-with materia:                        # activate for this block
+with materia:  # activate for this block
     author = session.get_one(Author, 1)
-    Author["name"] == "Ada"          # resolves against `materia`'s registry
+    Author["name"] == "Ada"  # resolves against `materia`'s registry
 # outside the block, the previous materia (NoOpMateria by default) is active again
 ```
 
@@ -81,9 +81,9 @@ but gets its own activation token:
 ```python
 with outer_materia:
     ...
-    with inner_materia():            # nested activation — note the ()
-        ...                          # inner_materia is active here
-    ...                              # back to outer_materia
+    with inner_materia():  # nested activation — note the ()
+        ...  # inner_materia is active here
+    ...  # back to outer_materia
 ```
 
 ### Switching materia at runtime
@@ -96,22 +96,24 @@ populate the cache. (Pseudo-code; `RedisMateria` is [work in progress](../usage/
 db = SqlalchemyMateria()
 cache = RedisMateria()
 
-@cache.bless("author")               # same transmuter, two materias
+
+@cache.bless("author")  # same transmuter, two materias
 @db.bless(AuthorModel)
 class Author(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
 
+
 def read_author(author_id: int) -> Author | None:
-    with cache:                                  # 1. try the cache backend
-        hit = redis.get(Author, author_id)       # pseudo: read-through cache
+    with cache:  # 1. try the cache backend
+        hit = redis.get(Author, author_id)  # pseudo: read-through cache
         if hit is not None:
             return hit
 
-    with db, Session(engine) as session:         # 2. miss → read the database
+    with db, Session(engine) as session:  # 2. miss → read the database
         author = session.get_one(Author, author_id)
 
-    with cache:                                  # 3. populate the cache for next time
+    with cache:  # 3. populate the cache for next time
         redis.set(author)
     return author
 ```
@@ -151,8 +153,10 @@ property:
 ```python
 from arcanus.base import TransmuterProxiedMixin
 
+
 class YourProviderBase(TransmuterProxiedMixin):
     """Base class for your backend's provider objects."""
+
     # provides: _transmuter_proxy + transmuter_proxy (weakref getter/setter)
 ```
 
@@ -164,6 +168,7 @@ session's lifetime, so validation resolves providers to the *same* transmuter:
 ```python
 from weakref import WeakKeyDictionary
 from arcanus.base import validation_context
+
 
 class YourSession:
     def __init__(self) -> None:
@@ -184,7 +189,7 @@ cascade to already-proxied related providers so they resolve to the same transmu
 ```python
 def add(self, transmuter):
     provided = transmuter.__transmuter_provided__
-    self._identity_map_add(provided)              # backend owns it strongly
+    self._identity_map_add(provided)  # backend owns it strongly
     self._transmuter_context[provided] = transmuter
     for related in self._cascade(provided):
         if (t := getattr(related, "transmuter_proxy", None)) is not None:
@@ -198,11 +203,13 @@ Implement `bless()` to record the transmuter-class ↔ provider-class mapping in
 ```python
 from arcanus.materia.base import BaseMateria
 
+
 class YourMateria(BaseMateria):
     def bless(self, provider_cls):
         def decorator(transmuter_cls):
             self.formulars[transmuter_cls] = provider_cls
             return transmuter_cls
+
         return decorator
 ```
 

@@ -622,7 +622,6 @@ class TestAssociationEdgeCases:
         """Test relations where model references itself (if applicable)."""
         # This would require a self-referential model, which we don't have in schemas
         # But we can test that the type system handles it
-        pass
 
     def test_multiple_associations_on_same_model(self):
         """Test model with multiple association fields."""

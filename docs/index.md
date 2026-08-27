@@ -35,7 +35,9 @@ pass around, with both validation and persistence behind it.
 ```python
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+
 class Base(DeclarativeBase): ...
+
 
 class AuthorModel(Base):
     __tablename__ = "authors"
@@ -52,6 +54,7 @@ from pydantic import Field
 from typing import Annotated, Optional
 
 materia = SqlalchemyMateria()
+
 
 @materia.bless(AuthorModel)
 class Author(BaseTransmuter):
@@ -77,18 +80,18 @@ with Session(engine) as session:
     session.commit()
 
     author = session.execute(
-        select(Author).where(Author["name"].like("Isaac%"))   # typed column, same object
+        select(Author).where(Author["name"].like("Isaac%"))  # typed column, same object
     ).scalar_one()
 ```
 
 **4. It's one object** — a validated Pydantic model *and* a transmuter wrapping the ORM row.
 
 ```python
-isinstance(author, Author)          # ✅ a Pydantic model — validated, typed
+isinstance(author, Author)  # ✅ a Pydantic model — validated, typed
 isinstance(author, BaseTransmuter)  # ✅ and a transmuter
-author.__transmuter_provided__      # the underlying AuthorModel ORM instance, if you need it
+author.__transmuter_provided__  # the underlying AuthorModel ORM instance, if you need it
 
-author.name = "Arthur C. Clarke"     # mutate the transmuter…
+author.name = "Arthur C. Clarke"  # mutate the transmuter…
 author.__transmuter_provided__.name  # …and the ORM object already reflects it — no model_dump()
 ```
 
@@ -135,7 +138,8 @@ from typing import Annotated, Optional
 
 materia = SqlalchemyMateria()
 
-@materia.bless(AuthorModel)          # bind to an existing ORM model
+
+@materia.bless(AuthorModel)  # bind to an existing ORM model
 class Author(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
@@ -159,8 +163,8 @@ and they **respect the backend's lazy loading**. Related rows are not eagerly ma
 validation; they load when you access them, the way SQLAlchemy intends.
 
 ```python
-for book in author.books:        # loads on access, not during validation
-    print(book.title, book.author.value is author)   # identity preserved
+for book in author.books:  # loads on access, not during validation
+    print(book.title, book.author.value is author)  # identity preserved
 ```
 
 ### The validation-triggers-lazy-load trap
@@ -174,9 +178,9 @@ relationship attribute is a lazy loader — touching `author.books` **emits a SQ
 of validation alone walks the entire object graph and fires a query per relationship, per row:
 
 ```python
-authors = session.scalars(select(AuthorModel)).all()   # 1 query
+authors = session.scalars(select(AuthorModel)).all()  # 1 query
 for a in authors:
-    AuthorSchema.model_validate(a)   # each validation reads a.books -> +1 query each
+    AuthorSchema.model_validate(a)  # each validation reads a.books -> +1 query each
 # → classic N+1: 1 + N queries, none of which you asked for
 ```
 
@@ -210,10 +214,10 @@ and then hands you the result.
 ```python
 # SQLAlchemy-materia example — AsyncSession is provided by the SQLAlchemy backend
 async with AsyncSession(engine) as session:
-    author = await session.get(Author, 1)   # native session.get → I/O, so await
-    books = await author.books               # awaits the lazy load → list[Book]
+    author = await session.get(Author, 1)  # native session.get → I/O, so await
+    books = await author.books  # awaits the lazy load → list[Book]
 
-    for book in author.books:                # already loaded → plain sync iteration
+    for book in author.books:  # already loaded → plain sync iteration
         print(book.title)
 ```
 

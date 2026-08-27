@@ -171,7 +171,7 @@ class TestTypedRelationMapMutation:
         assert result is None
 
     def test_popitem(self, gallery: Gallery):
-        key, value = gallery.media.popitem()
+        key, _value = gallery.media.popitem()
         assert key in ("image", "video")
         assert len(gallery.media) == 1
 

@@ -1,7 +1,8 @@
 # pyright: reportIncompatibleMethodOverride=false
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Self, TypeVar, overload, cast
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Any, Literal, Self, TypeVar, cast, overload
 
 from sqlalchemy import orm
 from sqlalchemy.orm.attributes import QueryableAttribute

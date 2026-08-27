@@ -55,13 +55,12 @@ class TestSessionContextManagement:
     def test_session_commit_on_exit(self, engine: Engine):
         """Test that changes are committed on successful context exit."""
         author_id = None
-        with Session(engine) as session:
-            with session.begin():
-                author = Author(name="Auto Commit Test", field="Biology")
-                session.add(author)
-                session.flush()
-                author.revalidate()
-                author_id = author.id
+        with Session(engine) as session, session.begin():
+            author = Author(name="Auto Commit Test", field="Biology")
+            session.add(author)
+            session.flush()
+            author.revalidate()
+            author_id = author.id
 
         # Verify in new session
         with Session(engine) as session:
@@ -124,9 +123,8 @@ class TestSessionHelpers:
 
     def test_get_one_raises_when_not_found(self, engine: Engine):
         """Test get_one raises NoResultFound when not found."""
-        with Session(engine) as session:
-            with pytest.raises(NoResultFound):
-                session.get_one(Author, 999999)
+        with Session(engine) as session, pytest.raises(NoResultFound):
+            session.get_one(Author, 999999)
 
     def test_get_one_vs_get(self, engine: Engine):
         """Test difference between get_one and get."""
@@ -170,9 +168,8 @@ class TestSessionHelpers:
 
     def test_one_raises_when_no_result(self, engine: Engine):
         """Test one raises NoResultFound when no match."""
-        with Session(engine) as session:
-            with pytest.raises(NoResultFound):
-                session.one(Author, name="Nonexistent")
+        with Session(engine) as session, pytest.raises(NoResultFound):
+            session.one(Author, name="Nonexistent")
 
     def test_one_raises_when_multiple_results(self, engine: Engine):
         """Test one raises when multiple results found."""
@@ -268,7 +265,7 @@ class TestSessionHelpers:
 
             assert len(results) == 5
             assert all(r is not None for r in results)
-            assert set(r.id for r in results if r) == set(ids)
+            assert {r.id for r in results if r} == set(ids)
 
     def test_bulk_preserves_order(self, engine: Engine):
         """Test bulk returns results in same order as idents."""

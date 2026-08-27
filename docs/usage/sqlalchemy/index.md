@@ -16,7 +16,9 @@ Plain SQLAlchemy — Arcanus does not touch these:
 from sqlalchemy import Column as SAColumn, ForeignKey, Integer, String, Table
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+
 class Base(DeclarativeBase): ...
+
 
 book_category = Table(
     "book_category",
@@ -25,11 +27,13 @@ book_category = Table(
     SAColumn("category_id", ForeignKey("categories.id"), primary_key=True),
 )
 
+
 class AuthorModel(Base):
     __tablename__ = "authors"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(100))
     books: Mapped[list["BookModel"]] = relationship(back_populates="author")
+
 
 class BookModel(Base):
     __tablename__ = "books"
@@ -40,6 +44,7 @@ class BookModel(Base):
     categories: Mapped[list["CategoryModel"]] = relationship(
         secondary=book_category, back_populates="books"
     )
+
 
 class CategoryModel(Base):
     __tablename__ = "categories"
@@ -54,18 +59,25 @@ class CategoryModel(Base):
 
 ```python
 from arcanus.base import BaseTransmuter, Identity
-from arcanus.association import Relation, RelationCollection, Relationship, Relationships
+from arcanus.association import (
+    Relation,
+    RelationCollection,
+    Relationship,
+    Relationships,
+)
 from arcanus.materia.sqlalchemy import SqlalchemyMateria
 from pydantic import Field
 from typing import Annotated, Optional
 
 materia = SqlalchemyMateria()
 
+
 @materia.bless(AuthorModel)
 class Author(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
     books: RelationCollection["Book"] = Relationships()
+
 
 @materia.bless(BookModel)
 class Book(BaseTransmuter):
@@ -74,6 +86,7 @@ class Book(BaseTransmuter):
     author_id: int | None = None
     author: Relation[Author] = Relationship()
     categories: RelationCollection["Category"] = Relationships()
+
 
 @materia.bless(CategoryModel)
 class Category(BaseTransmuter):
@@ -101,7 +114,7 @@ engine = create_engine("sqlite://")
 Base.metadata.create_all(engine)
 
 with Session(engine) as session:
-    author = session.get_one(Author, 1)   # a transmuter, not a raw ORM row
+    author = session.get_one(Author, 1)  # a transmuter, not a raw ORM row
     assert isinstance(author, Author)
 ```
 

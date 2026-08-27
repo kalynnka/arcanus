@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,7 +27,7 @@ sqlalchemy_materia = SqlalchemyMateria()
 
 
 class TestIdMixin(BaseModel):
-    test_id: Optional[UUID] = Field(default=None, frozen=True, exclude=True)
+    test_id: UUID | None = Field(default=None, frozen=True, exclude=True)
 
 
 # BookCategory schema (M-M association with composite PK)
@@ -44,7 +44,7 @@ class BookCategory(TestIdMixin, BaseTransmuter):
 class Publisher(TestIdMixin, BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
     country: str
 
@@ -56,7 +56,7 @@ class Publisher(TestIdMixin, BaseTransmuter):
 class Author(TestIdMixin, BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
     field: Literal[
         "Physics",
@@ -71,7 +71,6 @@ class Author(TestIdMixin, BaseTransmuter):
         "Robotics",
         "Cybernetics",
         "Xenobiology",
-        "Quantum Physics",
         "Science Fiction",
     ]
 
@@ -83,7 +82,7 @@ class Author(TestIdMixin, BaseTransmuter):
 class BookDetail(TestIdMixin, BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     isbn: str
     pages: int
     abstract: str
@@ -97,9 +96,9 @@ class BookDetail(TestIdMixin, BaseTransmuter):
 @dataclass(config=ConfigDict(from_attributes=True))
 class Category(Transmuter):
     name: str
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     description: str | None = None
-    test_id: Optional[UUID] = Field(default=None, frozen=True, exclude=True)
+    test_id: UUID | None = Field(default=None, frozen=True, exclude=True)
 
     books: RelationCollection[Book] = Relationships()
 
@@ -109,11 +108,11 @@ class Category(Transmuter):
 class Translator(TestIdMixin, BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
     language: str
 
-    book: Relation[Optional[Book]] = Relationship()
+    book: Relation[Book | None] = Relationship()
 
 
 # Review schema (optional M-1 with Book)
@@ -121,13 +120,13 @@ class Translator(TestIdMixin, BaseTransmuter):
 class Review(TestIdMixin, BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     reviewer_name: str
     rating: int = Field(ge=1, le=5)  # 1-5 stars
     comment: str
     book_id: int | None = None
 
-    book: Relation[Optional[Book]] = Relationship()
+    book: Relation[Book | None] = Relationship()
 
 
 # Company schema — dataclass transmuter (Relation + RelationCollection)
@@ -138,12 +137,12 @@ class Company(Transmuter):
 
     name: str
     industry: str
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
-    test_id: Optional[UUID] = Field(default=None, frozen=True, exclude=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
+    test_id: UUID | None = Field(default=None, frozen=True, exclude=True)
 
     departments: RelationCollection[Department] = Relationships()
     employees: RelationCollection[Employee] = Relationships()
-    ceo: Relation[Optional[Employee]] = Relationship()
+    ceo: Relation[Employee | None] = Relationship()
     client_projects: RelationCollection[Project] = Relationships()
 
 
@@ -153,7 +152,7 @@ class Department(TestIdMixin, BaseTransmuter):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
     budget: int
 
@@ -169,13 +168,13 @@ class Employee(TestIdMixin, BaseTransmuter):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
     title: str
     salary: int
 
     company: Relation[Company] = Relationship()
-    company_as_ceo: Relation[Optional[Company]] = Relationship()
+    company_as_ceo: Relation[Company | None] = Relationship()
     department: Relation[Department] = Relationship()
     led_projects: RelationCollection[Project] = Relationships()
     managed_teams: RelationCollection[Team] = Relationships()
@@ -188,15 +187,15 @@ class Project(TestIdMixin, BaseTransmuter):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
     description: str
     status: str
 
     department: Relation[Department] = Relationship()
     lead: Relation[Employee] = Relationship()
-    team: Relation[Optional[Team]] = Relationship()
-    client_company: Relation[Optional[Company]] = Relationship()
+    team: Relation[Team | None] = Relationship()
+    client_company: Relation[Company | None] = Relationship()
 
 
 @sqlalchemy_materia.bless(models.Team)
@@ -205,7 +204,7 @@ class Team(TestIdMixin, BaseTransmuter):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
     size: int
 
@@ -220,7 +219,7 @@ class Team(TestIdMixin, BaseTransmuter):
 class Book(TestIdMixin, BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     title: str
     year: int
     author_id: int | None = None
@@ -229,8 +228,8 @@ class Book(TestIdMixin, BaseTransmuter):
 
     author: Relation[Author] = Relationship()
     publisher: Relation[Publisher] = Relationship()
-    translator: Relation[Optional[Translator]] = Relationship()
-    detail: Relation[Optional[BookDetail]] = Relationship()
+    translator: Relation[Translator | None] = Relationship()
+    detail: Relation[BookDetail | None] = Relationship()
     categories: RelationCollection[Category] = Relationships()
     reviews: RelationCollection[Review] = Relationships()  # Optional 1-M
 
@@ -240,7 +239,7 @@ class Book(TestIdMixin, BaseTransmuter):
 class ShelfItem(TestIdMixin, BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     label: str
     description: str
     shelf_id: int | None = None
@@ -253,7 +252,7 @@ class ShelfItem(TestIdMixin, BaseTransmuter):
 class Shelf(TestIdMixin, BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
 
     items: RelationMap[str, ShelfItem] = MappedRelationship()
@@ -265,7 +264,7 @@ class Tag(BaseTransmuter):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None)
+    id: Annotated[int | None, Identity] = Field(default=None)
     name: str
 
 
@@ -274,7 +273,7 @@ class Catalog(BaseTransmuter):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None)
+    id: Annotated[int | None, Identity] = Field(default=None)
     title: str
 
     tags: RelationMap[str, Tag] = MappedRelationship()
@@ -285,7 +284,7 @@ class LabeledCatalog(BaseTransmuter):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None)
+    id: Annotated[int | None, Identity] = Field(default=None)
     title: str
 
     tags: RelationMap[Literal["python", "rust", "go"], Tag] = MappedRelationship()
@@ -296,7 +295,7 @@ class AuthorFlat(BaseTransmuter):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
     field: Literal[
         "Physics",
@@ -311,7 +310,6 @@ class AuthorFlat(BaseTransmuter):
         "Robotics",
         "Cybernetics",
         "Xenobiology",
-        "Quantum Physics",
         "Science Fiction",
     ]
 
@@ -321,7 +319,7 @@ class PublisherFlat(BaseTransmuter):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
     country: str
 
@@ -336,7 +334,7 @@ class Account(BaseTransmuter):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     username: str
     password: str = Field(exclude=True)
     api_token: str = Field(frozen=True)
@@ -374,7 +372,7 @@ class IdentifiedUser(Transmuter):
 
     name: str
     email: str = ""
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
 
 
 @dataclass
@@ -422,7 +420,7 @@ class MediaItem(TestIdMixin, BaseTransmuter):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     slot: str = ""
     name: str
     media_type: str = "generic"
@@ -454,7 +452,7 @@ class AbstractMedia(TestIdMixin, BaseTransmuter):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
     media_type: str
 
@@ -482,7 +480,7 @@ class LibraryAsset(TestIdMixin, BaseTransmuter):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
     asset_type: str = "asset"
 
@@ -523,7 +521,7 @@ class Gallery(TestIdMixin, BaseTransmuter):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
 
     media: TypedRelationMap[DocumentMedia] = TypedRelationship()
@@ -534,7 +532,7 @@ class OptionalGallery(TestIdMixin, BaseTransmuter):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
 
     media: TypedRelationMap[OptionalDocumentMedia] = TypedRelationship()
@@ -544,7 +542,7 @@ class OptionalGallery(TestIdMixin, BaseTransmuter):
 class BlogAuthor(TestIdMixin, BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
 
     posts: RelationCollection[BlogPost] = Relationships()
@@ -554,7 +552,7 @@ class BlogAuthor(TestIdMixin, BaseTransmuter):
 class BlogTag(TestIdMixin, BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     label: str
 
 
@@ -564,7 +562,7 @@ class BlogPost(TestIdMixin, BaseTransmuter):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     title: str
     author_id: int | None = None
 
@@ -585,7 +583,7 @@ class BlogPost(TestIdMixin, BaseTransmuter):
 class WarehouseManager(TestIdMixin, BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
 
     warehouses: RelationCollection[Warehouse] = Relationships()
@@ -595,7 +593,7 @@ class WarehouseManager(TestIdMixin, BaseTransmuter):
 class WarehouseItem(TestIdMixin, BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     category: str
     name: str
     quantity: int = 0
@@ -608,7 +606,7 @@ class WarehouseItem(TestIdMixin, BaseTransmuter):
 class Warehouse(TestIdMixin, BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
     manager_id: int | None = None
 
@@ -627,7 +625,7 @@ class Warehouse(TestIdMixin, BaseTransmuter):
 class GeneratedFile(TestIdMixin, BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     filename: str
     size: int = 0
 
@@ -636,7 +634,7 @@ class GeneratedFile(TestIdMixin, BaseTransmuter):
 class ArticleGeneratedFile(TestIdMixin, BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     role: str
     article_id: int | None = None
     file_id: int | None = None
@@ -648,7 +646,7 @@ class ArticleGeneratedFile(TestIdMixin, BaseTransmuter):
 class Article(TestIdMixin, BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     title: str
 
     generated_files: RelationGroupMap[str, GeneratedFile] = GroupedRelationship()
@@ -660,7 +658,7 @@ class GroupedTag(BaseTransmuter):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None)
+    id: Annotated[int | None, Identity] = Field(default=None)
     name: str
 
 
@@ -669,7 +667,7 @@ class GroupedCatalog(BaseTransmuter):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: Annotated[Optional[int], Identity] = Field(default=None)
+    id: Annotated[int | None, Identity] = Field(default=None)
     title: str
 
     tags: RelationGroupMap[str, GroupedTag] = GroupedRelationship()

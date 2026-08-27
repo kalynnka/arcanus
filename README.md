@@ -43,7 +43,12 @@ tests and prototyping.
 
 ```python
 from arcanus.base import BaseTransmuter, Identity
-from arcanus.association import Relation, RelationCollection, Relationship, Relationships
+from arcanus.association import (
+    Relation,
+    RelationCollection,
+    Relationship,
+    Relationships,
+)
 from arcanus.materia.sqlalchemy import SqlalchemyMateria, Session
 from pydantic import Field
 from sqlalchemy import create_engine, select
@@ -51,17 +56,20 @@ from typing import Annotated, Optional
 
 materia = SqlalchemyMateria()
 
-@materia.bless(AuthorModel)          # bind to your existing SQLAlchemy model
+
+@materia.bless(AuthorModel)  # bind to your existing SQLAlchemy model
 class Author(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
     books: RelationCollection["Book"] = Relationships()
+
 
 @materia.bless(BookModel)
 class Book(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     title: str
     author: Relation[Author] = Relationship()
+
 
 with Session(create_engine("sqlite://")) as session:
     author = Author(name="Isaac Asimov")
@@ -71,9 +79,9 @@ with Session(create_engine("sqlite://")) as session:
     # Plain SQLAlchemy reads — only the results come back as transmuters
     found = session.execute(
         select(Author).filter_by(name="Isaac Asimov")
-    ).scalar_one()                                      # a transmuter, not a raw ORM row
-    for book in found.books:                            # loads on access
-        print(book.title, book.author.value is found)   # identity preserved
+    ).scalar_one()  # a transmuter, not a raw ORM row
+    for book in found.books:  # loads on access
+        print(book.title, book.author.value is found)  # identity preserved
 ```
 
 See the [Quickstart guide](https://kalynnka.github.io/arcanus/quickstart/) for the full walkthrough

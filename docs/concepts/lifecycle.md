@@ -37,10 +37,10 @@ only if not already present) and returns the resolved value.
 ```python
 async with AsyncSession(async_engine) as session:
     author = await session.get_one(Author, 1)
-    books = await author.books          # list[Book]
+    books = await author.books  # list[Book]
 
     book = await session.get_one(Book, 1)
-    parent = await book.author          # Author
+    parent = await book.author  # Author
 ```
 
 Whether the `await` is *required* depends on the backend's loading strategy. With SQLAlchemy's

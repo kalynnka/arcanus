@@ -35,10 +35,10 @@ uses for ``model_rebuild`` / ``rebuild_dataclass``.
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
     Literal,
     TypeVar,
     dataclass_transform,

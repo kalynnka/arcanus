@@ -18,12 +18,18 @@ These are plain SQLAlchemy methods — the signatures are SQLAlchemy's; Arcanus 
 output:
 
 ```python
-author = session.get(Author, 1)        # native: returns the transmuter, or None
-author = session.get_one(Author, 1)     # native: returns the transmuter, or raises NoResultFound
+author = session.get(Author, 1)  # native: returns the transmuter, or None
+author = session.get_one(
+    Author, 1
+)  # native: returns the transmuter, or raises NoResultFound
 
-rows = session.execute(                  # native: build any select yourself
-    select(Author).where(Author["name"].like("Isaac%"))
-).scalars().all()
+rows = (
+    session.execute(  # native: build any select yourself
+        select(Author).where(Author["name"].like("Isaac%"))
+    )
+    .scalars()
+    .all()
+)
 ```
 
 ## Added convenience helpers
@@ -40,8 +46,8 @@ The shared keyword arguments across these helpers:
 ### `one` / `one_or_none` — a single row
 
 ```python
-author = session.one(Author, name="Isaac Asimov")         # raises if 0 or >1 match
-maybe = session.one_or_none(Author, name="Nobody")         # None if 0, raises if >1
+author = session.one(Author, name="Isaac Asimov")  # raises if 0 or >1 match
+maybe = session.one_or_none(Author, name="Nobody")  # None if 0, raises if >1
 
 # with expressions instead of keyword filters
 author = session.one(Author, expressions=[Author["name"] == "Isaac Asimov"])
@@ -50,7 +56,7 @@ author = session.one(Author, expressions=[Author["name"] == "Isaac Asimov"])
 ### `first` — the first row under an ordering
 
 ```python
-newest = session.first(Author, order_bys=[Author["id"].desc()])   # None if no rows
+newest = session.first(Author, order_bys=[Author["id"].desc()])  # None if no rows
 ```
 
 ### `list` — many rows, paged and ordered
@@ -58,7 +64,7 @@ newest = session.first(Author, order_bys=[Author["id"].desc()])   # None if no r
 ```python
 authors = session.list(
     Author,
-    limit=10,            # default 100
+    limit=10,  # default 100
     offset=20,
     order_bys=[Author["name"].asc()],
     expressions=[Author["name"].like("Isaac%")],
@@ -72,7 +78,7 @@ Returns results in the **same order as `idents`**, with `None` for any id that w
 (composite primary keys work — pass tuples):
 
 ```python
-authors = session.bulk(Author, [1, 2, 3])     # [Author|None, Author|None, Author|None]
+authors = session.bulk(Author, [1, 2, 3])  # [Author|None, Author|None, Author|None]
 ```
 
 ### `count` — count matching rows

@@ -12,7 +12,7 @@ from benchmark.data import corpus
 
 
 class MockAuthor:
-    __slots__ = ("id", "name", "field")
+    __slots__ = ("field", "id", "name")
 
     def __init__(self, id: int, name: str, field: str):
         self.id = id
@@ -21,7 +21,7 @@ class MockAuthor:
 
 
 class MockPublisher:
-    __slots__ = ("id", "name", "country")
+    __slots__ = ("country", "id", "name")
 
     def __init__(self, id: int, name: str, country: str):
         self.id = id
@@ -30,7 +30,7 @@ class MockPublisher:
 
 
 class MockBook:
-    __slots__ = ("id", "title", "year", "author", "publisher")
+    __slots__ = ("author", "id", "publisher", "title", "year")
 
     def __init__(
         self,

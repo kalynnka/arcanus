@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Optional
+from typing import Annotated
 
 import fakeredis
 import pytest
@@ -36,7 +36,7 @@ redis_materia = RedisMateria()
 @sqlalchemy_materia.bless(CityORM)
 class City(BaseTransmuter):
     model_config = ConfigDict(from_attributes=True)
-    id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
+    id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     name: str
 
 
@@ -265,10 +265,9 @@ class TestSameMateriaReentry:
     def test_reentering_same_materia_raises(self):
         """``with materia: with materia:`` is forbidden — must use the call
         form for nested contexts."""
-        with redis_materia:
-            with pytest.raises(RuntimeError, match="already active"):
-                with redis_materia:
-                    pass
+        with redis_materia, pytest.raises(RuntimeError, match="already active"):  # noqa: SIM117
+            with redis_materia:  # the nested re-entry is the point
+                pass
 
     def test_call_form_is_safe_to_nest(self):
         """``with redis_materia():`` creates a shallow copy that's safe to

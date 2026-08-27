@@ -42,12 +42,11 @@ class TestAsyncSessionContextManagement:
         self, async_engine: AsyncEngine, test_id: UUID
     ):
         """Test that async session auto-commits on successful exit."""
-        async with AsyncSession(async_engine) as session:
-            async with session.begin():
-                author = Author(name="Async Author", field="Physics", test_id=test_id)
-                session.add(author)
-                await session.flush()
-                author.revalidate()
+        async with AsyncSession(async_engine) as session, session.begin():
+            author = Author(name="Async Author", field="Physics", test_id=test_id)
+            session.add(author)
+            await session.flush()
+            author.revalidate()
 
         async with AsyncSession(async_engine) as session:
             fetched = await session.get_one(Author, author.id)
@@ -528,7 +527,7 @@ class TestAsyncSessionHelpers:
 
             assert len(results) == 5
             assert all(r is not None for r in results)
-            assert set(r.id for r in results if r) == set(ids)
+            assert {r.id for r in results if r} == set(ids)
 
     @pytest.mark.asyncio
     async def test_async_bulk_preserves_order(self, async_engine: AsyncEngine):

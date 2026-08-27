@@ -8,7 +8,6 @@ from typing import (
     Any,
     ClassVar,
     Generic,
-    Optional,
     Self,
     TypeVar,
 )
@@ -61,7 +60,7 @@ class BidirectonDict(dict, Generic[K, V]):
 
 class BaseMateria:
     formulars: BidirectonDict[type[Transmuter], type[TransmuterProxied]]
-    token: Optional[Token[BaseMateria]]
+    token: Token[BaseMateria] | None
     column_type: type[Column[Any]]
     expression_compiler: ExpressionCompiler[Any, Any]
 
@@ -221,7 +220,7 @@ class JsonExpressionCompiler(ExpressionCompiler[object, str]):
 
 
 class NoOpMateria(BaseMateria):
-    _instance: ClassVar[Optional[NoOpMateria]] = None
+    _instance: ClassVar[NoOpMateria | None] = None
     _initialized: ClassVar[bool] = False
 
     def __new__(cls):
@@ -250,6 +249,9 @@ class NoOpMateria(BaseMateria):
         return decorator
 
 
+# The shared default is deliberate: NoOpMateria is the process-wide null
+# object active whenever no materia context has been entered.
 active_materia: ContextVar[BaseMateria] = ContextVar(
-    "active_materia", default=NoOpMateria()
+    "active_materia",
+    default=NoOpMateria(),  # noqa: B039
 )

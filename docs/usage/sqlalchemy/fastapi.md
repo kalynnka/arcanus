@@ -24,8 +24,9 @@ from arcanus.materia.sqlalchemy import Session
 engine = create_engine("postgresql+psycopg://localhost/app")
 app = FastAPI()
 
+
 def get_session():
-    with Session(engine) as session:        # blesses rows into transmuters on the way out
+    with Session(engine) as session:  # blesses rows into transmuters on the way out
         yield session
 ```
 
@@ -38,12 +39,15 @@ body, the update body, and the response.
 
 ```python
 @app.post("/authors", response_model=Author, status_code=201)
-def create_author(body: Author.Create, session: Session = Depends(get_session)) -> Author:
-    author = Author.shell(body)             # body already validated by FastAPI/Pydantic
+def create_author(
+    body: Author.Create, session: Session = Depends(get_session)
+) -> Author:
+    author = Author.shell(body)  # body already validated by FastAPI/Pydantic
     session.add(author)
-    session.flush()                         # server-generated id synced back automatically
+    session.flush()  # server-generated id synced back automatically
     session.commit()
     return author
+
 
 @app.get("/authors/{author_id}", response_model=Author)
 def get_author(author_id: int, session: Session = Depends(get_session)) -> Author:
@@ -52,6 +56,7 @@ def get_author(author_id: int, session: Session = Depends(get_session)) -> Autho
         raise HTTPException(status_code=404, detail="Author not found")
     return author
 
+
 @app.patch("/authors/{author_id}", response_model=Author)
 def update_author(
     author_id: int, body: Author.Update, session: Session = Depends(get_session)
@@ -59,9 +64,10 @@ def update_author(
     author = session.get(Author, author_id)
     if author is None:
         raise HTTPException(status_code=404, detail="Author not found")
-    author.absorb(body)                     # only the fields the client actually sent change
+    author.absorb(body)  # only the fields the client actually sent change
     session.commit()
     return author
+
 
 @app.delete("/authors/{author_id}", status_code=204)
 def delete_author(author_id: int, session: Session = Depends(get_session)) -> None:
@@ -81,7 +87,9 @@ field. The handler spreads `.expressions` into a query:
 
 ```python
 @app.post("/authors/search", response_model=list[Author])
-def search_authors(where: Criteria[Author], session: Session = Depends(get_session)) -> list[Author]:
+def search_authors(
+    where: Criteria[Author], session: Session = Depends(get_session)
+) -> list[Author]:
     return list(session.execute(select(Author).where(*where.expressions)).scalars())
 ```
 
@@ -101,6 +109,7 @@ from arcanus.expression import Expression, Order
 
 T = TypeVar("T", bound=BaseTransmuter)
 
+
 def paginate(
     session: Session,
     entity: type[T],
@@ -111,17 +120,21 @@ def paginate(
     cursor: str | None = None,
 ) -> Page[T]:
     filters, orders, bookmark = expressions, order_bys, None
-    if cursor:                                       # continue a previous page
-        token = Cursor[entity](cursor)               # validates the opaque token
+    if cursor:  # continue a previous page
+        token = Cursor[entity](cursor)  # validates the opaque token
         filters = token.criteria.expressions if token.criteria else ()
         orders, bookmark = token.order_by.orders, token.bookmark.expression
 
-    rows = session.execute(
-        select(entity)
-        .where(*filters, *((bookmark,) if bookmark is not None else ()))
-        .order_by(*orders)
-        .limit(size + 1)                             # +1 row reveals whether more exist
-    ).scalars().all()
+    rows = (
+        session.execute(
+            select(entity)
+            .where(*filters, *((bookmark,) if bookmark is not None else ()))
+            .order_by(*orders)
+            .limit(size + 1)  # +1 row reveals whether more exist
+        )
+        .scalars()
+        .all()
+    )
     items = tuple(rows[:size])
     total = session.execute(
         select(func.count()).select_from(entity).where(*filters)
@@ -129,16 +142,25 @@ def paginate(
 
     next_cursor = Cursor[entity].from_expressions(
         expressions=filters,
-        bookmark=Cursor[entity].bookmark_from_item(items[-1], orders) if items else bookmark,
+        bookmark=Cursor[entity].bookmark_from_item(items[-1], orders)
+        if items
+        else bookmark,
         order_bys=orders,
         limit=size,
     )
-    return Page(items=items, total=total, next_cursor=str(next_cursor), has_more=len(rows) > size)
+    return Page(
+        items=items,
+        total=total,
+        next_cursor=str(next_cursor),
+        has_more=len(rows) > size,
+    )
 
 
 @app.post("/authors/page", response_model=Page[Author])
 def page_authors(
-    where: Criteria[Author], cursor: str | None = None, session: Session = Depends(get_session)
+    where: Criteria[Author],
+    cursor: str | None = None,
+    session: Session = Depends(get_session),
 ) -> Page[Author]:
     return paginate(
         session,
@@ -163,12 +185,16 @@ and `await` the I/O:
 ```python
 from arcanus.materia.sqlalchemy import AsyncSession
 
+
 async def get_session():
     async with AsyncSession(async_engine) as session:
         yield session
 
+
 @app.get("/authors/{author_id}", response_model=Author)
-async def get_author(author_id: int, session: AsyncSession = Depends(get_session)) -> Author:
+async def get_author(
+    author_id: int, session: AsyncSession = Depends(get_session)
+) -> Author:
     author = await session.get(Author, author_id)
     if author is None:
         raise HTTPException(status_code=404, detail="Author not found")

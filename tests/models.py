@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import Column, ForeignKey, Integer, String, Table, Text, Uuid
@@ -165,7 +164,7 @@ class Category(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
-    description: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    description: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     books: Mapped[list[Book]] = relationship(
         secondary=BookCategory.__table__,
@@ -638,39 +637,39 @@ class AudioAsset(LibraryAsset):
 
 
 __all__ = [
-    "Base",
-    "Publisher",
+    "AbstractImageAttachment",
+    "AbstractMediaAttachment",
+    "AbstractVideoAttachment",
+    "AudioAsset",
     "Author",
+    "Base",
+    "BlogAuthor",
+    "BlogPost",
+    "BlogPostTag",
+    "BlogTag",
     "Book",
+    "BookCategory",
     "BookDetail",
     "Category",
-    "BookCategory",
-    "Translator",
-    "Review",
     "Company",
     "Department",
     "Employee",
+    "GalleryORM",
+    "ImageAttachment",
+    "LibraryAsset",
+    "MediaAttachment",
+    "PdfAsset",
     "Project",
-    "Team",
-    "team_employee",
+    "Publisher",
+    "Review",
     "Shelf",
     "ShelfItem",
-    "GalleryORM",
-    "MediaAttachment",
-    "ImageAttachment",
+    "Team",
+    "Translator",
     "VideoAttachment",
-    "AbstractMediaAttachment",
-    "AbstractImageAttachment",
-    "AbstractVideoAttachment",
-    "LibraryAsset",
-    "PdfAsset",
-    "AudioAsset",
-    "BlogAuthor",
-    "BlogPost",
-    "BlogTag",
-    "BlogPostTag",
     "Warehouse",
     "WarehouseItem",
+    "team_employee",
 ]
 
 
@@ -766,7 +765,7 @@ class WarehouseManager(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
 
-    warehouses: Mapped[list["Warehouse"]] = relationship(
+    warehouses: Mapped[list["Warehouse"]] = relationship(  # noqa: UP037
         "Warehouse",
         back_populates="manager",
         uselist=True,
@@ -799,7 +798,7 @@ class Warehouse(Base):
     manager_name: AssociationProxy[str | None] = association_proxy("manager", "name")
 
     # Dict-of-lists relationship keyed by WarehouseItem.category
-    items: Mapped[dict[str, list["WarehouseItem"]]] = relationship(
+    items: Mapped[dict[str, list["WarehouseItem"]]] = relationship(  # noqa: UP037
         "WarehouseItem",
         collection_class=attribute_keyed_list_dict("category"),
         back_populates="warehouse",
@@ -844,7 +843,7 @@ class Article(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
 
-    generated_file_associations: Mapped[dict[str, list["ArticleGeneratedFile"]]] = (
+    generated_file_associations: Mapped[dict[str, list["ArticleGeneratedFile"]]] = (  # noqa: UP037
         relationship(
             "ArticleGeneratedFile",
             collection_class=attribute_keyed_list_dict("role"),
@@ -853,7 +852,7 @@ class Article(Base):
         )
     )
 
-    generated_files: AssociationProxy[dict[str, list["GeneratedFile"]]] = (
+    generated_files: AssociationProxy[dict[str, list[GeneratedFile]]] = (
         association_proxy(
             "generated_file_associations",
             "file",

@@ -3,13 +3,10 @@ from __future__ import annotations
 from typing import (
     TYPE_CHECKING,
     Any,
-    Optional,
     Self,
     TypeVar,
-    Union,
     cast,
 )
-
 from uuid import UUID
 
 import redis
@@ -25,14 +22,15 @@ if TYPE_CHECKING:
 
 T = TypeVar("T", bound=Transmuter)
 
-ScalarIdentT = Union[str, int, UUID]
-IdentT = Union[ScalarIdentT, tuple[ScalarIdentT, ...]]
+ScalarIdentT = str | int | UUID
+IdentT = ScalarIdentT | tuple[ScalarIdentT, ...]
 
 
 def _make_key(entity: type[Transmuter], ident: IdentT) -> str:
     materia = active_materia.get()
     if not isinstance(materia, RedisMateria):
-        raise RuntimeError(
+        # Guards ambient context, not an argument type: RuntimeError is right.
+        raise RuntimeError(  # noqa: TRY004
             "No active RedisMateria found. Activate one with 'with redis_materia:' "
             "before calling transmuter-aware client helpers."
         )
@@ -69,9 +67,9 @@ class Redis(redis.Redis):
         @classmethod
         def from_url(cls, url: str, **kwargs: Any) -> Self: ...
 
-    def tget(self, entity: type[T], ident: IdentT) -> Optional[T]:
+    def tget(self, entity: type[T], ident: IdentT) -> T | None:
         key = _make_key(entity, ident)
-        data = cast(Optional[bytes], self.get(key))
+        data = cast(bytes | None, self.get(key))
         if data is None:
             return None
         return get_cached_adapter(entity).validate_json(data)
@@ -79,18 +77,18 @@ class Redis(redis.Redis):
     def tset(
         self,
         instance: Transmuter,
-        ex: Union[ExpiryT, None] = None,
-        px: Union[ExpiryT, None] = None,
+        ex: ExpiryT | None = None,
+        px: ExpiryT | None = None,
         nx: bool = False,
         xx: bool = False,
         keepttl: bool = False,
-        exat: Union[AbsExpiryT, None] = None,
-        pxat: Union[AbsExpiryT, None] = None,
-    ) -> Optional[bool]:
+        exat: AbsExpiryT | None = None,
+        pxat: AbsExpiryT | None = None,
+    ) -> bool | None:
         key = _instance_key(instance)
         payload = get_cached_adapter(type(instance)).dump_json(instance)
         return cast(
-            Optional[bool],
+            bool | None,
             self.set(
                 key,
                 payload,
@@ -110,11 +108,11 @@ class Redis(redis.Redis):
         keys = [_make_key(entity, i) for i in idents]
         return cast(int, self.delete(*keys))
 
-    def tmget(self, entity: type[T], *idents: IdentT) -> list[Optional[T]]:
+    def tmget(self, entity: type[T], *idents: IdentT) -> list[T | None]:
         if not idents:
             return []
         keys = [_make_key(entity, i) for i in idents]
-        raw = cast(list[Optional[bytes]], self.mget(keys))
+        raw = cast(list[bytes | None], self.mget(keys))
         adapter = get_cached_adapter(entity)
         return [adapter.validate_json(v) if v is not None else None for v in raw]
 
@@ -133,9 +131,9 @@ class AsyncRedis(redis.asyncio.Redis):
             **kwargs: Any,
         ) -> Self: ...
 
-    async def tget(self, entity: type[T], ident: IdentT) -> Optional[T]:
+    async def tget(self, entity: type[T], ident: IdentT) -> T | None:
         key = _make_key(entity, ident)
-        data: Optional[bytes] = await self.get(key)
+        data: bytes | None = await self.get(key)
         if data is None:
             return None
         return get_cached_adapter(entity).validate_json(data)
@@ -143,17 +141,17 @@ class AsyncRedis(redis.asyncio.Redis):
     async def tset(
         self,
         instance: Transmuter,
-        ex: Union[ExpiryT, None] = None,
-        px: Union[ExpiryT, None] = None,
+        ex: ExpiryT | None = None,
+        px: ExpiryT | None = None,
         nx: bool = False,
         xx: bool = False,
         keepttl: bool = False,
-        exat: Union[AbsExpiryT, None] = None,
-        pxat: Union[AbsExpiryT, None] = None,
-    ) -> Optional[bool]:
+        exat: AbsExpiryT | None = None,
+        pxat: AbsExpiryT | None = None,
+    ) -> bool | None:
         key = _instance_key(instance)
         payload = get_cached_adapter(type(instance)).dump_json(instance)
-        result: Optional[bool] = await self.set(
+        result: bool | None = await self.set(
             key,
             payload,
             ex=ex,
@@ -173,7 +171,7 @@ class AsyncRedis(redis.asyncio.Redis):
         result: int = await self.delete(*keys)
         return result
 
-    async def tmget(self, entity: type[T], *idents: IdentT) -> list[Optional[T]]:
+    async def tmget(self, entity: type[T], *idents: IdentT) -> list[T | None]:
         if not idents:
             return []
         keys = [_make_key(entity, i) for i in idents]

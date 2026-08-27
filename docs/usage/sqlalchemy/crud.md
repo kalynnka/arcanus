@@ -22,8 +22,8 @@ automatically** — read them straight after the flush, no manual step.
 with Session(engine) as session:
     author = Author(name="Isaac Asimov")
     session.add(author)
-    session.flush()             # INSERT; id assigned on the row and synced to `author`
-    print(author.id)            # e.g. 1
+    session.flush()  # INSERT; id assigned on the row and synced to `author`
+    print(author.id)  # e.g. 1
     session.commit()
 ```
 
@@ -52,30 +52,32 @@ from sqlalchemy import func, select
 
 with Session(engine) as session:
     # By primary key
-    author = session.get(Author, 1)            # None if missing
-    author = session.get_one(Author, 1)         # raises NoResultFound if missing
+    author = session.get(Author, 1)  # None if missing
+    author = session.get_one(Author, 1)  # raises NoResultFound if missing
 
     # Single row by filter
-    author = session.execute(
-        select(Author).filter_by(name="Isaac Asimov")
-    ).scalar_one()
+    author = session.execute(select(Author).filter_by(name="Isaac Asimov")).scalar_one()
     maybe = session.execute(
         select(Author).filter_by(name="Nobody")
     ).scalar_one_or_none()
 
     # First row under an ordering
-    newest = session.execute(
-        select(Author).order_by(Author["id"].desc())
-    ).scalars().first()
+    newest = (
+        session.execute(select(Author).order_by(Author["id"].desc())).scalars().first()
+    )
 
     # Many rows, with filter + ordering + pagination
-    authors = session.execute(
-        select(Author)
-        .where(Author["name"].like("Isaac%"))
-        .order_by(Author["name"].asc())
-        .limit(10)
-        .offset(0)
-    ).scalars().all()
+    authors = (
+        session.execute(
+            select(Author)
+            .where(Author["name"].like("Isaac%"))
+            .order_by(Author["name"].asc())
+            .limit(10)
+            .offset(0)
+        )
+        .scalars()
+        .all()
+    )
 
     # Count matching rows
     total = session.execute(
@@ -98,7 +100,7 @@ no re-construction.
 ```python
 with Session(engine) as session:
     book = session.get_one(Book, 1)
-    book.title = "Foundation (Revised)"   # synced to the ORM row immediately
+    book.title = "Foundation (Revised)"  # synced to the ORM row immediately
     session.commit()
 ```
 
@@ -109,10 +111,7 @@ transmuters:
 from sqlalchemy import update
 
 stmt = (
-    update(Book)
-    .where(Book["author_id"] == 1)
-    .values(title="Reissue")
-    .returning(Book)
+    update(Book).where(Book["author_id"] == 1).values(title="Reissue").returning(Book)
 )
 reissued = session.execute(stmt).scalars().all()
 session.commit()
@@ -123,7 +122,7 @@ session.commit()
 ```python
 with Session(engine) as session:
     author = session.get_one(Author, 1)
-    session.delete(author)        # related rows follow your ORM cascade rules
+    session.delete(author)  # related rows follow your ORM cascade rules
     session.commit()
 ```
 
@@ -152,7 +151,7 @@ with Session(engine) as session:
     author = Author(name="Isaac Asimov")
     book = Book(title="Foundation", author=Relation(author))
 
-    session.add(book)             # adding the book also adds its author
+    session.add(book)  # adding the book also adds its author
     session.flush()
     author.revalidate()
     book.revalidate()
@@ -173,10 +172,12 @@ with Session(engine) as session:
     author = session.get_one(Author, 1)
 
     author.books.append(Book(title="I, Robot"))
-    author.books.extend([Book(title="Caves of Steel"), Book(title="The Gods Themselves")])
+    author.books.extend(
+        [Book(title="Caves of Steel"), Book(title="The Gods Themselves")]
+    )
 
-    for book in author.books:                 # loads on access
-        assert book.author.value is author    # back-reference, same instance
+    for book in author.books:  # loads on access
+        assert book.author.value is author  # back-reference, same instance
 
     author.books.remove(author.books[0])
     session.commit()
@@ -192,7 +193,7 @@ with Session(engine) as session:
     book = session.get_one(Book, 1)
     sci_fi = Category(name="Science Fiction")
 
-    book.categories.append(sci_fi)            # link from the book side
+    book.categories.append(sci_fi)  # link from the book side
     # sci_fi.books.append(book)               # …or from the category side — same link
 
     session.commit()
@@ -209,7 +210,7 @@ see [Working with FastAPI](fastapi.md).
 # Create: excludes *generated* identities (the server assigns them); a natural/composite
 # key declared Identity(server_side=False) stays in Create for the client to supply.
 payload = Author.Create(name="New Author")
-author = Author.shell(payload)        # a full transmuter, not yet persisted
+author = Author.shell(payload)  # a full transmuter, not yet persisted
 
 with Session(engine) as session:
     session.add(author)
@@ -246,7 +247,7 @@ with Session(engine) as session:
     author = Author(name="Isaac Asimov")
     author.books.append(Book(title="Foundation"))
     session.add(author)
-    session.flush()                       # both directions now loaded
+    session.flush()  # both directions now loaded
 
     author.model_dump()
     # {
@@ -281,7 +282,7 @@ from arcanus.materia.sqlalchemy import AsyncSession
 
 async with AsyncSession(create_async_engine("sqlite+aiosqlite://")) as session:
     author = await session.get_one(Author, 1)
-    books = await author.books          # awaits the lazy load → list[Book]
+    books = await author.books  # awaits the lazy load → list[Book]
 
     session.add(Book(title="Async Book", author=Relation(author)))
     await session.commit()

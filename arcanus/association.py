@@ -1,23 +1,19 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Mapping
 from contextvars import ContextVar, Token
 from functools import cached_property, partial, wraps
 from types import UnionType
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
     Concatenate,
     ForwardRef,
     Generic,
-    Iterable,
     Literal,
-    Mapping,
-    Optional,
     ParamSpec,
     Self,
     SupportsIndex,
-    Type,
     TypeVar,
     Union,
     cast,
@@ -43,7 +39,7 @@ D = TypeVar("D")
 K = TypeVar("K")
 T = TypeVar("T", bound="Transmuter")
 TD = TypeVar("TD")  # TypedDict type parameter for TypedRelationMap
-Optional_T = TypeVar("Optional_T", bound="Transmuter | Optional[Transmuter]")
+Optional_T = TypeVar("Optional_T", bound="Transmuter | None")
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -99,7 +95,7 @@ class _AsAncestor:
     never inherits a live set.
     """
 
-    __slots__ = ("__instance__", "__ancestors__", "__token__")
+    __slots__ = ("__ancestors__", "__instance__", "__token__")
 
     __instance__: object
     __ancestors__: set[int]
@@ -138,7 +134,7 @@ class Association(Generic[A]):
     @classmethod
     def __get_pydantic_generic_schema__(
         cls,
-        generic_type: Type[A],
+        generic_type: type[A],
         handler: GetCoreSchemaHandler,
     ) -> core_schema.CoreSchema:
         raise NotImplementedError()
@@ -146,7 +142,7 @@ class Association(Generic[A]):
     @classmethod
     def __get_pydantic_serialize_schema__(
         cls,
-        generic_type: Type[A],
+        generic_type: type[A],
         handler: GetCoreSchemaHandler,
     ) -> core_schema.SerSchema | None:
         """
@@ -160,7 +156,7 @@ class Association(Generic[A]):
 
     @classmethod
     def __get_pydantic_core_schema__(
-        cls, source_type: Type[Association[A]], handler: GetCoreSchemaHandler
+        cls, source_type: type[Association[A]], handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
         args = get_args(source_type)
 
@@ -206,7 +202,7 @@ class Association(Generic[A]):
         )
 
     @property
-    def __instance_provider__(self) -> Optional[Any]:
+    def __instance_provider__(self) -> Any | None:
         """Owner instance' provider, owner of this association's provider."""
         instance = self.__instance__
         if instance is not None:
@@ -460,14 +456,14 @@ class RelationCollection(list[T], Association[T]):
     @classmethod
     def __get_pydantic_generic_schema__(
         cls,
-        generic_type: Type[T],
+        generic_type: type[T],
         handler: GetCoreSchemaHandler,
     ) -> core_schema.CoreSchema:
         return core_schema.list_schema(handler.generate_schema(generic_type))
 
     @classmethod
     def __get_pydantic_serialize_schema__(
-        cls, generic_type: Type[T], handler: GetCoreSchemaHandler
+        cls, generic_type: type[T], handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
         def serialize(association: RelationCollection[T], serializer) -> Any:
             instance = association.__instance__
@@ -588,7 +584,7 @@ class RelationCollection(list[T], Association[T]):
             if payload.__transmuter_provided__ not in set(self.__provided__)
         ]
 
-        if not len(self.__provided__) == super().__len__():
+        if len(self.__provided__) != super().__len__():
             # If the length of __provided__ is not equal to the length of self,
             # it means some items were not blessed into transmuter objects.
             super().clear()
@@ -623,7 +619,7 @@ class RelationCollection(list[T], Association[T]):
             if payload.__transmuter_provided__ not in set(provided)
         ]
 
-        if not len(provided) == super().__len__():
+        if len(provided) != super().__len__():
             # If the length of __provided__ is not equal to the length of self,
             # it means some items were not blessed into transmuter objects.
             super().clear()
@@ -771,7 +767,7 @@ class RelationCollection(list[T], Association[T]):
         iterable = self.bless(iterable)
         provided = self.__provided__
         if provided is not None:
-            provided.extend((item.__transmuter_provided__ for item in iterable))
+            provided.extend(item.__transmuter_provided__ for item in iterable)
         super().extend(iterable)
 
     @ensure_loaded
@@ -850,14 +846,14 @@ class RelationSet(set[T], Association[T]):
     @classmethod
     def __get_pydantic_generic_schema__(
         cls,
-        generic_type: Type[T],
+        generic_type: type[T],
         handler: GetCoreSchemaHandler,
     ) -> core_schema.CoreSchema:
         return core_schema.set_schema(handler.generate_schema(generic_type))
 
     @classmethod
     def __get_pydantic_serialize_schema__(
-        cls, generic_type: Type[T], handler: GetCoreSchemaHandler
+        cls, generic_type: type[T], handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
         def serialize(association: RelationSet[T], serializer) -> Any:
             instance = association.__instance__
@@ -1249,8 +1245,8 @@ class RelationMap(dict[K, T], Association[T]):
     @classmethod
     def __get_pydantic_generic_schema__(
         cls,
-        key_type: Type[K],
-        value_type: Type[T],
+        key_type: type[K],
+        value_type: type[T],
         handler: GetCoreSchemaHandler,
     ) -> core_schema.CoreSchema:
         return core_schema.dict_schema(
@@ -1261,8 +1257,8 @@ class RelationMap(dict[K, T], Association[T]):
     @classmethod
     def __get_pydantic_serialize_schema__(
         cls,
-        key_type: Type[K],
-        value_type: Type[T],
+        key_type: type[K],
+        value_type: type[T],
         handler: GetCoreSchemaHandler,
     ) -> core_schema.SerSchema | None:
         def serialize(association: RelationMap[K, T], serializer) -> Any:
@@ -1290,7 +1286,7 @@ class RelationMap(dict[K, T], Association[T]):
 
     @classmethod
     def __get_pydantic_core_schema__(
-        cls, source_type: Type[RelationMap[K, T]], handler: GetCoreSchemaHandler
+        cls, source_type: type[RelationMap[K, T]], handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
         args = get_args(source_type)
 
@@ -1670,9 +1666,8 @@ class RelationMap(dict[K, T], Association[T]):
     def setdefault(self, key: K, default: T | None = None) -> T | None:
         """If key is not in the dict, insert key with the default value."""
         key = self.bless_key(key)
-        if key not in self:
-            if default is not None:
-                self[key] = default
+        if key not in self and default is not None:
+            self[key] = default
         return super().get(key, default)
 
     @ensure_loaded
@@ -1713,8 +1708,8 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
     @classmethod
     def __get_pydantic_generic_schema__(
         cls,
-        key_type: Type[K],
-        value_type: Type[T],
+        key_type: type[K],
+        value_type: type[T],
         handler: GetCoreSchemaHandler,
     ) -> core_schema.CoreSchema:
         return core_schema.dict_schema(
@@ -1725,8 +1720,8 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
     @classmethod
     def __get_pydantic_serialize_schema__(
         cls,
-        key_type: Type[K],
-        value_type: Type[T],
+        key_type: type[K],
+        value_type: type[T],
         handler: GetCoreSchemaHandler,
     ) -> core_schema.SerSchema | None:
         def serialize(association: RelationGroupMap[K, T], serializer) -> Any:
@@ -1755,7 +1750,7 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
 
     @classmethod
     def __get_pydantic_core_schema__(
-        cls, source_type: Type[RelationGroupMap[K, T]], handler: GetCoreSchemaHandler
+        cls, source_type: type[RelationGroupMap[K, T]], handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
         args = get_args(source_type)
 
@@ -2331,7 +2326,7 @@ class TypedRelationMap(dict, Association[TD]):
     @classmethod
     def __get_pydantic_core_schema__(
         cls,
-        source_type: Type[TypedRelationMap],
+        source_type: type[TypedRelationMap],
         handler: GetCoreSchemaHandler,
     ) -> core_schema.CoreSchema:
         args = get_args(source_type)
@@ -2657,9 +2652,8 @@ class TypedRelationMap(dict, Association[TD]):
     @Association.ensure_mutable
     def setdefault(self, key: str, default: Any = None) -> Any:
         """If key is not in the dict, insert key with the default value."""
-        if key not in self:
-            if default is not None:
-                self[key] = default
+        if key not in self and default is not None:
+            self[key] = default
         return super().get(key, default)
 
     @ensure_loaded
@@ -2677,7 +2671,7 @@ class TypedRelationMap(dict, Association[TD]):
 
 
 if TYPE_CHECKING:
-    from typing_extensions import TypeAliasType as TypeAliasType
+    from typing_extensions import TypeAliasType
 
     # Make TypedRelationMap[TD] resolve to TD for the type checker.
     # This lets Pyright/mypy apply TypedDict per-key type inference so that

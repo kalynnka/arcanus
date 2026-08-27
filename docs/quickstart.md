@@ -10,15 +10,22 @@ use them like regular Pydantic models, no setup required. Great for tests and pr
 
 ```python
 from arcanus.base import BaseTransmuter, Identity
-from arcanus.association import Relation, RelationCollection, Relationship, Relationships
+from arcanus.association import (
+    Relation,
+    RelationCollection,
+    Relationship,
+    Relationships,
+)
 from pydantic import Field
 from typing import Annotated, Optional
+
 
 class Author(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
 
     books: RelationCollection["Book"] = Relationships()
+
 
 class Book(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
@@ -27,11 +34,12 @@ class Book(BaseTransmuter):
 
     author: Relation[Author] = Relationship()
 
+
 author = Author(id=1, name="Isaac Asimov")
 book = Book(id=1, title="Foundation", author=Relation(author))
 
-print(book.author.value.name)   # Isaac Asimov
-print(list(author.books))       # [Book(...)]
+print(book.author.value.name)  # Isaac Asimov
+print(list(author.books))  # [Book(...)]
 ```
 
 ## With SQLAlchemy
@@ -44,13 +52,16 @@ Your SQLAlchemy models are plain, untouched SQLAlchemy:
 from sqlalchemy import ForeignKey, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+
 class Base(DeclarativeBase): ...
+
 
 class AuthorModel(Base):
     __tablename__ = "authors"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(100))
     books: Mapped[list["BookModel"]] = relationship(back_populates="author")
+
 
 class BookModel(Base):
     __tablename__ = "books"
@@ -64,18 +75,25 @@ class BookModel(Base):
 
 ```python
 from arcanus.base import BaseTransmuter, Identity
-from arcanus.association import Relation, RelationCollection, Relationship, Relationships
+from arcanus.association import (
+    Relation,
+    RelationCollection,
+    Relationship,
+    Relationships,
+)
 from arcanus.materia.sqlalchemy import SqlalchemyMateria
 from pydantic import Field
 from typing import Annotated, Optional
 
 materia = SqlalchemyMateria()
 
+
 @materia.bless(AuthorModel)
 class Author(BaseTransmuter):
     id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
     name: str
     books: RelationCollection["Book"] = Relationships()
+
 
 @materia.bless(BookModel)
 class Book(BaseTransmuter):
@@ -109,10 +127,10 @@ with Session(engine) as session:
     author = Author(name="Isaac Asimov")
     book = Book(title="Foundation", author=Relation(author))
 
-    session.add(book)            # adding the book also adds its author
-    session.flush()              # INSERT; server-generated ids synced to the transmuters
+    session.add(book)  # adding the book also adds its author
+    session.flush()  # INSERT; server-generated ids synced to the transmuters
     session.commit()
-    print(book.id)               # e.g. 1
+    print(book.id)  # e.g. 1
 ```
 
 #### Read
@@ -125,22 +143,28 @@ Every result is a transmuter, not a raw ORM row. Reads are plain SQLAlchemy — 
 from sqlalchemy import select
 
 with Session(engine) as session:
-    author = session.get_one(Author, 1)             # by primary key (raises if missing)
+    author = session.get_one(Author, 1)  # by primary key (raises if missing)
 
-    author = session.execute(                        # by filter
+    author = session.execute(  # by filter
         select(Author).filter_by(name="Isaac Asimov")
     ).scalar_one()
 
-    authors = session.execute(                       # many, with filter + ordering + paging
-        select(Author)
-        .where(Author["name"].like("Isaac%"))
-        .order_by(Author["name"].asc())
-        .limit(10)
-    ).scalars().all()
+    authors = (
+        session.execute(  # many, with filter + ordering + paging
+            select(Author)
+            .where(Author["name"].like("Isaac%"))
+            .order_by(Author["name"].asc())
+            .limit(10)
+        )
+        .scalars()
+        .all()
+    )
 
-    books = session.execute(
-        select(Book).where(Book["title"].like("Found%"))
-    ).scalars().all()
+    books = (
+        session.execute(select(Book).where(Book["title"].like("Found%")))
+        .scalars()
+        .all()
+    )
 ```
 
 !!! tip "Typed shortcuts"
@@ -155,8 +179,8 @@ Related rows load on access and keep their identity.
 ```python
 with Session(engine) as session:
     author = session.get_one(Author, 1)
-    for book in author.books:                # loads on access
-        assert book.author.value is author   # same instance — identity preserved
+    for book in author.books:  # loads on access
+        assert book.author.value is author  # same instance — identity preserved
 ```
 
 #### Update & delete
@@ -166,10 +190,10 @@ Mutating a transmuter syncs to its ORM row in place — no `model_dump()` round-
 ```python
 with Session(engine) as session:
     book = session.get_one(Book, 1)
-    book.title = "Foundation (Revised)"      # synced to the ORM row
+    book.title = "Foundation (Revised)"  # synced to the ORM row
     session.commit()
 
-    session.delete(book)                     # follows your ORM cascade rules
+    session.delete(book)  # follows your ORM cascade rules
     session.commit()
 ```
 
@@ -186,11 +210,11 @@ between a partial and a full transmuter.
 
 ```python
 with Session(engine) as session:
-    author = Author.shell(Author.Create(name="New Author"))   # Create excludes the id
+    author = Author.shell(Author.Create(name="New Author"))  # Create excludes the id
     session.add(author)
-    session.flush()                                           # id synced back automatically
+    session.flush()  # id synced back automatically
 
-    author.absorb(Author.Update(name="Renamed"))              # applies only what's set
+    author.absorb(Author.Update(name="Renamed"))  # applies only what's set
     session.commit()
 ```
 
@@ -205,7 +229,7 @@ from arcanus.materia.sqlalchemy import AsyncSession
 
 async with AsyncSession(create_async_engine("sqlite+aiosqlite://")) as session:
     author = await session.get_one(Author, 1)
-    books = await author.books          # awaits the lazy load → list[Book]
+    books = await author.books  # awaits the lazy load → list[Book]
 
     session.add(Book(title="Async Book", author=Relation(author)))
     await session.commit()

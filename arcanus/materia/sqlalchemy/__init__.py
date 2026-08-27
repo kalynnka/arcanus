@@ -32,10 +32,10 @@ from arcanus.materia.sqlalchemy.options import (
 )
 
 __all__ = [
-    "SqlalchemyMateria",
-    "Session",
     "AsyncSession",
+    "Session",
     "SqlalchemyExpressionCompiler",
+    "SqlalchemyMateria",
     "attribute_keyed_list_dict",
     "contains_eager",
     "defaultload",
