@@ -6,6 +6,7 @@ from typing import Annotated
 
 import pytest
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic_core import PydanticCustomError
 
 from arcanus import (
     Criteria,
@@ -23,8 +24,9 @@ from arcanus.criteria import (
     ExactCriteria,
     Ordering,
     TextCriteria,
+    with_identity_tiebreak,
 )
-from tests.transmuters import Author, Book, sqlalchemy_materia
+from tests.transmuters import Author, Book, Category, sqlalchemy_materia
 
 
 class VaultEntry(BaseTransmuter):
@@ -727,3 +729,53 @@ def test_expression_call_compiles_with_material_compiler():
         compiled = expression()
 
     assert compiled is not None
+
+
+def test_with_identity_tiebreak_appends_identity_order():
+    orders = with_identity_tiebreak(Author, (Author["name"].asc(),))
+
+    assert [order.dump() for order in orders] == ["+name", "-id"]
+
+
+def test_with_identity_tiebreak_leaves_identity_ordering_alone():
+    for orders in (
+        (Author["id"].asc(),),
+        (Author["name"].asc(), Author["id"].desc()),
+    ):
+        assert with_identity_tiebreak(Author, orders) == orders
+
+
+def test_with_identity_tiebreak_ignores_non_transmuter_entities():
+    orders = (Author["name"].asc(),)
+
+    assert with_identity_tiebreak(int, orders) == orders
+
+
+def test_cursor_from_expressions_orders_end_with_identity():
+    cursor = Cursor[Author].from_expressions(order_bys=(Author["name"].asc(),), limit=2)
+
+    assert tuple(cursor.order_by) == ("+name", "-id")
+
+
+def test_bookmark_from_item_null_order_value_resumes_via_identity():
+    category = Category(id=7, name="quiet", description=None)
+
+    bookmark = Cursor[Category].bookmark_from_item(
+        category, (Category["description"].asc(),)
+    )
+
+    assert bookmark.dump() == {
+        "and": [{"description": {"is_null": True}}, {"id": {"lt": 7}}]
+    }
+
+
+def test_bookmark_without_identity_still_requires_tiebreak():
+    class Draft(BaseTransmuter):
+        model_config = ConfigDict(from_attributes=True)
+
+        label: str | None = None
+
+    draft = Draft(label=None)
+
+    with pytest.raises(PydanticCustomError, match="non-null unique tiebreak"):
+        Cursor[Draft].bookmark_from_item(draft, (Draft["label"].asc(),))

@@ -190,10 +190,20 @@ class TestCursorPagination:
                 "Descending Manual Cursor D",
                 "Descending Manual Cursor C",
             ]
-            assert decoded.order_by == ("-name",)
+            assert decoded.order_by == ("-name", "-id")
             assert decoded.bookmark.model_dump(
                 mode="json", by_alias=True, exclude_none=True
-            ) == {"name": {"lt": "Descending Manual Cursor C"}}
+            ) == {
+                "or": [
+                    {"name": {"lt": "Descending Manual Cursor C"}},
+                    {
+                        "and": [
+                            {"name": {"eq": "Descending Manual Cursor C"}},
+                            {"id": {"lt": authors[2].id}},
+                        ]
+                    },
+                ]
+            }
             assert second_page.has_more is False
             assert second_page.next_cursor is not None
             assert [author.name for author in second_page] == [

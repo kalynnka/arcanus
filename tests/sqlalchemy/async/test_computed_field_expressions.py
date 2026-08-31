@@ -19,7 +19,6 @@ from uuid import uuid4
 
 import pytest
 from pydantic import ConfigDict, Field, ValidationError, computed_field
-from pydantic_core import PydanticCustomError
 from sqlalchemy import ForeignKey, String, Text, func, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -243,8 +242,18 @@ class TestComputedFieldQuerying:
                 mode="json", by_alias=True, exclude_none=True
             ) == {
                 "or": [
-                    {"title": {"gt": f"{marker} Beta"}},
-                    {"title": {"is_null": True}},
+                    {
+                        "or": [
+                            {"title": {"gt": f"{marker} Beta"}},
+                            {"title": {"is_null": True}},
+                        ]
+                    },
+                    {
+                        "and": [
+                            {"title": {"eq": f"{marker} Beta"}},
+                            {"id": {"lt": first_items[-1].id}},
+                        ]
+                    },
                 ]
             }
             bookmark_expression = decoded.bookmark.expression
@@ -496,8 +505,14 @@ class TestAssociationLoadedHook:
 
 
 @pytest.mark.asyncio
-async def test_all_null_bookmark_without_tiebreak_raises(async_engine: AsyncEngine):
+async def test_all_null_bookmark_resumes_via_identity_tiebreak(
+    async_engine: AsyncEngine,
+):
     async with AsyncSession(async_engine) as session:
         memo = await _seed_memo(session, None)
-        with pytest.raises(PydanticCustomError, match="non-null unique tiebreak"):
-            Cursor[MemoSchema].bookmark_from_item(memo, (MemoSchema["title"].asc(),))
+        bookmark = Cursor[MemoSchema].bookmark_from_item(
+            memo, (MemoSchema["title"].asc(),)
+        )
+        assert bookmark.dump() == {
+            "and": [{"title": {"is_null": True}}, {"id": {"lt": memo.id}}]
+        }

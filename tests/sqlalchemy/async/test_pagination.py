@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from arcanus import Criteria, Cursor, Page
 from arcanus.materia.sqlalchemy import AsyncSession
-from tests.transmuters import Author
+from tests.transmuters import Author, Category
 
 
 class TestAsyncCursorPagination:
@@ -168,3 +168,47 @@ class TestAsyncCursorPagination:
                 )
                 == {}
             )
+
+    @pytest.mark.asyncio
+    async def test_async_cursor_pagination_walks_tied_order_boundary(
+        self, async_engine: AsyncEngine
+    ):
+        """A non-unique order key pages completely: the identity tiebreak
+        resumes inside the tied group instead of skipping the rows that share
+        the boundary value."""
+        criteria = Criteria[Category].model_validate(
+            {"name": {"starts_with": "Tiebreak Walk"}}
+        )
+        limit = 2
+        orders = (Category["description"].asc(),)
+
+        async with AsyncSession(async_engine) as session:
+            categories = [
+                Category(name=f"Tiebreak Walk {index}", description="dup")
+                for index in range(4)
+            ]
+            session.add_all(categories)
+            await session.flush()
+            for category in categories:
+                category.revalidate()
+
+            seen: list[int | None] = []
+            bookmark = None
+            for _ in range(len(categories)):
+                items = await session.list(
+                    Category,
+                    limit=limit + 1,
+                    order_bys=orders,
+                    expressions=(
+                        *criteria.expressions,
+                        *((bookmark,) if bookmark is not None else ()),
+                    ),
+                )
+                page_items = tuple(items[:limit])
+                if not page_items:
+                    break
+                seen.extend(category.id for category in page_items)
+                bookmark = Cursor[Category].bookmark_from_item(page_items[-1], orders)
+
+            assert len(seen) == len(categories)
+            assert set(seen) == {category.id for category in categories}
