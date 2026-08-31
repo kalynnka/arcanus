@@ -98,6 +98,7 @@ class Category(Transmuter):
     name: str
     id: Annotated[int | None, Identity] = Field(default=None, frozen=True)
     description: str | None = None
+    featured: bool = False
     test_id: UUID | None = Field(default=None, frozen=True, exclude=True)
 
     books: RelationCollection[Book] = Relationships()

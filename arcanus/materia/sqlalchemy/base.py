@@ -6,7 +6,7 @@ from functools import cache
 from typing import Any, cast
 
 from pydantic import ValidationInfo
-from sqlalchemy import and_, inspect, or_
+from sqlalchemy import and_, inspect, literal, or_
 from sqlalchemy.exc import InvalidRequestError, MissingGreenlet
 from sqlalchemy.ext.associationproxy import AssociationProxy
 from sqlalchemy.inspection import Inspectable, _inspects
@@ -84,7 +84,12 @@ class SqlalchemyExpressionCompiler(
             None if operator == "contains" else getattr(operators, operator, None)
         )
         if operation is not None:
-            return cast(SQLCoreOperations[bool], operation(native, unwrap(value)))
+            operand = unwrap(value)
+            if isinstance(operand, bool) and operator in ("lt", "le", "gt", "ge"):
+                # SQLAlchemy refuses ordering comparators against raw bool
+                # literals; a typed literal compiles to e.g. ``flag < false``.
+                operand = literal(operand)
+            return cast(SQLCoreOperations[bool], operation(native, operand))
 
         if operator == "not_contains":
             return operators.invert(native.contains(unwrap(value)))

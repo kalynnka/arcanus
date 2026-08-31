@@ -212,3 +212,47 @@ class TestAsyncCursorPagination:
 
             assert len(seen) == len(categories)
             assert set(seen) == {category.id for category in categories}
+
+    @pytest.mark.asyncio
+    async def test_async_cursor_pagination_walks_boolean_order(
+        self, async_engine: AsyncEngine
+    ):
+        """A boolean order key pages completely: its bookmark comparison must
+        compile (SQLAlchemy refuses ordering comparators against raw ``bool``
+        literals) and the identity tiebreak resumes inside the tied group."""
+        criteria = Criteria[Category].model_validate(
+            {"name": {"starts_with": "Boolean Walk"}}
+        )
+        limit = 2
+        orders = (Category["featured"].desc(),)
+
+        async with AsyncSession(async_engine) as session:
+            categories = [
+                Category(name=f"Boolean Walk {index}", featured=False)
+                for index in range(4)
+            ]
+            session.add_all(categories)
+            await session.flush()
+            for category in categories:
+                category.revalidate()
+
+            seen: list[int | None] = []
+            bookmark = None
+            for _ in range(len(categories)):
+                items = await session.list(
+                    Category,
+                    limit=limit + 1,
+                    order_bys=orders,
+                    expressions=(
+                        *criteria.expressions,
+                        *((bookmark,) if bookmark is not None else ()),
+                    ),
+                )
+                page_items = tuple(items[:limit])
+                if not page_items:
+                    break
+                seen.extend(category.id for category in page_items)
+                bookmark = Cursor[Category].bookmark_from_item(page_items[-1], orders)
+
+            assert len(seen) == len(categories)
+            assert set(seen) == {category.id for category in categories}

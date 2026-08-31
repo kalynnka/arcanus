@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import Column, ForeignKey, Integer, String, Table, Text, Uuid
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Table, Text, Uuid
 from sqlalchemy.ext.associationproxy import AssociationProxy, association_proxy
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -165,6 +165,7 @@ class Category(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     description: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    featured: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     books: Mapped[list[Book]] = relationship(
         secondary=BookCategory.__table__,
