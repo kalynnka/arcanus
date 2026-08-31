@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.27](https://github.com/kalynnka/arcanus/compare/v0.0.26...v0.0.27) (2026-08-31)
+
+
+### Bug Fixes
+
+* append identity tiebreak to cursor orderings ([fef1f58](https://github.com/kalynnka/arcanus/commit/fef1f58abdcfc469abc9550ae7640e03343e2e26))
+* compile boolean ordering comparators via typed literals ([3214bf0](https://github.com/kalynnka/arcanus/commit/3214bf044b78062a2e98353be796744d9ec03843))
+* make cursor pagination lossless over nullable, tied, and boolean orderings ([#55](https://github.com/kalynnka/arcanus/issues/55)) ([e0ec599](https://github.com/kalynnka/arcanus/commit/e0ec59933fdfe70663bccbfd909a404d04b9f796))
+
 ## [0.0.26](https://github.com/kalynnka/arcanus/compare/v0.0.25...v0.0.26) (2026-08-27)
 
 
