@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from arcanus import Criteria, Cursor, Page
 from arcanus.materia.sqlalchemy import AsyncSession
-from tests.transmuters import Author
+from tests.transmuters import Author, Category
 
 
 class TestAsyncCursorPagination:
@@ -168,3 +168,138 @@ class TestAsyncCursorPagination:
                 )
                 == {}
             )
+
+    @pytest.mark.asyncio
+    async def test_async_cursor_pagination_walks_tied_order_boundary(
+        self, async_engine: AsyncEngine
+    ):
+        """A non-unique order key pages completely: the identity tiebreak
+        resumes inside the tied group instead of skipping the rows that share
+        the boundary value."""
+        criteria = Criteria[Category].model_validate(
+            {"name": {"starts_with": "Tiebreak Walk"}}
+        )
+        limit = 2
+        orders = (Category["description"].asc(),)
+
+        async with AsyncSession(async_engine) as session:
+            categories = [
+                Category(name=f"Tiebreak Walk {index}", description="dup")
+                for index in range(4)
+            ]
+            session.add_all(categories)
+            await session.flush()
+            for category in categories:
+                category.revalidate()
+
+            seen: list[int | None] = []
+            bookmark = None
+            for _ in range(len(categories)):
+                items = await session.list(
+                    Category,
+                    limit=limit + 1,
+                    order_bys=orders,
+                    expressions=(
+                        *criteria.expressions,
+                        *((bookmark,) if bookmark is not None else ()),
+                    ),
+                )
+                page_items = tuple(items[:limit])
+                if not page_items:
+                    break
+                seen.extend(category.id for category in page_items)
+                bookmark = Cursor[Category].bookmark_from_item(page_items[-1], orders)
+
+            assert len(seen) == len(categories)
+            assert set(seen) == {category.id for category in categories}
+
+    @pytest.mark.asyncio
+    async def test_async_cursor_pagination_walks_null_boundary(
+        self, async_engine: AsyncEngine
+    ):
+        """A nullable order key pages completely across the null region: the
+        compiled ordering must place nulls where the bookmark math assumes
+        (ASC NULLS LAST), regardless of the database's own default."""
+        criteria = Criteria[Category].model_validate(
+            {"name": {"starts_with": "Null Walk"}}
+        )
+        limit = 2
+        orders = (Category["description"].asc(),)
+
+        async with AsyncSession(async_engine) as session:
+            categories = [
+                Category(name="Null Walk 0", description="A"),
+                Category(name="Null Walk 1", description="B"),
+                Category(name="Null Walk 2", description=None),
+                Category(name="Null Walk 3", description=None),
+            ]
+            session.add_all(categories)
+            await session.flush()
+            for category in categories:
+                category.revalidate()
+
+            seen: list[int | None] = []
+            bookmark = None
+            for _ in range(len(categories)):
+                items = await session.list(
+                    Category,
+                    limit=limit + 1,
+                    order_bys=orders,
+                    expressions=(
+                        *criteria.expressions,
+                        *((bookmark,) if bookmark is not None else ()),
+                    ),
+                )
+                page_items = tuple(items[:limit])
+                if not page_items:
+                    break
+                seen.extend(category.id for category in page_items)
+                bookmark = Cursor[Category].bookmark_from_item(page_items[-1], orders)
+
+            assert seen[:2] == [categories[0].id, categories[1].id]
+            assert len(seen) == len(categories)
+            assert set(seen) == {category.id for category in categories}
+
+    @pytest.mark.asyncio
+    async def test_async_cursor_pagination_walks_boolean_order(
+        self, async_engine: AsyncEngine
+    ):
+        """A boolean order key pages completely: its bookmark comparison must
+        compile (SQLAlchemy refuses ordering comparators against raw ``bool``
+        literals) and the identity tiebreak resumes inside the tied group."""
+        criteria = Criteria[Category].model_validate(
+            {"name": {"starts_with": "Boolean Walk"}}
+        )
+        limit = 2
+        orders = (Category["featured"].desc(),)
+
+        async with AsyncSession(async_engine) as session:
+            categories = [
+                Category(name=f"Boolean Walk {index}", featured=False)
+                for index in range(4)
+            ]
+            session.add_all(categories)
+            await session.flush()
+            for category in categories:
+                category.revalidate()
+
+            seen: list[int | None] = []
+            bookmark = None
+            for _ in range(len(categories)):
+                items = await session.list(
+                    Category,
+                    limit=limit + 1,
+                    order_bys=orders,
+                    expressions=(
+                        *criteria.expressions,
+                        *((bookmark,) if bookmark is not None else ()),
+                    ),
+                )
+                page_items = tuple(items[:limit])
+                if not page_items:
+                    break
+                seen.extend(category.id for category in page_items)
+                bookmark = Cursor[Category].bookmark_from_item(page_items[-1], orders)
+
+            assert len(seen) == len(categories)
+            assert set(seen) == {category.id for category in categories}

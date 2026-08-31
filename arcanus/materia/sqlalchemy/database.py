@@ -67,7 +67,7 @@ from arcanus.base import (
     ValidationContextT,
     validation_context,
 )
-from arcanus.criteria import CriteriaValue
+from arcanus.criteria import CriteriaValue, with_identity_tiebreak
 from arcanus.expression import Column, Expression, Order
 from arcanus.materia.base import active_materia
 from arcanus.materia.sqlalchemy.result import (
@@ -797,7 +797,9 @@ class Session(SqlalchemySession):
         if offset:
             statement = statement.offset(offset)
         if order_bys:
-            statement = statement.order_by(*order_bys)
+            statement = statement.order_by(
+                *with_identity_tiebreak(entity, tuple(order_bys))
+            )
         if options:
             statement = statement.options(*options)
         if expressions:

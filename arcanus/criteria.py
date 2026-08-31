@@ -36,7 +36,12 @@ from pydantic.errors import PydanticUndefinedAnnotation, PydanticUserError
 from pydantic_core import PydanticCustomError
 
 from arcanus.association import is_association
-from arcanus.base import TransmuterType, provided_computed_fields, transmuter_type
+from arcanus.base import (
+    TransmuterMetaclass,
+    TransmuterType,
+    provided_computed_fields,
+    transmuter_type,
+)
 from arcanus.expression import Column, Expression, Order, and_, or_
 
 P = TypeVar("P")
@@ -809,7 +814,32 @@ class BookmarkCriteria(ScalarCriteria[P]):
         return expressions[0] if len(expressions) == 1 else and_(expressions)
 
 
-def _bookmark_after(
+def with_identity_tiebreak(
+    entity: type[object],
+    order_bys: tuple[T, ...],
+) -> tuple[T | Order[CriteriaValue], ...]:
+    """The ordering extended with the entity's identity keys, if absent.
+
+    Cursor pagination needs a total order: a nullable or non-unique trailing
+    key cannot mint an unambiguous bookmark — a null yields no comparison at
+    its level, and rows tied at a page boundary get skipped. Identity fields
+    are unique and non-null, so every ordering ends with them, descending to
+    match the newest-first default. Empty orderings, non-transmuter entities,
+    transmuters without identity fields, and orderings that already name an
+    identity pass through unchanged.
+    """
+    if not order_bys or not isinstance(entity, TransmuterMetaclass):
+        return order_bys
+    identities = entity.model_identities
+    ordered_names = {
+        order.column.field_name for order in order_bys if isinstance(order, Order)
+    }
+    if not identities or ordered_names.intersection(identities):
+        return order_bys
+    return (*order_bys, *(entity[name].desc() for name in identities))
+
+
+def bookmark_after(
     column: Column[CriteriaValue], value: CriteriaValue | None, descending: bool
 ) -> Expression[bool] | None:
     """Strictly-after comparison for one order key of a cursor bookmark.
@@ -984,7 +1014,9 @@ class Cursor(RootModel[str], Generic[P]):
             if criteria_expression is not None
             else None
         )
-        order_by = order_by_model.from_orders(order_bys)
+        order_by = order_by_model.from_orders(
+            with_identity_tiebreak(generic_model, order_bys)
+        )
         bookmark_model = cast(
             type[BookmarkCriteria[P]], cast(Any, BookmarkCriteria)[generic_model]
         )
@@ -1016,12 +1048,13 @@ class Cursor(RootModel[str], Generic[P]):
             raise PydanticCustomError(
                 "invalid_cursor", "Cursor bookmark requires order_by"
             )
+        order_bys = with_identity_tiebreak(cls.generic_model, order_bys)
         clauses: list[Expression[bool]] = []
         equalities: list[Expression[bool]] = []
         for order_by in order_bys:
             column = order_by.column
             value = getattr(item, column.field_name)
-            comparison = _bookmark_after(column, value, order_by.descending)
+            comparison = bookmark_after(column, value, order_by.descending)
             if comparison is not None:
                 clauses.append(
                     comparison if not equalities else and_((*equalities, comparison))
