@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.28](https://github.com/kalynnka/arcanus/compare/v0.0.27...v0.0.28) (2026-09-15)
+
+
+### Bug Fixes
+
+* prevent lazy loads when peeking unloaded association proxies ([#57](https://github.com/kalynnka/arcanus/issues/57)) ([cee07e7](https://github.com/kalynnka/arcanus/commit/cee07e79816612982e5b3f514f9e864b7d2f3ed9))
+
 ## [0.0.27](https://github.com/kalynnka/arcanus/compare/v0.0.26...v0.0.27) (2026-08-31)
 
 
