@@ -310,4 +310,6 @@ class SqlalchemyMateria(BaseMateria):
         if owner is None:
             return True
         state = inspect(cast(Inspectable[InstanceState[Any]], owner))
-        return association.used_name not in state.unloaded
+        proxies = extract_association_proxies(type(owner))
+        used_name = proxies.get(association.used_name, association.used_name)
+        return used_name not in state.unloaded

@@ -14,7 +14,9 @@ Part 2 – Proxy *over* attribute_keyed_list_dict:
 
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import Engine, select
+from sqlalchemy.orm import make_transient_to_detached
 
 from arcanus.association import RelationGroupMap
 from arcanus.materia.sqlalchemy import Session, raiseload, selectinload
@@ -25,6 +27,38 @@ from tests.models import Warehouse as WarehouseModel
 from tests.models import WarehouseItem as WarehouseItemModel
 from tests.models import WarehouseManager as WarehouseManagerModel
 from tests.transmuters import Article, Warehouse, WarehouseItem
+
+
+def test_proxy_peek_skips_detached_unloaded_relationship():
+    orm_article = ArticleModel(id=1, title="Detached")
+    make_transient_to_detached(orm_article)
+    article = Article.model_validate(orm_article)
+
+    assert article.generated_files.peek() is None
+    assert article.generated_files.loaded is False
+
+
+@pytest.mark.parametrize("populated", [False, True])
+def test_proxy_peek_reads_detached_loaded_relationship(populated: bool):
+    orm_article = ArticleModel(id=1, title="Detached", generated_file_associations={})
+    if populated:
+        ArticleGeneratedFileModel(
+            id=1,
+            role="image",
+            article_id=1,
+            article=orm_article,
+            file_id=1,
+            file=GeneratedFileModel(id=1, filename="thumbnail.png", size=100),
+        )
+    make_transient_to_detached(orm_article)
+    article = Article.model_validate(orm_article)
+
+    assert article.generated_files.loaded is True
+    files = article.generated_files.peek()
+    assert files is not None
+    assert {
+        role: [file.filename for file in group] for role, group in files.items()
+    } == ({"image": ["thumbnail.png"]} if populated else {})
 
 
 def _seed_warehouse(
