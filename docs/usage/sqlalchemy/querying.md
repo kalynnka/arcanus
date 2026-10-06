@@ -24,6 +24,14 @@ Book["title"]  # Column[str]
 Book["author"]  # Column over the relationship
 ```
 
+Arcanus previously supported class-level dot access such as `Author.name` for query columns.
+We decided to disable it because it causes misleading Pydantic field-conflict warnings
+(`shadows an attribute`) when subclasses narrow inherited fields.
+
+Use bracket access instead: migrate `Author.name` to `Author["name"]` and `Book.author` to
+`Book["author"]` in queries and loader options. Instance access such as `author.name` still
+returns the field value.
+
 A `Column` proxies through to the underlying ORM attribute, so it drops straight into a SQLAlchemy
 `select` — no separate table/column handle to import:
 

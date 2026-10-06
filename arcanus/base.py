@@ -630,11 +630,12 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
             fields = object.__getattribute__(self, "__pydantic_fields__")
 
             transmuter_name = object.__getattribute__(self, "__name__")
-            if fields.get(name):
-                try:
-                    return self._column(name)
-                except KeyError as inner:
-                    raise AttributeError(str(inner)) from e
+            # Disabled: Pydantic mistakes query columns for conflicting parent attributes.
+            # if fields.get(name):
+            #     try:
+            #         return self._column(name)
+            #     except KeyError as inner:
+            #         raise AttributeError(str(inner)) from e
             raise AttributeError(
                 f"Attribute '{name}' is not defined in transmuter {transmuter_name}. "
                 f"Available fields: {', '.join(fields.keys())}"

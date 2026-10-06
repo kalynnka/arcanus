@@ -48,6 +48,14 @@ Author["name"]  # a Column
 Book["year"]  # a Column
 ```
 
+Arcanus previously supported class-level dot access such as `Author.name` for query columns.
+We decided to disable it because it causes misleading Pydantic field-conflict warnings
+(`shadows an attribute`) when subclasses narrow inherited fields, for example from `str` to
+`Literal["text/plain"]`.
+
+Use bracket access instead: replace `Author.name == "Ada"` with `Author["name"] == "Ada"`.
+Instance access such as `author.name` still returns the field value.
+
 !!! warning "Column element typing is WIP"
     Indexing returns `Column[Any]` today, **not** `Column[str]` / `Column[int]` — the field's element
     type isn't propagated, so a type checker can't yet flag a mistake like `Author["id"] == "oops"`.
