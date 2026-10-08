@@ -11,7 +11,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.selectable import Join
 
 from arcanus import Column, provided
-from arcanus.base import BaseTransmuter, TransmuterProxiedMixin
+from arcanus.base import BaseTransmuter, Transmuter, TransmuterProxiedMixin
 from arcanus.materia.sqlalchemy import (
     SqlalchemyMateria,
     TransmuterAlias,
@@ -69,6 +69,15 @@ def test_alias_column_compilation_and_type() -> None:
             "FROM thread_ledgers AS thread_ledgers_1"
         )
         assert not hasattr(a, "thread_id")
+
+
+def test_alias_rejects_undecorated_transmuter() -> None:
+    class UndecoratedTransmuter(Transmuter): ...
+
+    native = aliased(Author).native
+
+    with pytest.raises(TypeError, match="^Aliasing requires a transmuter class$"):
+        TransmuterAlias(UndecoratedTransmuter, native)
 
 
 def test_alias_and_unaliased_columns_keep_both_froms() -> None:
