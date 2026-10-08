@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/kalynnka/arcanus/compare/v0.1.0...v0.1.2) (2026-10-08)
+
+
+### Miscellaneous Chores
+
+* republish 0.1.0 as 0.1.2 ([#62](https://github.com/kalynnka/arcanus/issues/62)) ([947b648](https://github.com/kalynnka/arcanus/commit/947b6487f8043eba9e5f6a0baf26cfc0d0a7371b))
+
 ## [0.1.0](https://github.com/kalynnka/arcanus/compare/v0.0.28...v0.1.0) (2026-10-08)
 
 
