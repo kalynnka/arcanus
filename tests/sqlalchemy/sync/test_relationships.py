@@ -135,6 +135,18 @@ class TestOneToOneRelationships:
 class TestOneToManyRelationships:
     """Test 1-M relationship handling."""
 
+    def test_replace_collection_item_updates_provider(self) -> None:
+        author = Author(name="Collection Owner", field="Literature")
+        original = Book(title="Original", year=2024)
+        replacement = Book(title="Replacement", year=2025)
+        author.books.append(original)
+
+        author.books[0] = replacement
+
+        assert len(author.books) == 1
+        assert author.books[0] is replacement
+        assert author.books.__provided__ == [replacement.__transmuter_provided__]
+
     def test_author_to_books_forward(self, engine: Engine):
         """Test accessing Books from Author (1-M forward)."""
         with Session(engine) as session:
