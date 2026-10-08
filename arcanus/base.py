@@ -86,6 +86,10 @@ class TransmuterProxied(Protocol):
     transmuter_proxy: Transmuter | None
 
 
+class ColumnProvider(Protocol):
+    __name__: str
+
+
 class TransmuterType(Protocol):
     __name__: str
     __module__: str
@@ -641,7 +645,9 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
                 f"Available fields: {', '.join(fields.keys())}"
             ) from e
 
-    def _column(self, name: str) -> Column[Any]:
+    def _column(
+        self, name: str, *, provider: ColumnProvider | None = None
+    ) -> Column[Any]:
         info = self.__pydantic_fields__.get(name)
         if info is None and (computed := provided_computed_fields(self).get(name)):
             # @provided computed fields carry no FieldInfo; synthesize one so
@@ -652,7 +658,8 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
             info = FieldInfo(annotation=computed.return_type, alias=computed.alias)
         if info:
             used_name = info.alias or name
-            provider = self.__transmuter_provider__
+            if provider is None:
+                provider = self.__transmuter_provider__
             if provider is not None:
                 try:
                     native = getattr(provider, used_name)

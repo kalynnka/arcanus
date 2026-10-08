@@ -16,6 +16,8 @@ from arcanus.materia.sqlalchemy.database import (
     Session,
 )
 from arcanus.materia.sqlalchemy.options import (
+    TransmuterAlias,
+    aliased,
     contains_eager,
     defaultload,
     defer,
@@ -36,6 +38,8 @@ __all__ = [
     "Session",
     "SqlalchemyExpressionCompiler",
     "SqlalchemyMateria",
+    "TransmuterAlias",
+    "aliased",
     "attribute_keyed_list_dict",
     "contains_eager",
     "defaultload",
