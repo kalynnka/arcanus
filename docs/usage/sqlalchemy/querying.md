@@ -42,6 +42,37 @@ stmt = select(Author).where(Author["name"].like("Isaac%")).order_by(Author["id"]
 authors = session.execute(stmt).scalars().all()
 ```
 
+### Table aliases
+
+Use `aliased` from `arcanus.materia.sqlalchemy` when a query needs the same table more than once:
+
+```python
+from arcanus.materia.sqlalchemy import aliased
+
+with materia:
+    first = aliased(Author)
+    second = aliased(Author, name="other_author")
+    stmt = (
+        select(first["name"], second["name"])
+        .join(second, first["field"] == second["field"])
+        .where(first["id"] < second["id"])
+    )
+```
+
+The returned `TransmuterAlias[Author]` uses bracket access: `first["name"]` is a `Column[Any]`;
+`first.name` is not a model field. Columns retain the transmuter's field and relationship metadata,
+including field aliases and `@provided` computed fields, while their native expressions refer to
+the SQL alias. Unknown fields raise `KeyError`.
+
+Create aliases while the SQLAlchemy materia is active. The optional `name` and `flat` arguments
+control SQLAlchemy's alias naming and whether joined inheritance tables are aliased individually.
+Aliases work as join targets, in column selections and correlated subqueries, and with loader
+options such as `joinedload(first["books"])`. Dumped expressions and criteria keep their original
+field names; serialization does not preserve SQL alias identity.
+
+Selecting an alias as an entity or passing it to `session.list()` for transmuter hydration is not
+supported. `with_polymorphic()` continues to return a native SQLAlchemy `AliasedClass`.
+
 ## Expressions
 
 Operators and methods on a `Column` build an Arcanus **`Expression`** — a typed, backend-neutral

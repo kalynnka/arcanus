@@ -510,20 +510,19 @@ class RelationCollection(list[T], Association[T]):
         does fast-path instances (``revalidate_instances='never'``), but it still
         dispatches the per-item ``model_formulate`` wrap-validator and the
         TypeAdapter/list-schema machinery (~13µs for 50 valid items vs ~1µs for a
-        plain isinstance sweep). The element type is always a concrete class, so
-        the isinstance check needs no guard.
+        plain isinstance sweep).
         """
         target = self.__args__[0]
-        is_iterable = isinstance(value, Iterable) and not isinstance(
-            value, get_origin(target) or target
+        target_types = (
+            get_args(target) if get_origin(target) in (Union, UnionType) else target
         )
+        if isinstance(value, target_types):
+            return value
 
-        if is_iterable:
-            if all(isinstance(item, target) for item in value):
+        if isinstance(value, Iterable):
+            if all(isinstance(item, target_types) for item in value):
                 return value
             return self.__list_validator__.validate_python(value)
-        if isinstance(value, target):
-            return value
         return self.__validator__.validate_python(value)
 
     def prepare(self, instance: Transmuter, field_name: str):
@@ -663,14 +662,19 @@ class RelationCollection(list[T], Association[T]):
     @Association.ensure_mutable
     def __setitem__(self, key: SupportsIndex | slice, value: T | Iterable[T]):
         provided = self.__provided__
-        if isinstance(value, Iterable):
+        target = self.__args__[0]
+        target_types = (
+            get_args(target) if get_origin(target) in (Union, UnionType) else target
+        )
+        if not isinstance(value, target_types) and isinstance(value, Iterable):
             items = self.bless(value)
             slc = cast(slice, key)
             if provided is not None:
                 provided[slc] = [item.__transmuter_provided__ for item in items]
             super().__setitem__(slc, items)
         else:
-            item = self.bless(value)
+            # The runtime element check includes transmuters that are iterable.
+            item = cast(T, self.bless(value))
             idx = cast(SupportsIndex, key)
             if provided is not None:
                 provided[idx] = item.__transmuter_provided__

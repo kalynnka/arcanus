@@ -2,14 +2,17 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any, Literal, Self, TypeVar, cast, overload
+from typing import TYPE_CHECKING, Any, Generic, Literal, Self, TypeVar, cast, overload
 
-from sqlalchemy import orm
+from sqlalchemy import inspect, orm
+from sqlalchemy.inspection import Inspectable, _inspects
 from sqlalchemy.orm.attributes import QueryableAttribute
 from sqlalchemy.orm.strategy_options import _AbstractLoad
-from sqlalchemy.orm.util import AliasedClass
+from sqlalchemy.orm.util import AliasedClass, AliasedInsp
+from sqlalchemy.sql.roles import JoinTargetRole
+from sqlalchemy.sql.selectable import FromClause
 
-from arcanus.base import Transmuter
+from arcanus.base import Transmuter, TransmuterMetaclass, TransmuterProxied
 from arcanus.expression import Column
 from arcanus.materia.base import active_materia
 
@@ -18,6 +21,36 @@ LoadAttribute = NativeLoadAttribute | Column[Any]
 T1 = TypeVar("T1", bound=Transmuter)
 T2 = TypeVar("T2", bound=Transmuter)
 T3 = TypeVar("T3", bound=Transmuter)
+
+if TYPE_CHECKING:
+    AliasJoinTarget = JoinTargetRole
+else:
+    # The runtime role's fast path skips the alias's clause coercion during joins.
+    class AliasJoinTarget: ...
+
+
+class TransmuterAlias(
+    Inspectable[AliasedInsp[TransmuterProxied]], AliasJoinTarget, Generic[T1]
+):
+    """A SQLAlchemy alias exposing the transmuter's bracket column API."""
+
+    transmuter: TransmuterMetaclass
+    native: AliasedClass[TransmuterProxied]
+
+    def __init__(
+        self, transmuter: type[T1], native: AliasedClass[TransmuterProxied]
+    ) -> None:
+        if not isinstance(transmuter, TransmuterMetaclass):
+            raise TypeError("Aliasing requires a transmuter class")
+        self.transmuter = transmuter
+        self.native = native
+
+    def __getitem__(self, name: str) -> Column[Any]:
+        return self.transmuter._column(name, provider=self.native)
+
+    def __clause_element__(self) -> FromClause:
+        return inspect(self.native).__clause_element__()
+
 
 if TYPE_CHECKING:
 
@@ -341,6 +374,21 @@ def provider_type(cls: type[Any]) -> type[Any]:
     if isinstance(cls, type) and issubclass(cls, Transmuter):
         return cast(type[Any], active_materia.get().formulars.get(cls) or cls)
     return cls
+
+
+@_inspects(TransmuterAlias)
+def inspect_transmuter_alias(
+    alias: TransmuterAlias[T1],
+) -> AliasedInsp[TransmuterProxied]:
+    return inspect(alias.native)
+
+
+def aliased(
+    transmuter: type[T1], *, name: str | None = None, flat: bool = False
+) -> TransmuterAlias[T1]:
+    """Alias a transmuter's provider in the active materia for column queries."""
+    provider = active_materia.get().formulars[transmuter]
+    return TransmuterAlias(transmuter, AliasedClass(provider, name=name, flat=flat))
 
 
 @overload
