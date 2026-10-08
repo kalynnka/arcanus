@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.0](https://github.com/kalynnka/arcanus/compare/v0.0.28...v0.1.0) (2026-10-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* disable class-level dot access for query columns ([#59](https://github.com/kalynnka/arcanus/issues/59))
+
+### Features
+
+* add transmuter aliases and fix union collection mutations ([#61](https://github.com/kalynnka/arcanus/issues/61)) ([7491ef6](https://github.com/kalynnka/arcanus/commit/7491ef6c1cad7bb896cb601921fef11f93ca8204))
+
+
+### Bug Fixes
+
+* disable class-level dot access for query columns ([#59](https://github.com/kalynnka/arcanus/issues/59)) ([eb9adac](https://github.com/kalynnka/arcanus/commit/eb9adacf2829f06c6419f2eb34a093febd00adf2))
+
 ## [0.0.28](https://github.com/kalynnka/arcanus/compare/v0.0.27...v0.0.28) (2026-09-15)
 
 
