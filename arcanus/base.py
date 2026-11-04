@@ -822,16 +822,27 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
         return Transmuter.__class_getitem__.__func__(cls, name)
 
     def __deepcopy__(self, memo: dict[int, Any] | None = None) -> Self:
-        copied = super().__deepcopy__(memo)
+        if memo is None:
+            memo = {}
+        copied = super().__copy__()
+        memo[id(self)] = copied
+        # Relationship reconstruction can access its copied owner before fields finish.
+        # Keep the provider detached so collection mutations cannot write through it.
+        object.__setattr__(copied, "__transmuter_provided__", None)
+        object.__setattr__(
+            copied, "__transmuter_revalidating__", self.__transmuter_revalidating__
+        )
+        object.__setattr__(copied, "__dict__", deepcopy(self.__dict__, memo))
+        object.__setattr__(
+            copied, "__pydantic_extra__", deepcopy(self.__pydantic_extra__, memo)
+        )
+        object.__setattr__(
+            copied, "__pydantic_private__", deepcopy(copied.__pydantic_private__, memo)
+        )
         object.__setattr__(
             copied,
             "__transmuter_provided__",
             shallow_copy(self.__transmuter_provided__),
-        )
-        object.__setattr__(
-            copied,
-            "__transmuter_revalidating__",
-            deepcopy(self.__transmuter_revalidating__),
         )
         return copied
 

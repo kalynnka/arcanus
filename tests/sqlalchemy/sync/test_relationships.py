@@ -135,6 +135,23 @@ class TestOneToOneRelationships:
 class TestOneToManyRelationships:
     """Test 1-M relationship handling."""
 
+    def test_deep_copy_does_not_modify_provider_collection(self) -> None:
+        author = Author(name="Original", field="Literature")
+        book = Book(title="Original Book", year=2024)
+        author.books.append(book)
+        provided = author.books.__provided__
+        assert provided is not None
+        original_items = list(provided)
+
+        copied = author.model_copy(deep=True)
+
+        assert copied.books.__instance__ is copied
+        assert copied.books[0] is not book
+        assert copied.__transmuter_provided__ is not author.__transmuter_provided__
+        assert author.books.__provided__ is provided
+        assert provided == original_items
+        assert list(author.books) == [book]
+
     def test_replace_collection_item_updates_provider(self) -> None:
         author = Author(name="Collection Owner", field="Literature")
         original = Book(title="Original", year=2024)
