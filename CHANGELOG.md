@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.3](https://github.com/kalynnka/arcanus/compare/v0.1.2...v0.1.3) (2026-11-05)
+
+
+### Bug Fixes
+
+* align association and materia typing contracts ([#68](https://github.com/kalynnka/arcanus/issues/68)) ([b0ce8f7](https://github.com/kalynnka/arcanus/commit/b0ce8f7190eb0ab72e0cece5fdd82e9d3643d940))
+* support Python 3.11 through 3.15 and correct benchmark gating ([#64](https://github.com/kalynnka/arcanus/issues/64)) ([641cd78](https://github.com/kalynnka/arcanus/commit/641cd78782b9b0bbe7a99c7565b248eaaa5876f6))
+
+
+### Performance Improvements
+
+* reduce noop validation and SQLAlchemy conversion overhead ([#67](https://github.com/kalynnka/arcanus/issues/67)) ([a1d8991](https://github.com/kalynnka/arcanus/commit/a1d8991e7c532fcb66cb2912730217c2705caf3f))
+
 ## [0.1.2](https://github.com/kalynnka/arcanus/compare/v0.1.0...v0.1.2) (2026-10-08)
 
 
