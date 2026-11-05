@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Set as AbstractSet
 from contextvars import ContextVar, Token
 from functools import cached_property, partial, wraps
 from types import UnionType
@@ -32,11 +33,14 @@ from arcanus.materia.base import active_materia
 from arcanus.utils import get_cached_adapter
 
 if TYPE_CHECKING:
+    from _typeshed import SupportsKeysAndGetItem
+
     from arcanus.base import Transmuter
 
 A = TypeVar("A")
 D = TypeVar("D")
 K = TypeVar("K")
+K2 = TypeVar("K2")
 T = TypeVar("T", bound="Transmuter")
 TD = TypeVar("TD")  # TypedDict type parameter for TypedRelationMap
 Optional_T = TypeVar("Optional_T", bound="Transmuter | None")
@@ -133,17 +137,13 @@ class Association(Generic[A]):
 
     @classmethod
     def __get_pydantic_generic_schema__(
-        cls,
-        generic_type: type[A],
-        handler: GetCoreSchemaHandler,
+        cls, source_type: type, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
         raise NotImplementedError()
 
     @classmethod
     def __get_pydantic_serialize_schema__(
-        cls,
-        generic_type: type[A],
-        handler: GetCoreSchemaHandler,
+        cls, source_type: type, handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
         """
         The default serialization schema for associations is to serialize the loaded value if the association is loaded, otherwise serialize the payloads.
@@ -156,7 +156,7 @@ class Association(Generic[A]):
 
     @classmethod
     def __get_pydantic_core_schema__(
-        cls, source_type: type[Association[A]], handler: GetCoreSchemaHandler
+        cls, source_type: type, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
         args = get_args(source_type)
 
@@ -195,10 +195,10 @@ class Association(Generic[A]):
         return core_schema.with_default_schema(
             core_schema.with_info_wrap_validator_function(
                 validate,
-                cls.__get_pydantic_generic_schema__(generic_type, handler),
+                cls.__get_pydantic_generic_schema__(source_type, handler),
             ),
             default_factory=cls,
-            serialization=cls.__get_pydantic_serialize_schema__(generic_type, handler),
+            serialization=cls.__get_pydantic_serialize_schema__(source_type, handler),
         )
 
     @property
@@ -314,8 +314,9 @@ class Relation(Association[Optional_T]):
 
     @classmethod
     def __get_pydantic_generic_schema__(
-        cls, generic_type: type[Optional_T], handler: GetCoreSchemaHandler
+        cls, source_type: type, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
+        generic_type = get_args(source_type)[0]
         # TODO: strict the validation for lazy-load non-optional single relationship
         # to fobid the folowing example
         # class A(BaseTransmuter):
@@ -332,8 +333,10 @@ class Relation(Association[Optional_T]):
 
     @classmethod
     def __get_pydantic_serialize_schema__(
-        cls, generic_type: type[Optional_T], handler: GetCoreSchemaHandler
+        cls, source_type: type, handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
+        generic_type = get_args(source_type)[0]
+
         def serialize(association: Relation[Optional_T], serializer) -> Any:
             instance = association.__instance__
             fields_set = getattr(instance, "__pydantic_fields_set__", None)
@@ -455,16 +458,17 @@ class RelationCollection(list[T], Association[T]):
 
     @classmethod
     def __get_pydantic_generic_schema__(
-        cls,
-        generic_type: type[T],
-        handler: GetCoreSchemaHandler,
+        cls, source_type: type, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
+        generic_type = get_args(source_type)[0]
         return core_schema.list_schema(handler.generate_schema(generic_type))
 
     @classmethod
     def __get_pydantic_serialize_schema__(
-        cls, generic_type: type[T], handler: GetCoreSchemaHandler
+        cls, source_type: type, handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
+        generic_type = get_args(source_type)[0]
+
         def serialize(association: RelationCollection[T], serializer) -> Any:
             instance = association.__instance__
             fields_set = getattr(instance, "__pydantic_fields_set__", None)
@@ -849,16 +853,17 @@ class RelationSet(set[T], Association[T]):
 
     @classmethod
     def __get_pydantic_generic_schema__(
-        cls,
-        generic_type: type[T],
-        handler: GetCoreSchemaHandler,
+        cls, source_type: type, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
+        generic_type = get_args(source_type)[0]
         return core_schema.set_schema(handler.generate_schema(generic_type))
 
     @classmethod
     def __get_pydantic_serialize_schema__(
-        cls, generic_type: type[T], handler: GetCoreSchemaHandler
+        cls, source_type: type, handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
+        generic_type = get_args(source_type)[0]
+
         def serialize(association: RelationSet[T], serializer) -> Any:
             instance = association.__instance__
             fields_set = getattr(instance, "__pydantic_fields_set__", None)
@@ -1060,13 +1065,21 @@ class RelationSet(set[T], Association[T]):
 
     @ensure_loaded
     @Association.ensure_mutable
-    def discard(self, item: T) -> None:
+    def discard(self, item) -> None:
         """Remove an element if present."""
         if item not in self:
             return
         provided = self.__provided__
         if provided is not None:
-            provided.discard(item.__transmuter_provided__)
+            # Transmuter imports associations while its base class is defined.
+            from arcanus.base import Transmuter
+
+            stored = (
+                item
+                if isinstance(item, Transmuter)
+                else next(value for value in self if value is item or value == item)
+            )
+            provided.discard(stored.__transmuter_provided__)
         super().discard(item)
 
     @ensure_loaded
@@ -1108,7 +1121,7 @@ class RelationSet(set[T], Association[T]):
 
     @ensure_loaded
     @Association.ensure_mutable
-    def intersection_update(self, *others: Iterable[T]) -> None:
+    def intersection_update(self, *others: Iterable[D]) -> None:
         """Keep only elements found in all others."""
         keep = set.intersection(self, *others)
         removed = set.difference(self, keep)
@@ -1117,7 +1130,7 @@ class RelationSet(set[T], Association[T]):
 
     @ensure_loaded
     @Association.ensure_mutable
-    def difference_update(self, *others: Iterable[T]) -> None:
+    def difference_update(self, *others: Iterable[D]) -> None:
         """Remove all elements found in others."""
         to_remove = set.intersection(self, *others)
         for item in to_remove:
@@ -1140,31 +1153,31 @@ class RelationSet(set[T], Association[T]):
         return super().copy()
 
     @ensure_loaded
-    def union(self, *others: Iterable[T]) -> set[T]:
+    def union(self, *others: Iterable[D]) -> set[T | D]:
         return super().union(*others)
 
     @ensure_loaded
-    def intersection(self, *others: Iterable[T]) -> set[T]:
+    def intersection(self, *others: Iterable[D]) -> set[T]:
         return super().intersection(*others)
 
     @ensure_loaded
-    def difference(self, *others: Iterable[T]) -> set[T]:
+    def difference(self, *others: Iterable[D]) -> set[T]:
         return super().difference(*others)
 
     @ensure_loaded
-    def symmetric_difference(self, other: Iterable[T]) -> set[T]:
+    def symmetric_difference(self, other: Iterable[D]) -> set[T | D]:
         return super().symmetric_difference(other)
 
     @ensure_loaded
-    def issubset(self, other: Iterable[T]) -> bool:
+    def issubset(self, other: Iterable[D]) -> bool:
         return super().issubset(other)
 
     @ensure_loaded
-    def issuperset(self, other: Iterable[T]) -> bool:
+    def issuperset(self, other: Iterable[D]) -> bool:
         return super().issuperset(other)
 
     @ensure_loaded
-    def isdisjoint(self, other: Iterable[T]) -> bool:
+    def isdisjoint(self, other: Iterable[D]) -> bool:
         return super().isdisjoint(other)
 
     @ensure_loaded
@@ -1184,35 +1197,35 @@ class RelationSet(set[T], Association[T]):
         return True
 
     @ensure_loaded
-    def __le__(self, other: set[T]) -> bool:
+    def __le__(self, other: AbstractSet[D]) -> bool:
         return super().__le__(other)
 
     @ensure_loaded
-    def __lt__(self, other: set[T]) -> bool:
+    def __lt__(self, other: AbstractSet[D]) -> bool:
         return super().__lt__(other)
 
     @ensure_loaded
-    def __ge__(self, other: set[T]) -> bool:
+    def __ge__(self, other: AbstractSet[D]) -> bool:
         return super().__ge__(other)
 
     @ensure_loaded
-    def __gt__(self, other: set[T]) -> bool:
+    def __gt__(self, other: AbstractSet[D]) -> bool:
         return super().__gt__(other)
 
     @ensure_loaded
-    def __or__(self, other: set[T]) -> set[T]:
+    def __or__(self, other: AbstractSet[D]) -> set[T | D]:
         return super().__or__(other)
 
     @ensure_loaded
-    def __and__(self, other: set[T]) -> set[T]:
+    def __and__(self, other: AbstractSet[D]) -> set[T]:
         return super().__and__(other)
 
     @ensure_loaded
-    def __sub__(self, other: set[T]) -> set[T]:
+    def __sub__(self, other: AbstractSet[D]) -> set[T]:
         return super().__sub__(other)
 
     @ensure_loaded
-    def __xor__(self, other: set[T]) -> set[T]:
+    def __xor__(self, other: AbstractSet[D]) -> set[T | D]:
         return super().__xor__(other)
 
     @ensure_loaded
@@ -1223,13 +1236,13 @@ class RelationSet(set[T], Association[T]):
 
     @ensure_loaded
     @Association.ensure_mutable
-    def __iand__(self, other: Iterable[T]) -> Self:
+    def __iand__(self, other: Iterable[D]) -> Self:
         self.intersection_update(other)
         return self
 
     @ensure_loaded
     @Association.ensure_mutable
-    def __isub__(self, other: Iterable[T]) -> Self:
+    def __isub__(self, other: Iterable[D]) -> Self:
         self.difference_update(other)
         return self
 
@@ -1248,11 +1261,9 @@ class RelationMap(dict[K, T], Association[T]):
 
     @classmethod
     def __get_pydantic_generic_schema__(
-        cls,
-        key_type: type[K],
-        value_type: type[T],
-        handler: GetCoreSchemaHandler,
+        cls, source_type: type, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
+        key_type, value_type = get_args(source_type)[:2]
         return core_schema.dict_schema(
             keys_schema=handler.generate_schema(key_type),
             values_schema=handler.generate_schema(value_type),
@@ -1260,11 +1271,10 @@ class RelationMap(dict[K, T], Association[T]):
 
     @classmethod
     def __get_pydantic_serialize_schema__(
-        cls,
-        key_type: type[K],
-        value_type: type[T],
-        handler: GetCoreSchemaHandler,
+        cls, source_type: type, handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
+        key_type, value_type = get_args(source_type)[:2]
+
         def serialize(association: RelationMap[K, T], serializer) -> Any:
             instance = association.__instance__
             fields_set = getattr(instance, "__pydantic_fields_set__", None)
@@ -1290,7 +1300,7 @@ class RelationMap(dict[K, T], Association[T]):
 
     @classmethod
     def __get_pydantic_core_schema__(
-        cls, source_type: type[RelationMap[K, T]], handler: GetCoreSchemaHandler
+        cls, source_type: type, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
         args = get_args(source_type)
 
@@ -1323,12 +1333,10 @@ class RelationMap(dict[K, T], Association[T]):
         return core_schema.with_default_schema(
             core_schema.with_info_wrap_validator_function(
                 validate,
-                cls.__get_pydantic_generic_schema__(key_type, value_type, handler),
+                cls.__get_pydantic_generic_schema__(source_type, handler),
             ),
             default_factory=cls,
-            serialization=cls.__get_pydantic_serialize_schema__(
-                key_type, value_type, handler
-            ),
+            serialization=cls.__get_pydantic_serialize_schema__(source_type, handler),
         )
 
     def __init__(self, payloads: Mapping[K, T] | None = None):
@@ -1566,12 +1574,14 @@ class RelationMap(dict[K, T], Association[T]):
         return True
 
     @ensure_loaded
-    def __or__(self, other: Mapping[K, T]) -> dict[K, T]:
+    def __or__(self, other: Mapping[K2, D]) -> dict[K | K2, T | D]:
         return dict.__or__(self.copy(), dict(other))
 
     @ensure_loaded
     @Association.ensure_mutable
-    def __ior__(self, other: Mapping[K, T]) -> Self:
+    def __ior__(
+        self, other: SupportsKeysAndGetItem[K, T] | Iterable[tuple[K, T]]
+    ) -> Self:
         self.update(other)
         return self
 
@@ -1579,8 +1589,17 @@ class RelationMap(dict[K, T], Association[T]):
     def __reversed__(self):
         return super().__reversed__()
 
+    @overload
+    def get(self, key: K, default: None = None) -> T | None: ...
+
+    @overload
+    def get(self, key: K, default: T) -> T: ...
+
+    @overload
+    def get(self, key: K, default: D) -> T | D: ...
+
     @ensure_loaded
-    def get(self, key: K, default: T | None = None) -> T | None:
+    def get(self, key: K, default: D | None = None) -> T | D | None:
         return super().get(self.bless_key(key), default)
 
     @ensure_loaded
@@ -1626,7 +1645,7 @@ class RelationMap(dict[K, T], Association[T]):
         return key, item
 
     @overload
-    def update(self, m: Mapping[K, T], /, **kwargs: T) -> None: ...
+    def update(self, m: SupportsKeysAndGetItem[K, T], /, **kwargs: T) -> None: ...
     @overload
     def update(self, m: Iterable[tuple[K, T]], /, **kwargs: T) -> None: ...
     @overload
@@ -1636,7 +1655,7 @@ class RelationMap(dict[K, T], Association[T]):
     @Association.ensure_mutable
     def update(
         self,
-        *args: Mapping[K, T] | Iterable[tuple[K, T]],
+        *args: SupportsKeysAndGetItem[K, T] | Iterable[tuple[K, T]],
         **kwargs: T,
     ) -> None:
         """Update the dict with key-value pairs."""
@@ -1661,7 +1680,7 @@ class RelationMap(dict[K, T], Association[T]):
         super().update(blessed)
 
     @overload
-    def setdefault(self, key: K) -> T | None: ...
+    def setdefault(self, key: K, default: None = None) -> T | None: ...
     @overload
     def setdefault(self, key: K, default: T) -> T: ...
 
@@ -1711,11 +1730,9 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
 
     @classmethod
     def __get_pydantic_generic_schema__(
-        cls,
-        key_type: type[K],
-        value_type: type[T],
-        handler: GetCoreSchemaHandler,
+        cls, source_type: type, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
+        key_type, value_type = get_args(source_type)[:2]
         return core_schema.dict_schema(
             keys_schema=handler.generate_schema(key_type),
             values_schema=core_schema.list_schema(handler.generate_schema(value_type)),
@@ -1723,11 +1740,10 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
 
     @classmethod
     def __get_pydantic_serialize_schema__(
-        cls,
-        key_type: type[K],
-        value_type: type[T],
-        handler: GetCoreSchemaHandler,
+        cls, source_type: type, handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
+        key_type, value_type = get_args(source_type)[:2]
+
         def serialize(association: RelationGroupMap[K, T], serializer) -> Any:
             instance = association.__instance__
             fields_set = getattr(instance, "__pydantic_fields_set__", None)
@@ -1754,7 +1770,7 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
 
     @classmethod
     def __get_pydantic_core_schema__(
-        cls, source_type: type[RelationGroupMap[K, T]], handler: GetCoreSchemaHandler
+        cls, source_type: type, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
         args = get_args(source_type)
 
@@ -1787,12 +1803,10 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         return core_schema.with_default_schema(
             core_schema.with_info_wrap_validator_function(
                 validate,
-                cls.__get_pydantic_generic_schema__(key_type, value_type, handler),
+                cls.__get_pydantic_generic_schema__(source_type, handler),
             ),
             default_factory=cls,
-            serialization=cls.__get_pydantic_serialize_schema__(
-                key_type, value_type, handler
-            ),
+            serialization=cls.__get_pydantic_serialize_schema__(source_type, handler),
         )
 
     def __init__(self, payloads: Mapping[K, list[T]] | None = None):
@@ -2060,12 +2074,14 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         return True
 
     @ensure_loaded
-    def __or__(self, other: Mapping[K, list[T]]) -> dict[K, list[T]]:
+    def __or__(self, other: Mapping[K2, D]) -> dict[K | K2, list[T] | D]:
         return dict.__or__(self.copy(), dict(other))
 
     @ensure_loaded
     @Association.ensure_mutable
-    def __ior__(self, other: Mapping[K, list[T]]) -> Self:
+    def __ior__(
+        self, other: SupportsKeysAndGetItem[K, list[T]] | Iterable[tuple[K, list[T]]]
+    ) -> Self:
         self.update(other)
         return self
 
@@ -2073,8 +2089,17 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
     def __reversed__(self):
         return super().__reversed__()
 
+    @overload
+    def get(self, key: K, default: None = None) -> list[T] | None: ...
+
+    @overload
+    def get(self, key: K, default: list[T]) -> list[T]: ...
+
+    @overload
+    def get(self, key: K, default: D) -> list[T] | D: ...
+
     @ensure_loaded
-    def get(self, key: K, default: list[T] | None = None) -> list[T] | None:
+    def get(self, key: K, default: D | None = None) -> list[T] | D | None:
         return super().get(self.bless_key(key), default)
 
     @ensure_loaded
@@ -2124,7 +2149,9 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         return key, items
 
     @overload
-    def update(self, m: Mapping[K, list[T]], /, **kwargs: list[T]) -> None: ...
+    def update(
+        self, m: SupportsKeysAndGetItem[K, list[T]], /, **kwargs: list[T]
+    ) -> None: ...
     @overload
     def update(self, m: Iterable[tuple[K, list[T]]], /, **kwargs: list[T]) -> None: ...
     @overload
@@ -2134,7 +2161,7 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
     @Association.ensure_mutable
     def update(
         self,
-        *args: Mapping[K, list[T]] | Iterable[tuple[K, list[T]]],
+        *args: SupportsKeysAndGetItem[K, list[T]] | Iterable[tuple[K, list[T]]],
         **kwargs: list[T],
     ) -> None:
         """Update the dict with key-list pairs."""
@@ -2165,7 +2192,7 @@ class RelationGroupMap(dict[K, list[T]], Association[T]):
         super().update(blessed)
 
     @overload
-    def setdefault(self, key: K) -> list[T]: ...
+    def setdefault(self, key: K, default: None = None) -> list[T]: ...
     @overload
     def setdefault(self, key: K, default: list[T]) -> list[T]: ...
 
@@ -2280,18 +2307,17 @@ class TypedRelationMap(dict, Association[TD]):
 
     @classmethod
     def __get_pydantic_generic_schema__(
-        cls,
-        typed_dict_cls: type,
-        handler: GetCoreSchemaHandler,
+        cls, source_type: type, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
+        typed_dict_cls = get_args(source_type)[0]
         return handler.generate_schema(typed_dict_cls)
 
     @classmethod
     def __get_pydantic_serialize_schema__(
-        cls,
-        typed_dict_cls: type,
-        handler: GetCoreSchemaHandler,
+        cls, source_type: type, handler: GetCoreSchemaHandler
     ) -> core_schema.SerSchema | None:
+        typed_dict_cls = get_args(source_type)[0]
+
         def serialize(association: TypedRelationMap, serializer) -> Any:
             instance = association.__instance__
             fields_set = getattr(instance, "__pydantic_fields_set__", None)
@@ -2330,7 +2356,7 @@ class TypedRelationMap(dict, Association[TD]):
     @classmethod
     def __get_pydantic_core_schema__(
         cls,
-        source_type: type[TypedRelationMap],
+        source_type: type,
         handler: GetCoreSchemaHandler,
     ) -> core_schema.CoreSchema:
         args = get_args(source_type)
@@ -2370,12 +2396,10 @@ class TypedRelationMap(dict, Association[TD]):
         return core_schema.with_default_schema(
             core_schema.with_info_wrap_validator_function(
                 validate,
-                cls.__get_pydantic_generic_schema__(typed_dict_cls, handler),
+                cls.__get_pydantic_generic_schema__(source_type, handler),
             ),
             default_factory=cls,
-            serialization=cls.__get_pydantic_serialize_schema__(
-                typed_dict_cls, handler
-            ),
+            serialization=cls.__get_pydantic_serialize_schema__(source_type, handler),
         )
 
     @cached_property
@@ -2572,12 +2596,14 @@ class TypedRelationMap(dict, Association[TD]):
         return True
 
     @ensure_loaded
-    def __or__(self, other: Mapping[str, Any]) -> dict[str, Any]:
+    def __or__(self, other: Mapping[K2, D]) -> dict[str | K2, Transmuter | D]:
         return dict.__or__(self.copy(), dict(other))
 
     @ensure_loaded
     @Association.ensure_mutable
-    def __ior__(self, other: Mapping[str, Any]) -> Self:
+    def __ior__(
+        self, other: SupportsKeysAndGetItem[str, D] | Iterable[tuple[str, D]]
+    ) -> Self:
         self.update(other)
         return self
 
@@ -2625,8 +2651,8 @@ class TypedRelationMap(dict, Association[TD]):
     @Association.ensure_mutable
     def update(
         self,
-        *args: Mapping[str, Any] | Iterable[tuple[str, Any]],
-        **kwargs: Any,
+        *args: SupportsKeysAndGetItem[str, D] | Iterable[tuple[str, D]],
+        **kwargs: D,
     ) -> None:
         """Update the dict with key-value pairs, validating per-key."""
         merged: dict[str, Any] = {}
