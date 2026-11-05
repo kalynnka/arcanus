@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 import pytest
 from pydantic import ValidationError
 
@@ -545,11 +547,36 @@ class TestAssociationInstanceIsolation:
 
         # Use deep copy for true isolation
         author_deep = author.model_copy(deep=True)
+        assert author_deep.books.__instance__ is author_deep
+        assert author_deep.books[0] is not book
         author_deep.books.clear()
         author_deep.books.append(Book(id=3, title="Deep Book", year=2002))
 
         assert len(author_deep.books) == 1
         assert author_deep.books[0].title == "Deep Book"
+        assert list(author.books) == [book, new_book]
+
+    @pytest.mark.parametrize("use_stdlib", [False, True])
+    def test_deep_copy_preserves_relationship_cycles(self, use_stdlib: bool) -> None:
+        author = Author(name="Original", field="Literature")
+        book = Book(title="Original Book", year=2024)
+        author.books.extend([book, book])
+        book.author.value = author
+
+        copied = deepcopy(author) if use_stdlib else author.model_copy(deep=True)
+
+        assert copied is not author
+        assert copied.books.__instance__ is copied
+        assert copied.books[0] is copied.books[1]
+        assert copied.books[0] is not book
+        assert copied.books[0].author.__instance__ is copied.books[0]
+        assert copied.books[0].author.value is copied
+
+        copied.books[0].title = "Copied Book"
+        copied.books.pop()
+        assert book.title == "Original Book"
+        assert list(author.books) == [book, book]
+        assert book.author.value is author
 
 
 class TestAssociationPrepareAndValidation:

@@ -1,6 +1,6 @@
 """Async database fixtures for the Axis B async mini-suite.
 
-pytest-benchmark (used locally and in the gap-gate) times a *sync* callable, so
+pytest-benchmark (used by the local gap report) times a *sync* callable, so
 async work is driven through one dedicated event loop via
 ``loop.run_until_complete(...)``. The loop, the aiosqlite engine and the seed all
 live on that single loop and are session-scoped, which keeps the shared-cache

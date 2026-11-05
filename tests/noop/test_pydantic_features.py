@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Annotated, Generic, NotRequired, TypeVar
 
 import pytest
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, PrivateAttr, ValidationError, field_validator
 from typing_extensions import TypedDict
 
 from arcanus.association import (
@@ -1500,6 +1500,29 @@ class TestNestedTypeCompatibility:
 
 class TestModelCopyAndUpdate:
     """Test model copying and updating operations."""
+
+    def test_model_copy_deep_preserves_pydantic_state(self) -> None:
+        class CopyState(BaseTransmuter, extra="allow"):
+            values: list[str]
+            _private_values: list[str] = PrivateAttr(default_factory=list)
+
+        original = CopyState.model_validate(
+            {"values": ["original"], "extra_values": ["extra"]}
+        )
+        original._private_values = original.values
+
+        copied = original.model_copy(deep=True)
+
+        assert copied._private_values is copied.values
+        assert copied.values is not original.values
+        assert copied.model_fields_set == original.model_fields_set
+        assert copied.model_fields_set is not original.model_fields_set
+        assert copied.model_extra is not None
+        assert original.model_extra is not None
+        copied.values.append("copied")
+        copied.model_extra["extra_values"].append("copied")
+        assert original.values == ["original"]
+        assert original.model_extra["extra_values"] == ["extra"]
 
     def test_model_copy(self):
         """Test model_copy() creates a new instance."""
