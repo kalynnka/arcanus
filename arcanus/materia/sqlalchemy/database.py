@@ -21,7 +21,6 @@ from weakref import WeakKeyDictionary
 
 from pydantic import Discriminator, Tag
 from sqlalchemy import event, exc, inspect, tuple_, util
-from sqlalchemy.engine.cursor import CursorResult
 from sqlalchemy.engine.interfaces import _CoreAnyExecuteParams, _CoreSingleExecuteParams
 from sqlalchemy.engine.result import Result, ScalarResult
 from sqlalchemy.ext.asyncio import AsyncResult
@@ -56,11 +55,10 @@ from sqlalchemy.sql._typing import (
     _InfoType,
 )
 from sqlalchemy.sql.base import ExecutableOption, _NoArg
-from sqlalchemy.sql.dml import Delete, Insert, Update, UpdateBase
+from sqlalchemy.sql.dml import Delete, Insert, Update
 from sqlalchemy.sql.selectable import ForUpdateArg, ForUpdateParameter, TypedReturnsRows
 
 from arcanus.base import (
-    BaseTransmuter,
     Transmuter,
     TransmuterProxied,
     ValidateContextGeneratorT,
@@ -72,6 +70,7 @@ from arcanus.expression import Column, Expression, Order
 from arcanus.materia.base import active_materia
 from arcanus.materia.sqlalchemy.result import (
     _T,
+    _TP,
     AdaptedResult,
     AsyncAdaptedResult,
 )
@@ -251,7 +250,7 @@ class Session(SqlalchemySession):
         self._validation_context_manager.__enter__()
         return super().__enter__()
 
-    def __exit__(self, exc_type, exc_value, traceback) -> bool | None:
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
         if self._validation_context_manager is not None:
             self._validation_context_manager.__exit__(exc_type, exc_value, traceback)
         return super().__exit__(exc_type, exc_value, traceback)
@@ -282,17 +281,6 @@ class Session(SqlalchemySession):
         _add_event: Any | None = None,
     ) -> Result[_T]: ...
 
-    @overload
-    def execute(
-        self,
-        statement: UpdateBase,
-        params: _CoreAnyExecuteParams | None = None,
-        *,
-        execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
-        bind_arguments: _BindArguments | None = None,
-        _parent_execute_state: Any | None = None,
-        _add_event: Any | None = None,
-    ) -> CursorResult[Any]: ...
     @overload
     def execute(
         self,
@@ -470,11 +458,11 @@ class Session(SqlalchemySession):
 
     def merge(
         self,
-        instance: T,
+        instance: _O,
         *,
         load: bool = True,
         options: Sequence[ORMOption] | None = None,
-    ) -> T:
+    ) -> _O:
         if isinstance(instance, Transmuter):
             if self._warn_on_events:
                 self._flush_warning("Session.merge()")
@@ -510,9 +498,12 @@ class Session(SqlalchemySession):
                 options=options,
             )
 
-    def enable_relationship_loading(self, obj: BaseTransmuter) -> None:
-        super().enable_relationship_loading(obj.__transmuter_provided__)
-        self._validation_context[obj.__transmuter_provided__] = obj
+    def enable_relationship_loading(self, obj) -> None:
+        if isinstance(obj, Transmuter):
+            super().enable_relationship_loading(obj.__transmuter_provided__)
+            self._validation_context[obj.__transmuter_provided__] = obj
+        else:
+            super().enable_relationship_loading(obj)
 
     @overload
     def get(
@@ -873,7 +864,13 @@ def _revalidate_after_flush(session: Session, flush_context: object) -> None:
 
 class AsyncSession(SqlalchemyAsyncSession):
     sync_session_class = Session
-    sync_session: Session
+
+    @property
+    def transmuter_session(self) -> Session:
+        session = self.sync_session
+        if not isinstance(session, Session):
+            raise TypeError("Arcanus AsyncSession requires an Arcanus sync Session.")
+        return session
 
     async def __aenter__(self) -> Self:
         self._validation_context_manager = validation_context(self._validation_context)
@@ -894,26 +891,26 @@ class AsyncSession(SqlalchemyAsyncSession):
 
     @property
     def _validation_context(self) -> ValidationContextT:
-        return self.sync_session._validation_context
+        return self.transmuter_session._validation_context
 
     @property
     def _validation_context_manager(self) -> ValidateContextGeneratorT | None:
-        return self.sync_session._validation_context_manager
+        return self.transmuter_session._validation_context_manager
 
     @_validation_context_manager.setter
     def _validation_context_manager(self, value: ValidateContextGeneratorT | None):
-        self.sync_session._validation_context_manager = value
+        self.transmuter_session._validation_context_manager = value
 
     @overload
     async def stream(
         self,
-        statement: TypedReturnsRows[tuple[_T]],
+        statement: TypedReturnsRows[_TP],
         params: _CoreAnyExecuteParams | None = None,
         *,
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
         bind_arguments: _BindArguments | None = None,
         **kw: Any,
-    ) -> AsyncResult[tuple[_T]]: ...
+    ) -> AsyncResult[_TP]: ...
 
     @overload
     async def stream(
@@ -948,7 +945,7 @@ class AsyncSession(SqlalchemyAsyncSession):
             execution_options = _STREAM_OPTIONS
 
         result = await util.greenlet_spawn(
-            self.sync_session.execute,
+            self.transmuter_session.execute,
             statement,
             params=params,
             execution_options=execution_options,
@@ -974,7 +971,7 @@ class AsyncSession(SqlalchemyAsyncSession):
         **filters,
     ) -> _T:
         return await util.greenlet_spawn(
-            self.sync_session.one,
+            self.transmuter_session.one,
             entity,
             options,
             expressions,
@@ -991,7 +988,7 @@ class AsyncSession(SqlalchemyAsyncSession):
         **filters,
     ) -> _T | None:
         r = await util.greenlet_spawn(
-            self.sync_session.one_or_none,
+            self.transmuter_session.one_or_none,
             entity,
             options,
             expressions,
@@ -1010,7 +1007,7 @@ class AsyncSession(SqlalchemyAsyncSession):
         **filters,
     ) -> _T | None:
         return await util.greenlet_spawn(
-            self.sync_session.first,
+            self.transmuter_session.first,
             entity,
             order_bys,
             options,
@@ -1028,7 +1025,7 @@ class AsyncSession(SqlalchemyAsyncSession):
         execution_options: OrmExecuteOptionsParameter = util.EMPTY_DICT,
     ) -> list[_T | None]:
         return await util.greenlet_spawn(
-            self.sync_session.bulk,
+            self.transmuter_session.bulk,
             entity,
             idents,
             options=options,
@@ -1044,7 +1041,7 @@ class AsyncSession(SqlalchemyAsyncSession):
         **filters,
     ) -> int:
         return await util.greenlet_spawn(
-            self.sync_session.count,
+            self.transmuter_session.count,
             entity,
             expressions,
             execution_options,
@@ -1069,7 +1066,7 @@ class AsyncSession(SqlalchemyAsyncSession):
         **filters,
     ) -> Sequence[_T]:
         return await util.greenlet_spawn(
-            self.sync_session.list,
+            self.transmuter_session.list,
             entity,
             limit,
             offset,

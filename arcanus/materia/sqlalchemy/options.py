@@ -347,21 +347,7 @@ def selectinload(
     )
 
 
-@overload
-def selectin_polymorphic(
-    base_cls: type[Transmuter], classes: Iterable[type[Transmuter]]
-) -> LoadOption: ...
-
-
-@overload
-def selectin_polymorphic(
-    base_cls: type[Any], classes: Iterable[type[Any]]
-) -> LoadOption: ...
-
-
-def selectin_polymorphic(
-    base_cls: type[Any], classes: Iterable[type[Any]]
-) -> LoadOption:
+def selectin_polymorphic(base_cls: type, classes: Iterable[type]) -> LoadOption:
     base_provider = provider_type(base_cls)
     class_providers = tuple(provider_type(cls) for cls in classes)
     return cast(

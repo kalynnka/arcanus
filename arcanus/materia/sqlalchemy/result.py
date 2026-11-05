@@ -29,6 +29,7 @@ from sqlalchemy.engine.result import (
     _WithKeys,
 )
 from sqlalchemy.engine.row import RowMapping
+from sqlalchemy.ext.asyncio.result import AsyncCommon
 from sqlalchemy.sql.base import _generative
 from sqlalchemy.util.concurrency import greenlet_spawn
 
@@ -495,11 +496,12 @@ class AdaptedMappingResult(_WithKeys, AdaptedCommon[RowMapping]):
     _generate_rows = True
     _post_creational_filter = operator.attrgetter("_mapping")
 
-    _real_result: AdaptedResult[Any]
+    _force_revalidate: bool
     _entities: tuple[Any, ...]
 
     def __init__(self, result: AdaptedResult[Any]):
-        self._real_result = result
+        self._real_result = result._real_result
+        self._force_revalidate = result._force_revalidate
         self._metadata = result._metadata
         self._unique_filter_state = result._unique_filter_state
         if result._source_supports_scalars:
@@ -530,11 +532,7 @@ class AdaptedMappingResult(_WithKeys, AdaptedCommon[RowMapping]):
     def _adapt(self, row: Any) -> Any:
         """Adapt a row using TypeAdapter validation."""
         adapted = self.adapter.validate_python(row)
-        return (
-            _revalidate_returned(adapted)
-            if self._real_result._force_revalidate
-            else adapted
-        )
+        return _revalidate_returned(adapted) if self._force_revalidate else adapted
 
     @_generative
     def unique(self, strategy: _UniqueFilterType | None = None) -> Self:
@@ -614,7 +612,7 @@ class AdaptedMappingResult(_WithKeys, AdaptedCommon[RowMapping]):
         )
 
 
-class AsyncAdaptedCommon(FilterResult[_R]):
+class AsyncAdaptedCommon(AsyncCommon[_R]):
     """Base class for async adapted results with common functionality."""
 
     __slots__ = ()
@@ -627,14 +625,6 @@ class AsyncAdaptedCommon(FilterResult[_R]):
     # we provide the same default here to prevent AttributeError on Python
     # versions that use the C extension (e.g. Python 3.13).
     _yield_per: int | None = None
-
-    async def close(self) -> None:
-        """Close this result."""
-        await greenlet_spawn(self._real_result.close)
-
-    @property
-    def closed(self) -> bool:
-        return self._real_result.closed
 
 
 class AsyncAdaptedResult(_WithKeys, AsyncAdaptedCommon[Row[_TP]]):

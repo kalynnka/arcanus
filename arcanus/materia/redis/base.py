@@ -18,16 +18,22 @@ class RedisMateria(BaseMateria):
         super().__init__()
         self.key_prefixes = {}
 
-    def bless(self, key_prefix: str | None = None):
+    def bless(self, materia: str | None = None, *, key_prefix: str | None = None):
         """Register *transmuter_cls* with an optional Redis key prefix.
 
-        If ``key_prefix`` is omitted, the transmuter's class name is used.
-        Redis keys are formatted as ``{prefix}:{identity}``.
+        Pass the prefix positionally, as ``key_prefix``, or as ``materia`` for
+        compatibility with BaseMateria. It defaults to the transmuter's class
+        name. Redis keys are formatted as ``{prefix}:{identity}``.
         """
 
+        if materia is not None and key_prefix is not None:
+            raise TypeError("Specify either materia or key_prefix, not both.")
+        prefix = key_prefix if key_prefix is not None else materia
+
         def decorator(transmuter_cls: type[T]) -> type[T]:
-            prefix = key_prefix if key_prefix is not None else transmuter_cls.__name__
-            self.key_prefixes[transmuter_cls] = prefix
+            self.key_prefixes[transmuter_cls] = (
+                prefix if prefix is not None else transmuter_cls.__name__
+            )
             return transmuter_cls
 
         return decorator
