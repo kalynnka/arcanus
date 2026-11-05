@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Generic, TypeVar, assert_type
 
 import pytest
@@ -16,11 +17,16 @@ from arcanus.association import (
     RelationSet,
     Relationships,
 )
-from arcanus.base import BaseTransmuter
+from arcanus.base import (
+    BaseTransmuter,
+    TransmuterProxied,
+    TransmuterProxiedMixin,
+    validated,
+)
 from arcanus.materia.redis import RedisMateria
 from arcanus.materia.sqlalchemy import AsyncSession, Session
 from arcanus.materia.sqlalchemy.result import AdaptedResult, AsyncAdaptedResult
-from tests import models
+from tests import models, transmuters
 
 K = TypeVar("K")
 V = TypeVar("V")
@@ -59,6 +65,43 @@ def test_heterogeneous_set_operations() -> None:
     collections.items.discard("absent")
     collections.items.difference_update([1])
     assert collections.items == {item}
+
+
+@pytest.mark.parametrize("equal_foreign_value", [False, True])
+def test_set_discard_synchronizes_provider(equal_foreign_value: bool) -> None:
+    class NamedItem(Item):
+        def __hash__(self) -> int:
+            return hash(self.name)
+
+        def __eq__(self, other) -> bool:
+            return self.name == other if isinstance(other, str) else self is other
+
+    @dataclass
+    class SetProvider(TransmuterProxiedMixin):
+        items: set[models.Author]
+
+    item = NamedItem(name="item")
+    other = NamedItem(name="other")
+    item_provider = models.Author(name="item", field="Physics")
+    other_provider = models.Author(name="other", field="Physics")
+    assert isinstance(item_provider, TransmuterProxied)
+    assert isinstance(other_provider, TransmuterProxied)
+    item.__transmuter_provided__ = item_provider
+    other.__transmuter_provided__ = other_provider
+    collections = Collections()
+    collections.items.update([item, other])
+    provider = SetProvider({item_provider, other_provider})
+    assert isinstance(provider, TransmuterProxied)
+    collections.__transmuter_provided__ = provider
+
+    target = item.name if equal_foreign_value else item
+    collections.items.discard(target)
+    assert collections.items == {other}
+    assert provider.items == {other_provider}
+
+    collections.items.discard(target)
+    assert collections.items == {other}
+    assert provider.items == {other_provider}
 
 
 def test_mapping_protocol_and_default_types() -> None:
@@ -101,6 +144,19 @@ def test_native_relationship_loading() -> None:
     with Session() as session:
         session.enable_relationship_loading(provider)
         assert inspect(provider).session is session
+
+
+def test_transmuter_relationship_loading_registers_validation_context() -> None:
+    with transmuters.sqlalchemy_materia:
+        author = transmuters.Author(name="Transmuter", field="Physics")
+        provider = author.__transmuter_provided__
+        assert isinstance(provider, models.Author)
+        with Session() as session:
+            assert provider not in validated.get()
+            session.enable_relationship_loading(author)
+            assert inspect(provider).session is session
+            assert validated.get()[provider] is author
+            assert transmuters.Author.model_validate(provider) is author
 
 
 def test_mapping_result_wraps_native_result() -> None:
