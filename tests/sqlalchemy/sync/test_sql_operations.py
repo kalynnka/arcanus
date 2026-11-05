@@ -12,6 +12,7 @@ Tests:
 
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import Engine, and_, delete, func, insert, or_, select, update
 
 from arcanus.materia.sqlalchemy import Session, joinedload, selectinload
@@ -279,7 +280,10 @@ class TestUpdateDelete:
             author_retrieved = session.get_one(Author, author.id)
             assert author_retrieved.name == "After Update"
 
-    def test_update_returning_refreshes_cached_transmuter(self, engine: Engine):
+    @pytest.mark.parametrize("as_mapping", [False, True])
+    def test_update_returning_refreshes_cached_transmuter(
+        self, engine: Engine, as_mapping: bool
+    ):
         """UPDATE ... RETURNING re-syncs a transmuter already cached in the session.
 
         SQLAlchemy refreshes the ORM row from RETURNING, but the validation
@@ -291,12 +295,15 @@ class TestUpdateDelete:
             session.add(author)
             session.flush()  # author is now cached in the validation context
 
-            returned = session.execute(
+            result = session.execute(
                 update(Author)
                 .where(Author["id"] == author.id)
                 .values(name="Returning After")
                 .returning(Author)
-            ).scalar_one()
+            )
+            returned = (
+                result.mappings().one()["Author"] if as_mapping else result.scalar_one()
+            )
 
             assert returned is author  # same cached identity
             assert returned.name == "Returning After"  # refreshed, not stale
