@@ -45,7 +45,6 @@ from arcanus.materia.base import (
     NoOpMateria,
     active_materia,
 )
-from arcanus.utils import get_cached_adapter
 
 # Cache NoOpMateria singleton for fast identity check
 _noop_materia = NoOpMateria()
@@ -363,11 +362,10 @@ class Transmuter(metaclass=TransmuterTypingMetaclass):
         ) -> Any:
             """Validate *obj* and return a transmuter instance.
 
-            For BaseModel transmuters, ``BaseTransmuter.model_validate`` takes
-            precedence in MRO. This branch handles dataclass transmuters using
-            ``TypeAdapter``.
+            Both BaseModel and dataclass transmuters already have a compiled
+            Pydantic validator; no TypeAdapter lookup is needed.
             """
-            return get_cached_adapter(cls).validate_python(
+            return cls.__pydantic_validator__.validate_python(
                 obj,
                 strict=strict,
                 from_attributes=from_attributes,
@@ -382,18 +380,21 @@ class Transmuter(metaclass=TransmuterTypingMetaclass):
         handler: ValidatorFunctionWrapHandler,
         info: ValidationInfo,
     ) -> Self:
-        if isinstance(data, cls):
-            return handler(data)
-
         # Get materia once to avoid repeated ContextVar lookups
         materia = active_materia.get()
 
         # Handle NoOpMateria case - fast path using identity check
         if materia is _noop_materia:
             instance = handler(data)
-            object.__setattr__(instance, "__transmuter_provided__", None)
-            object.__setattr__(instance, "__transmuter_revalidating__", False)
+            # Pydantic already handles instance reuse and revalidate_instances.
+            # Preserve provider links when it returns the input unchanged.
+            if instance is not data:
+                object.__setattr__(instance, "__transmuter_provided__", None)
+                object.__setattr__(instance, "__transmuter_revalidating__", False)
             return instance
+
+        if isinstance(data, cls):
+            return handler(data)
 
         provider = materia[cls]  # type: ignore[assignment]
         if provider is not None and isinstance(data, provider):

@@ -8,15 +8,39 @@ difference measured is the transmuter machinery (associations + the
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
-from pydantic import TypeAdapter
+from pydantic import JsonValue, TypeAdapter
 from pytest_benchmark.fixture import BenchmarkFixture
 
 from benchmark.data import mocks
 from tests import schemas as S
 from tests import transmuters as T
+
+
+class TestValidateFlat:
+    """Isolate the base validator without association defaults or wrappers."""
+
+    @pytest.mark.baseline
+    @pytest.mark.benchmark(group="noop-validate-flat")
+    def test_pydantic_validate_flat(
+        self, benchmark: BenchmarkFixture, author_data: list[dict[str, int | str]]
+    ):
+        result = benchmark(
+            lambda: [S.AuthorFlat.model_validate(d) for d in author_data]
+        )
+        assert len(result) == len(author_data)
+
+    @pytest.mark.benchmark(group="noop-validate-flat")
+    def test_transmuter_validate_flat(
+        self, benchmark: BenchmarkFixture, author_data: list[dict[str, int | str]]
+    ):
+        result = benchmark(
+            lambda: [T.AuthorFlat.model_validate(d) for d in author_data]
+        )
+        assert len(result) == len(author_data)
 
 
 class TestValidateScalar:
@@ -69,6 +93,25 @@ class TestValidateNested:
         self, benchmark: BenchmarkFixture, nested_book_data: list[dict[str, Any]]
     ):
         result = benchmark(lambda: [T.Book.model_validate(d) for d in nested_book_data])
+        assert isinstance(result[0].author.value, T.Author)
+
+
+class TestValidateNestedJson:
+    @pytest.mark.baseline
+    @pytest.mark.benchmark(group="noop-validate-nested-json")
+    def test_pydantic_validate_nested_json(
+        self, benchmark: BenchmarkFixture, nested_book_data: list[dict[str, JsonValue]]
+    ):
+        payloads = [json.dumps(d) for d in nested_book_data]
+        result = benchmark(lambda: [S.Book.model_validate_json(d) for d in payloads])
+        assert isinstance(result[0].author, S.Author)
+
+    @pytest.mark.benchmark(group="noop-validate-nested-json")
+    def test_transmuter_validate_nested_json(
+        self, benchmark: BenchmarkFixture, nested_book_data: list[dict[str, JsonValue]]
+    ):
+        payloads = [json.dumps(d) for d in nested_book_data]
+        result = benchmark(lambda: [T.Book.model_validate_json(d) for d in payloads])
         assert isinstance(result[0].author.value, T.Author)
 
 

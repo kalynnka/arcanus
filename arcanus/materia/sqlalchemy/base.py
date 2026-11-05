@@ -16,7 +16,7 @@ from sqlalchemy.sql.roles import JoinTargetRole
 from sqlalchemy.util import greenlet_spawn
 
 from arcanus.association import Association, DefferedAssociation, RelationGroupMap
-from arcanus.base import Transmuter, TransmuterMetaclass
+from arcanus.base import Transmuter, TransmuterMetaclass, TransmuterProxied
 from arcanus.criteria import CriteriaValue
 from arcanus.expression import (
     Column,
@@ -195,7 +195,7 @@ class SqlalchemyMateria(BaseMateria):
     def transmuter_before_validator(
         transmuter_type: type[T], materia: object, info: ValidationInfo
     ) -> Any:
-        inspector = inspect(cast(Inspectable[InstanceState[Any]], materia))
+        inspector: InstanceState[TransmuterProxied] = inspect(materia, raiseerr=True)
 
         # Get all loaded attributes from sqlalchemy orm instance
         # relationships/associations are excluded here to:
@@ -203,19 +203,20 @@ class SqlalchemyMateria(BaseMateria):
         # 2. avoid circular validation
         # related objects will be load and validated when they are visited
         data = {}
-        association_proxies = extract_association_proxies(cast(Hashable, type(materia)))
+        association_proxies = extract_association_proxies(type(materia))
         loaded_data = inspector.dict
+        associations = transmuter_type.model_associations
         for field_name, field_info in transmuter_type.__pydantic_fields__.items():
             used_name = field_info.alias or field_name
             if used_name in loaded_data:
-                if field_name in transmuter_type.model_associations:
+                if field_name in associations:
                     data[used_name] = DefferedAssociation
                 else:
                     data[used_name] = loaded_data[used_name]
             else:
                 proxied = association_proxies.get(used_name)
                 if proxied and proxied in loaded_data:
-                    if field_name in transmuter_type.model_associations:
+                    if field_name in associations:
                         data[used_name] = DefferedAssociation
                     else:
                         data[used_name] = getattr(materia, used_name)
@@ -239,11 +240,12 @@ class SqlalchemyMateria(BaseMateria):
         # 2. avoid circular validation
         # related objects will be load and validated when they are visited
         data = {}
-        association_proxies = extract_association_proxies(cast(Hashable, type(materia)))
-        inspector = inspect(cast(Inspectable[InstanceState[Any]], materia))
+        association_proxies = extract_association_proxies(type(materia))
+        inspector: InstanceState[TransmuterProxied] = inspect(materia, raiseerr=True)
         loaded_data = inspector.dict
+        associations = transmuter_type.model_associations
         for field_name, field_info in transmuter_type.__pydantic_fields__.items():
-            if field_name in transmuter_type.model_associations:
+            if field_name in associations:
                 continue
             used_name = field_info.alias or field_name
 
