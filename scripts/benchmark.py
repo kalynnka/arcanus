@@ -2,8 +2,9 @@
 """arcanus benchmark gap tool.
 
 Measures the GAP (candidate / reference) for the two axes the project tracks and
-reports it as rich tables. The ratio is taken within a single run so it cancels
-machine noise — a robust "did we slow down too much" signal.
+reports it as rich tables. Ratios describe relative overhead; changes in the
+reference dependency can move them even when both implementations get faster.
+CodSpeed evaluates absolute Arcanus performance separately.
 
   Axis A  pure Pydantic (test_pydantic_*)            vs Transmuter@NoOp (test_transmuter_*)
   Axis B  Pydantic+SQLAlchemy (test_pydantic_sqlalchemy_*) vs materia (test_arcanus_*)
@@ -15,7 +16,6 @@ Typical use:
   uv run python scripts/benchmark.py report                 # see the gaps now
   uv run python scripts/benchmark.py report --save main      # snapshot a baseline
   uv run python scripts/benchmark.py compare                 # drift vs ./.bench/main.json
-  uv run python scripts/benchmark.py compare --gate          # …and fail on >10% regression
   uv run python scripts/benchmark.py profile mutate_collection   # drill into one gap
 """
 
@@ -357,10 +357,8 @@ def _render_compare(
     baseline_rows: list[GapRow],
     axis: str,
     max_regression: float,
-    gate: bool,
-) -> int:
+) -> None:
     baseline = {(r.axis, r.key): r.ratio for r in baseline_rows}
-    regressions: list[str] = []
     for ax in ("A", "B"):
         if axis not in ("both", ax.lower()):
             continue
@@ -386,10 +384,9 @@ def _render_compare(
                 continue
             drift = row.ratio / before - 1 if before else 0.0
             if drift > max_regression:
-                status = "[red]REGRESSED[/red]"
-                regressions.append(f"{row.axis}/{escape(row.key)}: +{drift * 100:.1f}%")
+                status = "[yellow]wider gap[/yellow]"
             elif drift < -0.02:
-                status = "[green]improved[/green]"
+                status = "[green]narrower gap[/green]"
             else:
                 status = "[dim]ok[/dim]"
             table.add_row(
@@ -402,23 +399,10 @@ def _render_compare(
         console.print(table)
 
     if not baseline:
-        console.print(
-            "[yellow]baseline has no comparable groups — gate skipped.[/yellow]"
-        )
-        return 0
-    if gate and regressions:
-        console.print(
-            f"[bold red]GATE FAIL[/bold red] — {len(regressions)} group(s) over "
-            f"{max_regression * 100:.0f}%:"
-        )
-        for line in regressions:
-            console.print(f"  [red]{line}[/red]")
-        return 1
-    if gate:
-        console.print(
-            f"[bold green]GATE PASS[/bold green] — nothing over {max_regression * 100:.0f}%."
-        )
-    return 0
+        console.print("[yellow]baseline has no comparable groups.[/yellow]")
+    console.print(
+        "[dim]Ratios are informational. CodSpeed gates absolute Arcanus performance.[/dim]"
+    )
 
 
 # ── shared option annotations ─────────────────────────────────────────────────
@@ -488,14 +472,11 @@ def compare(
             help="Baseline run name under ./.bench (or a path to a JSON).",
         ),
     ] = "main",
-    gate: Annotated[
-        bool,
-        typer.Option(
-            help="Exit non-zero if any group's gap regresses beyond --max-regression."
-        ),
-    ] = False,
     max_regression: Annotated[
-        float, typer.Option(help="Allowed gap drift before --gate fails (0.10 = 10%).")
+        float,
+        typer.Option(
+            help="Ratio increase to highlight (0.10 = 10%); does not fail the command."
+        ),
     ] = 0.10,
     use: Annotated[
         str | None,
@@ -511,9 +492,8 @@ def compare(
 ):
     """Compare the current run's gaps against a saved baseline (default ./.bench/main.json).
 
-    Measures the current branch live unless --use names a saved run. With --gate
-    it becomes a regression check: a group only fails when its gap got more than
-    --max-regression worse than the baseline. New groups (no baseline) never fail.
+    Measures the current branch live unless --use names a saved run. Ratio drift
+    is informational, including when it exceeds --max-regression.
     """
     baseline_rows = compute_gaps(_load_saved(base))
     current = (
@@ -521,10 +501,7 @@ def compare(
         if use
         else _measure(k, rounds, warmup, max_time, BENCH_DIR / "last.json")
     )
-    code = _render_compare(
-        compute_gaps(current), baseline_rows, axis.value, max_regression, gate
-    )
-    raise typer.Exit(code)
+    _render_compare(compute_gaps(current), baseline_rows, axis.value, max_regression)
 
 
 @app.command()
