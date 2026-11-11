@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Annotated, Self
+from typing import Annotated, ClassVar, Self
 
 import pytest
 from pydantic import (
@@ -337,10 +337,9 @@ def test_dataclass_rebuild_refreshes_field_classification() -> None:
 
 @pytest.mark.parametrize("field_name", ["value", "cursor"])
 def test_dataclass_assignment_uses_rebuilt_validator(field_name: str) -> None:
-    config = ConfigDict(validate_assignment=True)
-
-    @dataclass(config=config)
+    @dataclass(config=ConfigDict(validate_assignment=True))
     class State(Transmuter):
+        __pydantic_config__: ClassVar[ConfigDict]
         value: int
         cursor: Annotated[int, Transient] = 0
 
@@ -355,7 +354,7 @@ def test_dataclass_assignment_uses_rebuilt_validator(field_name: str) -> None:
         provider = instance.__transmuter_provided__
         assert isinstance(provider, Provider)
         for strict in (True, False, True):
-            config["strict"] = strict
+            State.__pydantic_config__["strict"] = strict
             rebuild_dataclass(State, force=True)
             previous = getattr(instance, field_name)
             if strict:
