@@ -45,4 +45,42 @@ Transmuters use **identity equality** (`is`, `id()`-based hash) to align with th
 map, and proxy unmapped attribute access through to their provided instance via
 `__transmuter_provided__`.
 
+## Transient fields
+
+Use `Annotated[T, Transient]` for runtime state that belongs to a transmuter and
+has no provider mapping:
+
+```python
+from typing import Annotated
+
+from pydantic import Field
+
+from arcanus import BaseTransmuter, Transient
+
+
+class Conversation(BaseTransmuter):
+    name: str
+    messages: Annotated[list[str], Transient] = Field(default_factory=list)
+    new_message_index: Annotated[int | None, Transient] = None
+```
+
+`Transient()` is also accepted. The marker works on inherited fields and on
+transmuter dataclasses, including fields declared with `dataclasses.field()`.
+Supplied transient values are validated normally; assignment validation follows
+the model's configuration. Serialization, defaults, and dataclass field options
+retain their usual behavior. `Field(exclude=True)` still controls serialization
+separately.
+
+Transient fields are omitted from provider constructors and assignment
+synchronization. Loading a new transmuter from a provider uses their normal
+defaults; `revalidate()` uses the existing runtime values as validation input.
+Pydantic may coerce, normalize, or copy them. A transient field without a default
+still requires a value, so it cannot be loaded from a provider unless an existing
+transmuter supplies that value.
+
+Transient fields are omitted from generated query criteria. Accessing one as a
+database expression, such as `Conversation["new_message_index"]`, raises `KeyError`
+explaining that it has no provider mapping. The generated `Create` and `Update`
+schemas retain transient fields for constructing and updating runtime state.
+
 See the [API reference](../api/base.md) for the full surface.
