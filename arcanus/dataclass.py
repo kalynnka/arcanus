@@ -45,7 +45,7 @@ from typing import (
     overload,
 )
 
-from pydantic import PydanticUndefinedAnnotation
+from pydantic import PydanticUndefinedAnnotation, model_validator
 from pydantic._internal._decorators import DecoratorInfos
 from pydantic.config import ConfigDict
 from pydantic.dataclasses import dataclass as pdc_dataclass
@@ -67,6 +67,22 @@ _T = TypeVar("_T")
 _deferred_transmuter_dataclasses: list[TransmuterMetaclass] = []
 
 
+def wrap_dataclass_assignment(
+    validated_setattr: Callable[[Transmuter, str, _T], None],
+) -> Callable[[Transmuter, str, _T], None]:
+    def __setattr__(self: Transmuter, name: str, value: _T) -> None:
+        validated_setattr(self, name, value)
+        provided = self.__transmuter_provided__
+        if (
+            provided is not None
+            and name in type(self).__transmuter_persistent_fields__
+            and name not in type(self).model_associations
+        ):
+            setattr(provided, name, getattr(self, name))
+
+    return __setattr__
+
+
 def _rebuild_transmuter_dataclass(cls: TransmuterMetaclass) -> bool:
     """Try to ``rebuild_dataclass`` a transmuter and finalize it.
 
@@ -75,10 +91,18 @@ def _rebuild_transmuter_dataclass(cls: TransmuterMetaclass) -> bool:
     """
     module = sys.modules.get(cls.__module__)
     types_ns = vars(module) if module else None
+    assignment_handler = cls.__setattr__
     try:
         pydantic_rebuild_dataclass(cls, force=True, _types_namespace=types_ns)  # type: ignore[arg-type]
     except PydanticUndefinedAnnotation:
         return False
+    # Pydantic 2.11 replaces __setattr__ with a setter using the rebuilt validator.
+    if cls.__setattr__ is not assignment_handler:
+        type.__setattr__(
+            cls,
+            "__setattr__",
+            wrap_dataclass_assignment(type.__getattribute__(cls, "__setattr__")),
+        )
     cls._finalize_transmuter()
     return True
 
@@ -138,14 +162,20 @@ def rebuild_dataclass(
         return None
     module = sys.modules.get(cls.__module__)
     types_ns = _types_namespace or (vars(module) if module else None)
+    assignment_handler = cls.__setattr__
     try:
         pydantic_rebuild_dataclass(cls, force=force, _types_namespace=types_ns)  # type: ignore[arg-type]
     except PydanticUndefinedAnnotation:
         if raise_errors:
             raise
         return False
-    if not cls.__transmuter_complete__:
-        cls._finalize_transmuter()
+    if cls.__setattr__ is not assignment_handler:
+        type.__setattr__(
+            cls,
+            "__setattr__",
+            wrap_dataclass_assignment(type.__getattribute__(cls, "__setattr__")),
+        )
+    cls._finalize_transmuter()
     return True
 
 
@@ -186,7 +216,31 @@ def make_transmuter_dataclass(cls: type[PydanticDataclass]) -> type:
     else:
         bases = (Transmuter, cls)
 
-    new_cls = TransmuterMetaclass(cls.__name__, bases, {})
+    @model_validator(mode="wrap")
+    @classmethod
+    def preserve_transmuter_state(
+        cls: type[Transmuter],
+        data: _T,
+        handler: Callable[[_T], Transmuter],
+    ) -> Transmuter:
+        if not isinstance(data, cls):
+            return handler(data)
+        provided = data.__transmuter_provided__
+        revalidating = data.__transmuter_revalidating__
+        # Pydantic assignment replaces the dataclass's __dict__.
+        try:
+            return handler(data)
+        finally:
+            object.__setattr__(data, "__transmuter_provided__", provided)
+            object.__setattr__(data, "__transmuter_revalidating__", revalidating)
+
+    namespace = {}
+    namespace["preserve_transmuter_state"] = preserve_transmuter_state
+    if cls.__pydantic_config__.get("validate_assignment"):
+        namespace["__setattr__"] = wrap_dataclass_assignment(
+            type.__getattribute__(cls, "__setattr__")
+        )
+    new_cls = TransmuterMetaclass(cls.__name__, bases, namespace)
     new_cls.__module__ = cls.__module__
     new_cls.__qualname__ = cls.__qualname__
 

@@ -1,3 +1,4 @@
+from arcanus.annotation import Identity, Transient
 from arcanus.association import (
     GroupedRelationship,
     MappedRelationship,
@@ -16,7 +17,6 @@ from arcanus.association import (
 )
 from arcanus.base import (
     BaseTransmuter,
-    Identity,
     Transmuter,
     TransmuterType,
     provided,
@@ -58,6 +58,7 @@ __all__ = [
     "RelationSet",
     "Relationship",
     "Relationships",
+    "Transient",
     "Transmuter",
     "TransmuterType",
     "TypedRelationMap",

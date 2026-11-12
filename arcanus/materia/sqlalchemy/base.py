@@ -206,7 +206,10 @@ class SqlalchemyMateria(BaseMateria):
         association_proxies = extract_association_proxies(type(materia))
         loaded_data = inspector.dict
         associations = transmuter_type.model_associations
-        for field_name, field_info in transmuter_type.__pydantic_fields__.items():
+        for (
+            field_name,
+            field_info,
+        ) in transmuter_type.__transmuter_persistent_fields__.items():
             used_name = field_info.alias or field_name
             if used_name in loaded_data:
                 if field_name in associations:
@@ -244,7 +247,10 @@ class SqlalchemyMateria(BaseMateria):
         inspector: InstanceState[TransmuterProxied] = inspect(materia, raiseerr=True)
         loaded_data = inspector.dict
         associations = transmuter_type.model_associations
-        for field_name, field_info in transmuter_type.__pydantic_fields__.items():
+        for (
+            field_name,
+            field_info,
+        ) in transmuter_type.__transmuter_persistent_fields__.items():
             if field_name in associations:
                 continue
             used_name = field_info.alias or field_name

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import dataclasses
 from collections.abc import Generator
 from contextvars import ContextVar
 from copy import copy as shallow_copy
@@ -34,9 +33,11 @@ from pydantic import (
 )
 from pydantic._internal._generics import PydanticGenericMetadata
 from pydantic._internal._model_construction import ModelMetaclass, NoInitField
+from pydantic._internal._namespace_utils import MappingNamespace
 from pydantic.fields import Field, FieldInfo, PrivateAttr
 from pydantic_core import SchemaValidator
 
+from arcanus.annotation import Identity, Transient, TransientMap
 from arcanus.association import Association
 from arcanus.expression import Column
 from arcanus.materia.base import (
@@ -94,9 +95,15 @@ class TransmuterType(Protocol):
     __module__: str
     __qualname__: str
     __pydantic_fields__: dict[str, FieldInfo]
+    __transmuter_transient_map__: TransientMap | None
+    __transmuter_transient_fields__: dict[str, FieldInfo]
+    __transmuter_persistent_fields__: dict[str, FieldInfo]
 
     @property
     def model_associations(self) -> dict[str, FieldInfo]: ...
+
+    @property
+    def model_identities(self) -> dict[str, FieldInfo]: ...
 
     def __getitem__(self, name: str) -> Column[Any]: ...
 
@@ -133,26 +140,6 @@ class TransmuterTypingMetaclass(type):
 
     def __getitem__(self, name: object) -> Any:
         return cast(Any, self).__class_getitem__(name)
-
-
-@dataclasses.dataclass(frozen=True)
-class Identity:
-    """Marker for a record's identity field(s), following SQLAlchemy's PK concept.
-
-    Usable bare (``Identity``) or instantiated (``Identity()``) — the bare class
-    takes the defaults below.
-
-    ``server_side`` (default ``True``) declares the identity server-assigned (an
-    autoincrement / IDENTITY column), so it is dropped from ``.Create``. Pass
-    ``Identity(server_side=False)`` for a *natural*/composite key the client must
-    supply, keeping it in ``.Create``. Mark identities ``frozen=True`` to keep
-    them immutable and out of ``.Update``::
-
-        id: Annotated[Optional[int], Identity] = Field(default=None, frozen=True)
-        book_id: Annotated[int, Identity(server_side=False)] = Field(frozen=True)
-    """
-
-    server_side: bool = True
 
 
 def identity_marker(info: FieldInfo) -> Identity | None:
@@ -240,6 +227,9 @@ class Transmuter(metaclass=TransmuterTypingMetaclass):
         __transmuter_provider__: ClassVar[type[TransmuterProxied] | None]
         __transmuter_provided__: TransmuterProxied | None
         __transmuter_revalidating__: bool
+        __transmuter_transient_map__: ClassVar[TransientMap | None]
+        __transmuter_transient_fields__: ClassVar[dict[str, FieldInfo]]
+        __transmuter_persistent_fields__: ClassVar[dict[str, FieldInfo]]
         model_associations: ClassVar[dict[str, FieldInfo]]
         model_identities: ClassVar[dict[str, FieldInfo]]
         Create: ClassVar[type[BaseModel]]
@@ -344,7 +334,7 @@ class Transmuter(metaclass=TransmuterTypingMetaclass):
             return
         if (
             provided is not None
-            and name in cls.__pydantic_fields__
+            and name in cls.__transmuter_persistent_fields__
             and name not in model_associations
         ):
             setattr(provided, name, object.__getattribute__(self, name))
@@ -419,6 +409,8 @@ class Transmuter(metaclass=TransmuterTypingMetaclass):
                     loaded, (dict, cls)
                 ):
                     loaded = loaded.__dict__
+                if (transient_map := cls.__transmuter_transient_map__) is not None:
+                    loaded = transient_map.prepare(loaded, instance)
                 instance = handler(loaded)
                 object.__setattr__(instance, "__transmuter_provided__", data)
                 object.__setattr__(instance, "__transmuter_revalidating__", False)
@@ -450,12 +442,10 @@ class Transmuter(metaclass=TransmuterTypingMetaclass):
             # Normal validation
             instance: Self = handler(data)
             if provider is not None:
-                skipped_fields = set(cls.model_associations.keys()) | set(
-                    getattr(cls, "__pydantic_computed_fields__", {}).keys()
-                )
+                model_associations = cls.model_associations
                 provider_values: dict[str, Any] = {}
-                for name, field_info in cls.__pydantic_fields__.items():
-                    if name in skipped_fields:
+                for name, field_info in cls.__transmuter_persistent_fields__.items():
+                    if name in model_associations:
                         continue
                     try:
                         provider_values[field_info.alias or name] = getattr(
@@ -486,14 +476,14 @@ class Transmuter(metaclass=TransmuterTypingMetaclass):
         """Re-validate the instance against the underlying provider instance."""
         if self.__transmuter_revalidating__:
             return self
-        self.__transmuter_revalidating__ = True
+        object.__setattr__(self, "__transmuter_revalidating__", True)
         if self.__transmuter_provided__:
             type(self).__pydantic_validator__.validate_python(
                 self.__transmuter_provided__,
                 self_instance=self,
                 by_alias=True,
             )
-        self.__transmuter_revalidating__ = False
+        object.__setattr__(self, "__transmuter_revalidating__", False)
         return self
 
     @classmethod
@@ -524,6 +514,9 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
     __transmuter_associations__: dict[str, FieldInfo]
     __transmuter_associations_completed__: bool
     __transmuter_identities__: dict[str, FieldInfo]
+    __transmuter_transient_map__: TransientMap | None
+    __transmuter_transient_fields__: dict[str, FieldInfo]
+    __transmuter_persistent_fields__: dict[str, FieldInfo]
     __transmuter_create_model__: type[BaseModel] | None
     __transmuter_update_model__: type[BaseModel] | None
     __transmuter_is_dataclass__: bool
@@ -566,6 +559,9 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
         self.__transmuter_associations__ = {}
         self.__transmuter_associations_completed__ = False
         self.__transmuter_identities__ = {}
+        self.__transmuter_transient_map__ = None
+        self.__transmuter_transient_fields__ = {}
+        self.__transmuter_persistent_fields__ = {}
         self.__transmuter_create_model__ = None
         self.__transmuter_update_model__ = None
         self.__transmuter_is_dataclass__ = False
@@ -592,10 +588,25 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
         """
         self._ensure_associations_resolved()
 
+        self.__transmuter_transient_fields__ = {}
+        self.__transmuter_persistent_fields__ = {}
+        computed_fields = getattr(self, "__pydantic_computed_fields__", {})
         for name, info in self.__pydantic_fields__.items():
+            if any(
+                metadata is Transient or isinstance(metadata, Transient)
+                for metadata in info.metadata
+            ):
+                self.__transmuter_transient_fields__[name] = info
+            elif name not in computed_fields:
+                self.__transmuter_persistent_fields__[name] = info
             if identity_marker(info) is not None:
                 self.__transmuter_identities__[name] = info
 
+        self.__transmuter_transient_map__ = (
+            TransientMap(self.__transmuter_transient_fields__)
+            if self.__transmuter_transient_fields__
+            else None
+        )
         self.__transmuter_complete__ = True
 
     def _ensure_associations_resolved(self) -> None:
@@ -649,6 +660,11 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
     def _column(
         self, name: str, *, provider: ColumnProvider | None = None
     ) -> Column[Any]:
+        if name in self.__transmuter_transient_fields__:
+            raise KeyError(
+                f"Transient field '{name}' of {self.__name__} has no provider "
+                "mapping and cannot be used in database expressions."
+            )
         info = self.__pydantic_fields__.get(name)
         if info is None and (computed := provided_computed_fields(self).get(name)):
             # @provided computed fields carry no FieldInfo; synthesize one so
@@ -810,6 +826,25 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
     __transmuter_provided__: TransmuterProxied | None = NoInitField(init=False)
     __transmuter_revalidating__: bool = NoInitField(init=False)
 
+    @classmethod
+    def model_rebuild(
+        cls,
+        *,
+        force: bool = False,
+        raise_errors: bool = True,
+        _parent_namespace_depth: int = 2,
+        _types_namespace: MappingNamespace | None = None,
+    ) -> bool | None:
+        rebuilt = super().model_rebuild(
+            force=force,
+            raise_errors=raise_errors,
+            _parent_namespace_depth=_parent_namespace_depth + 1,
+            _types_namespace=_types_namespace,
+        )
+        if rebuilt:
+            cls._finalize_transmuter()
+        return rebuilt
+
     @overload
     @classmethod
     def __class_getitem__(cls, name: str) -> Column[Any]: ...
@@ -888,6 +923,8 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
 
             if instance is None or instance.__transmuter_revalidating__:
                 inputs = materia.transmuter_before_construct(cls, data)
+                if (transient_map := cls.__transmuter_transient_map__) is not None:
+                    inputs = transient_map.prepare(inputs, instance)
                 inputs.update(values)
                 instance = super().model_construct(_fields_set=_fields_set, **inputs)
                 object.__setattr__(instance, "__transmuter_provided__", data)
@@ -907,6 +944,8 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
             )
             if provided is not None:
                 inputs = materia.transmuter_before_construct(cls, provided)
+                if (transient_map := cls.__transmuter_transient_map__) is not None:
+                    inputs = transient_map.prepare(inputs, data)
             else:
                 inputs = data.__dict__.copy()
             inputs.update(values)
@@ -934,12 +973,10 @@ class BaseTransmuter(Transmuter, BaseModel, metaclass=TransmuterMetaclass):
             instance = super().model_construct(_fields_set=_fields_set, **inputs)
 
             if provider is not None:
-                skipped_fields = set(cls.model_associations.keys()) | set(
-                    getattr(cls, "__pydantic_computed_fields__", {}).keys()
-                )
+                model_associations = cls.model_associations
                 provider_values: dict[str, Any] = {}
-                for name, field_info in cls.__pydantic_fields__.items():
-                    if name in skipped_fields:
+                for name, field_info in cls.__transmuter_persistent_fields__.items():
+                    if name in model_associations:
                         continue
                     try:
                         provider_values[field_info.alias or name] = getattr(

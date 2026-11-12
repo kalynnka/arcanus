@@ -335,7 +335,9 @@ class ScalarCriteria(ModelGeneric[P]):
         annotations = {
             name: info.annotation
             for name, info in generic_model.__pydantic_fields__.items()
-            if name not in generic_model.model_associations and not info.exclude
+            if name not in generic_model.model_associations
+            and name not in generic_model.__transmuter_transient_fields__
+            and not info.exclude
         }
         for name, computed in provided_computed_fields(generic_model).items():
             annotations.setdefault(name, computed.return_type)
