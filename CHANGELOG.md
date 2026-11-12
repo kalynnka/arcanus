@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/kalynnka/arcanus/compare/v0.1.3...v0.1.4) (2026-11-12)
+
+
+### Features
+
+* support transient transmuter fields ([#69](https://github.com/kalynnka/arcanus/issues/69)) ([edcb7d2](https://github.com/kalynnka/arcanus/commit/edcb7d24e697278aa6111865a089c675f772a58e))
+
 ## [0.1.3](https://github.com/kalynnka/arcanus/compare/v0.1.2...v0.1.3) (2026-11-05)
 
 
