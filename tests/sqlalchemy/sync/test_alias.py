@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any, assert_type
 
 import pytest
-from pydantic import Field, computed_field
-from sqlalchemy import inspect, select
+from pydantic import ConfigDict, Field, computed_field
+from sqlalchemy import JSON, create_engine, inspect, select
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import DeclarativeBase, Load, Mapped, mapped_column
 from sqlalchemy.sql.elements import ColumnElement
@@ -12,7 +12,9 @@ from sqlalchemy.sql.selectable import Join
 
 from arcanus import Column, provided
 from arcanus.base import BaseTransmuter, Transmuter, TransmuterProxiedMixin
+from arcanus.dataclass import dataclass
 from arcanus.materia.sqlalchemy import (
+    Session,
     SqlalchemyMateria,
     TransmuterAlias,
     aliased,
@@ -39,6 +41,51 @@ class LedgerModel(LedgerBase):
     @classmethod
     def next_thread_expression(cls) -> ColumnElement[int]:
         return cls.thread_id + 1
+
+
+class MessageModel(LedgerBase):
+    __tablename__ = "aliased_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    meta: Mapped[dict[str, str]] = mapped_column(JSON)
+
+
+@pytest.mark.parametrize("use_dataclass", [False, True])
+@pytest.mark.parametrize("validate_assignment", [False, True])
+def test_aliased_assignment_persists(
+    use_dataclass: bool, validate_assignment: bool
+) -> None:
+    config = ConfigDict(from_attributes=True, validate_assignment=validate_assignment)
+
+    class ModelMessage(BaseTransmuter):
+        model_config = config
+        id: int
+        metadata: dict[str, str] = Field(alias="meta")
+
+    @dataclass(config=config)
+    class DataclassMessage(Transmuter):
+        id: int
+        metadata: dict[str, str] = Field(alias="meta")
+
+    schema = DataclassMessage if use_dataclass else ModelMessage
+    materia = SqlalchemyMateria()
+    materia.bless(MessageModel)(schema)
+    engine = create_engine("sqlite:///:memory:")
+    try:
+        LedgerBase.metadata.create_all(engine)
+        with materia, Session(engine) as session:
+            message = schema.model_validate({"id": 1, "meta": {"state": "old"}})
+            session.add(message)
+            session.commit()
+            message.metadata = {"state": "new"}
+            assert message.metadata == {"state": "new"}
+            session.commit()
+        with materia, Session(engine) as session:
+            loaded = session.get(schema, 1)
+            assert loaded is not None
+            assert loaded.metadata == {"state": "new"}
+    finally:
+        engine.dispose()
 
 
 ledger_materia = SqlalchemyMateria()

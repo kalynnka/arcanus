@@ -74,6 +74,7 @@ from arcanus.materia.sqlalchemy.result import (
     AdaptedResult,
     AsyncAdaptedResult,
 )
+from arcanus.utils import get_cached_adapter
 
 T = TypeVar("T", bound=Transmuter)
 
@@ -557,7 +558,10 @@ class Session(SqlalchemySession):
             )
             if not instance:
                 return None
-            return entity.model_validate(instance)
+            provider = active_materia.get().formulars[entity]
+            return get_cached_adapter(
+                polymorphic_result_type(provider)
+            ).validate_python(instance)
         else:
             instance = super().get(
                 entity,

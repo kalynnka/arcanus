@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Generic, TypeVar, assert_type
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import IteratorResult, Result, inspect, select, update
 from sqlalchemy.engine.result import SimpleResultMetaData
 from sqlalchemy.ext.asyncio import AsyncResult
@@ -12,6 +13,7 @@ from sqlalchemy.orm import Session as NativeSession
 from arcanus.association import (
     GroupedRelationship,
     MappedRelationship,
+    RelationCollection,
     RelationGroupMap,
     RelationMap,
     RelationSet,
@@ -50,9 +52,28 @@ class Item(BaseTransmuter):
 
 
 class Collections(BaseTransmuter):
+    sequence: RelationCollection[Item] = Relationships()
     items: RelationSet[Item] = Relationships(unique=True)
     mapping: RelationMap[str, Item] = MappedRelationship()
     groups: RelationGroupMap[str, Item] = GroupedRelationship()
+
+
+def test_collection_extend_validates_dictionary_inputs() -> None:
+    collections = Collections()
+    payloads: list[dict[str, str]] = [{"name": "from dict"}]
+    item = Item(name="existing")
+    collections.sequence.extend(payloads)
+    collections.sequence.extend([item, {"name": "mixed"}])
+    assert [value.name for value in collections.sequence] == [
+        "from dict",
+        "existing",
+        "mixed",
+    ]
+    assert_type(collections.sequence[0], Item)
+    assert collections.sequence[1] is item
+    with pytest.raises(ValidationError):
+        collections.sequence.extend([{"name": 1}])
+    assert len(collections.sequence) == 3
 
 
 def test_heterogeneous_set_operations() -> None:

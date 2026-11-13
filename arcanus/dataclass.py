@@ -78,7 +78,8 @@ def wrap_dataclass_assignment(
             and name in type(self).__transmuter_persistent_fields__
             and name not in type(self).model_associations
         ):
-            setattr(provided, name, getattr(self, name))
+            info = type(self).__transmuter_persistent_fields__[name]
+            setattr(provided, info.alias or name, getattr(self, name))
 
     return __setattr__
 
