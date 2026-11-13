@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/kalynnka/arcanus/compare/v0.1.4...v0.1.5) (2026-11-13)
+
+
+### Bug Fixes
+
+* correct field synchronization and model validation ([#72](https://github.com/kalynnka/arcanus/issues/72)) ([303f8c6](https://github.com/kalynnka/arcanus/commit/303f8c696dea731bb3cd8973815ca1a07ef346a3))
+
 ## [0.1.4](https://github.com/kalynnka/arcanus/compare/v0.1.3...v0.1.4) (2026-11-12)
 
 
