@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import pytest
 from sqlalchemy import Engine, select
 
 from arcanus.materia.sqlalchemy import (
@@ -21,6 +22,42 @@ from tests.transmuters import (
     PdfAsset,
     VideoMedia,
 )
+
+
+@pytest.mark.parametrize("base", [LibraryAsset, AbstractMedia])
+def test_get_resolves_polymorphic_child_and_reuses_identity(
+    engine: Engine, base: type[LibraryAsset | AbstractMedia]
+) -> None:
+    child = PdfAsset if base is LibraryAsset else AbstractImageMedia
+    with Session(engine) as session:
+        item = child.model_validate({"name": f"poly-get-{uuid4()}", "pages": 42})
+        session.add(item)
+        session.flush()
+        session.refresh(item)
+        ident = item.id
+        assert ident is not None
+        session.commit()
+
+    with Session(engine) as session:
+        loaded = session.get(base, ident)
+        assert type(loaded) is child
+        assert session.get(child, ident) is loaded
+        assert session.get_one(base, ident) is loaded
+        assert session.one(base, expressions=[base["id"] == ident]) is loaded
+        assert session.get(base, -1) is None
+
+
+def test_get_keeps_concrete_polymorphic_base(engine: Engine) -> None:
+    with Session(engine) as session:
+        item = LibraryAsset(name=f"poly-get-base-{uuid4()}")
+        session.add(item)
+        session.flush()
+        session.refresh(item)
+        ident = item.id
+        assert ident is not None
+        session.commit()
+    with Session(engine) as session:
+        assert type(session.get(LibraryAsset, ident)) is LibraryAsset
 
 
 def persist_gallery_media(

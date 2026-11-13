@@ -17,6 +17,25 @@ from tests.transmuters import (
 
 
 @pytest.mark.asyncio
+async def test_async_get_resolves_polymorphic_child(async_engine: AsyncEngine) -> None:
+    async with AsyncSession(async_engine) as session:
+        item = PdfAsset(name=f"async-poly-get-{uuid4()}", pages=42)
+        session.add(item)
+        await session.flush()
+        await session.refresh(item)
+        ident = item.id
+        assert ident is not None
+        await session.commit()
+    async with AsyncSession(async_engine) as session:
+        loaded = await session.get(LibraryAsset, ident)
+        assert isinstance(loaded, PdfAsset)
+        assert loaded.pages == 42
+        assert await session.get(PdfAsset, ident) is loaded
+        assert await session.get_one(LibraryAsset, ident) is loaded
+        assert await session.get(LibraryAsset, -1) is None
+
+
+@pytest.mark.asyncio
 async def test_async_list_polymorphic_result_uses_abstract_children(
     async_engine: AsyncEngine,
 ):

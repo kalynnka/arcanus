@@ -771,7 +771,7 @@ class RelationCollection(list[T], Association[T]):
 
     @ensure_loaded
     @Association.ensure_mutable
-    def extend(self, iterable: Iterable[T]):
+    def extend(self, iterable: Iterable[T | Mapping[str, D]]):
         iterable = self.bless(iterable)
         provided = self.__provided__
         if provided is not None:

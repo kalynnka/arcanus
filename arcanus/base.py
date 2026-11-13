@@ -337,7 +337,8 @@ class Transmuter(metaclass=TransmuterTypingMetaclass):
             and name in cls.__transmuter_persistent_fields__
             and name not in model_associations
         ):
-            setattr(provided, name, object.__getattribute__(self, name))
+            info = cls.__transmuter_persistent_fields__[name]
+            setattr(provided, info.alias or name, object.__getattribute__(self, name))
 
     if not TYPE_CHECKING:
 
@@ -807,9 +808,11 @@ class TransmuterMetaclass(TransmuterTypingMetaclass, ModelMetaclass):
                 # See .Create: masking is read-side only; keep the value writable
                 # so absorb()'s model_dump(exclude_unset=True) carries it through.
                 info.exclude = None
-                # Runtime type construction: `info.annotation | None` breaks on
-                # forward-ref/str annotations, which Optional[...] handles.
-                field_definitions[field_name] = (Optional[info.annotation], info)  # noqa: UP045
+                # Metadata constrains the value type, not the nullable wrapper.
+                # Optional[...] also handles forward-ref/str annotations.
+                annotation = Optional[info.rebuild_annotation()]  # noqa: UP045
+                info.metadata = []
+                field_definitions[field_name] = (annotation, info)
 
         self.__transmuter_update_model__ = create_model(
             f"{self.__name__}Update",
